@@ -1,14 +1,78 @@
-# Copilot instructions
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Build and Test Commands
+
+```bash
+# Build the solution
+dotnet build
+
+# Run all tests (uses TUnit with Microsoft.Testing.Platform runner)
+dotnet test
+
+# Run a specific test class
+dotnet test --filter "FullyQualifiedName~GitOperationsTests"
+
+# Run a specific test method
+dotnet test --filter "FullyQualifiedName~GetCurrentCommitShaAsync_ReturnsShortSha"
+
+# Run the sample AppHost (requires Docker and configured repository paths)
+cd samples/SampleAppHost
+dotnet run
+```
+
+## Architecture
+
+This is a .NET Aspire extension library (`SharedResources`) that enables building container images from external git repositories at AppHost startup.
+
+### Core Flow
+
+1. **Registration**: `AddSharedResourceSupport()` registers services and subscribes to Aspire's `BeforeStartEvent`
+2. **Discovery**: On startup, `SharedResourceBuildService` finds all `ContainerResource` objects with `SharedResourceAnnotation`
+3. **Resolution**: `RepositoryPathResolver` locates the local clone of each external repo (via config, env vars, or user prompt)
+4. **Git Operations**: `GitOperations` gets the current commit SHA for image tagging
+5. **Container Build**: `ContainerImageService` checks if image exists, builds if needed using the configured command
+6. **Tag Update**: The container resource is updated to use `{imageName}:{commitSha}` before Aspire starts
+
+### Key Components
+
+- **`SharedResourceExtensions`** (`src/SharedResources/Extensions/`): Entry point APIs - `AddSharedResourceSupport()` and `WithSharedResourceMetadata()`
+- **`SharedResourceBuildService`** (`src/SharedResources/Eventing/`): Orchestrates the build process on `BeforeStartEvent`
+- **`SharedResourceAnnotation`** (`src/SharedResources/Annotations/`): Metadata attached to container resources (GitHubRepository, ServiceName, ImageBuildCommand, ProjectPath)
+- **`RepositoryPathResolver`** (`src/SharedResources/Services/`): Resolves repo paths from config, env vars, base path, or interactive prompt
+- **`GitOperations`** / **`ContainerImageService`** (`src/SharedResources/Services/`): Execute CLI commands via CliWrap
+
+### Build Command Placeholders
+
+The `ImageBuildCommand` supports: `{ProjectPath}`, `{ImageName}`, `{ImageTag}`, `{RepoPath}`
+
+### Configuration Resolution Priority
+
+1. Explicit path: `SharedResources:RepositoryPaths:{ServiceName}`
+2. Environment variable: `SHAREDRESOURCES__REPOSITORYPATHS__{SERVICENAME}`
+3. Derived from base path: `{RepositoriesBasePath}/{repo-name}`
+4. Interactive prompt (if `PromptForMissingPaths` is true)
+
+## Tech Stack
+
+- .NET 10
+- Aspire 13.1.0
+- CliWrap 3.10.0 (process execution)
+- TUnit 1.12.x (testing framework)
+- NSubstitute (mocking)
+
+## Aspire
 
 This repository is set up to use Aspire. Aspire is an orchestrator for the entire application and will take care of configuring dependencies, building, and running the application. The resources that make up the application are defined in `apphost.cs` including application code and external dependencies.
 
-## General recommendations for working with Aspire
+### General recommendations for working with Aspire
 1. Before making any changes always run the apphost using `aspire run` and inspect the state of resources to make sure you are building from a known state.
 1. Changes to the _apphost.cs_ file will require a restart of the application to take effect.
 2. Make changes incrementally and run the aspire application using the `aspire run` command to validate changes.
 3. Use the Aspire MCP tools to check the status of resources and debug issues.
 
-## Running the application
+### Running the application
 To run the application run the following command:
 
 ```
@@ -17,13 +81,13 @@ aspire run
 
 If there is already an instance of the application running it will prompt to stop the existing instance. You only need to restart the application if code in `apphost.cs` is changed, but if you experience problems it can be useful to reset everything to the starting state.
 
-## Checking resources
+### Checking resources
 To check the status of resources defined in the app model use the _list resources_ tool. This will show you the current state of each resource and if there are any issues. If a resource is not running as expected you can use the _execute resource command_ tool to restart it or perform other actions.
 
-## Listing integrations
+### Listing integrations
 IMPORTANT! When a user asks you to add a resource to the app model you should first use the _list integrations_ tool to get a list of the current versions of all the available integrations. You should try to use the version of the integration which aligns with the version of the Aspire.AppHost.Sdk. Some integration versions may have a preview suffix. Once you have identified the correct integration you should always use the _get integration docs_ tool to fetch the latest documentation for the integration and follow the links to get additional guidance.
 
-## Debugging issues
+### Debugging issues
 IMPORTANT! Aspire is designed to capture rich logs and telemetry for all resources defined in the app model. Use the following diagnostic tools when debugging issues with the application before making changes to make sure you are focusing on the right things.
 
 1. _list structured logs_; use this tool to get details about structured logs.
@@ -31,29 +95,29 @@ IMPORTANT! Aspire is designed to capture rich logs and telemetry for all resourc
 3. _list traces_; use this tool to get details about traces.
 4. _list trace structured logs_; use this tool to get logs related to a trace
 
-## Other Aspire MCP tools
+### Other Aspire MCP tools
 
 1. _select apphost_; use this tool if working with multiple app hosts within a workspace.
 2. _list apphosts_; use this tool to get details about active app hosts.
 
-## Playwright MCP server
+### Playwright MCP server
 
 The playwright MCP server has also been configured in this repository and you should use it to perform functional investigations of the resources defined in the app model as you work on the codebase. To get endpoints that can be used for navigation using the playwright MCP server use the list resources tool.
 
-## Updating the app host
+### Updating the app host
 The user may request that you update the Aspire apphost. You can do this using the `aspire update` command. This will update the apphost to the latest version and some of the Aspire specific packages in referenced projects, however you may need to manually update other packages in the solution to ensure compatibility. You can consider using the `dotnet-outdated` with the users consent. To install the `dotnet-outdated` tool use the following command:
 
 ```
 dotnet tool install --global dotnet-outdated-tool
 ```
 
-## Persistent containers
+### Persistent containers
 IMPORTANT! Consider avoiding persistent containers early during development to avoid creating state management issues when restarting the app.
 
-## Aspire workload
+### Aspire workload
 IMPORTANT! The aspire workload is obsolete. You should never attempt to install or use the Aspire workload.
 
-## Official documentation
+### Official documentation
 IMPORTANT! Always prefer official documentation when available. The following sites contain the official documentation for Aspire and related components
 
 1. https://aspire.dev
