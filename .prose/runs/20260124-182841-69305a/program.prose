@@ -1,0 +1,378 @@
+# Review Program
+# Validates implementation against plan requirements and documents results
+#
+# INVARIANTS:
+# 1. Everything runnable must be run and verified
+# 2. Everything documentable must be documented
+# 3. Failures documented as next steps, not silently ignored
+# 4. Review is comprehensive - all success criteria checked
+# 5. Commits after review artifacts created
+
+use "shared/agents.prose"
+use "shared/blocks.prose"
+
+# ============================================================
+# Phase 0: Load Required Artifacts
+# ============================================================
+
+input plan_folder: "The plan folder path (e.g., plans/2024-01-23-user-auth)"
+
+let plan = session "Read PLAN.md"
+
+if **plan file does not exist**:
+  throw "CRITICAL: No PLAN.md. Cannot review without requirements."
+
+let definition_of_done = session "Read {plan_folder}/DEFINITION-OF-DONE.md"
+  context: plan_folder
+
+if **definition of done does not exist**:
+  throw "CRITICAL: No DoD in {plan_folder}. Run plan.prose first."
+
+let manifest = session "Read {plan_folder}/MANIFEST.md"
+  context: plan_folder
+
+let issues = session "List and read all files in docs/issues/, or report if empty"
+let discoveries = session "List and read all files in docs/discoveries/, or report if empty"
+
+# ============================================================
+# Review-specific Agents
+# ============================================================
+
+agent requirements_validator:
+  model: opus
+  prompt: """
+    Requirements validation specialist.
+
+    For each requirement:
+    1. State exactly as written
+    2. Identify verification method
+    3. Perform verification
+    4. Report PASS|FAIL with evidence
+    5. Explain what's missing if FAIL
+
+    Categories: functional, non-functional, success criteria, constraints.
+    Be thorough - missed requirements cause project failure.
+  """
+
+agent documentation_reviewer:
+  model: sonnet
+  prompt: """
+    Documentation reviewer.
+
+    Check for: README, API docs, config docs, ADRs, library docs, code comments.
+
+    SHOULD CONTAIN: Contracts, interfaces, usage patterns, API surfaces, config options.
+    SHOULD NOT CONTAIN (flag as incorrect): Implementation details, internal classes, algorithms.
+
+    Implementation details belong in CODE COMMENTS, not documentation files.
+
+    For each doc: exists? accurate? complete? clear? avoids implementation details?
+  """
+
+agent next_steps_compiler:
+  model: opus
+  prompt: """
+    Project status compiler.
+
+    Categorize next steps:
+    1. CRITICAL: Must fix before release (failed requirements, broken functionality)
+    2. HIGH: Should fix soon (partial implementations, doc gaps)
+    3. MEDIUM: Fix when possible (minor issues, code quality)
+    4. LOW: Track for future (optimizations, tech debt)
+
+    For each: description, why needed, suggested approach, related issues/discoveries.
+  """
+
+# ============================================================
+# Phase 1: Verify Tests
+# ============================================================
+
+let test_verification = do:
+  let test_results = session: usability_verifier
+    prompt: """
+      Run ALL tests: dotnet test --verbosity normal --logger "trx"
+
+      Report: total, passed, failed, skipped.
+      For failures: test name, class, error, stack trace, probable cause.
+    """
+    context: definition_of_done
+
+  let test_summary = session: usability_verifier
+    prompt: """
+      Categorize test results:
+      - By type: unit, integration, e2e
+      - By component: passed/failed counts
+      - Identify: fully tested, partially tested, untested components
+    """
+    context: test_results
+
+  { test_results, test_summary }
+
+# ============================================================
+# Phase 2: Verify Runnables
+# ============================================================
+
+let runnable_verification = do:
+  let runnables = session: usability_verifier
+    prompt: """
+      Extract ALL runnable verifications from DoD.
+      List each: name, command, expected behavior.
+      Categories: tests, samples, APIs, CLI tools, other.
+    """
+    context: definition_of_done
+
+  let runnable_results = []
+
+  loop until **all runnables verified** (max: 20):
+    let current = session "Get next unverified runnable"
+      context: { runnables, runnable_results }
+
+    if **no more runnables**:
+      session "All runnables verified"
+    else:
+      let name = session "Extract name"
+        context: current
+      let command = session "Extract command"
+        context: current
+      let expected = session "Extract expected behavior"
+        context: current
+
+      let result = do verify-runnable(name, command, expected)
+
+      runnable_results = session "Add result to list"
+        context: { runnable_results, result, name }
+
+  let runnable_summary = session: usability_verifier
+    prompt: """
+      Summarize runnable verification:
+      - Total, passed, failed
+      - By category: tests, samples, APIs, CLI tools
+      - Failed runnables with reasons
+    """
+    context: runnable_results
+
+  { runnables, runnable_results, runnable_summary }
+
+# ============================================================
+# Phase 3: Verify Requirements
+# ============================================================
+
+let requirements_verification = do:
+  let requirements = session: requirements_validator
+    prompt: """
+      Extract ALL requirements from PLAN.md.
+      List: ID (REQ-XXX), type (FUNCTIONAL|NON-FUNCTIONAL|CONSTRAINT), description, verification method.
+    """
+    context: plan
+
+  let requirement_results = []
+
+  loop until **all requirements verified** (max: 30):
+    let current = session "Get next unverified requirement"
+      context: { requirements, requirement_results }
+
+    if **no more requirements**:
+      session "All requirements verified"
+    else:
+      let verification = session: requirements_validator
+        prompt: """
+          Verify requirement: {current}
+
+          Report: ID, description, verification method, status (PASS|FAIL|PARTIAL|CANNOT_VERIFY), evidence, notes.
+        """
+        context: current
+
+      requirement_results = session "Add result to list"
+        context: { requirement_results, verification }
+
+  let requirements_summary = session: requirements_validator
+    prompt: """
+      Summarize requirements verification:
+      - Total, passed, failed, partial, cannot_verify
+      - By type: functional, non-functional, constraints
+      - Failed/partial with reasons
+    """
+    context: requirement_results
+
+  { requirements, requirement_results, requirements_summary }
+
+# ============================================================
+# Phase 4: Verify Success Criteria
+# ============================================================
+
+let criteria_verification = do:
+  let criteria = session: requirements_validator
+    prompt: """
+      Extract ALL success criteria from PLAN.md.
+      List: ID (CRIT-XXX), description, verification command, expected result.
+    """
+    context: plan
+
+  let criteria_results = []
+
+  loop until **all criteria verified** (max: 20):
+    let current = session "Get next unverified criterion"
+      context: { criteria, criteria_results }
+
+    if **no more criteria**:
+      session "All criteria verified"
+    else:
+      let verification = session: usability_verifier
+        prompt: """
+          Verify criterion: {current}
+
+          Run command, capture result, compare to expected.
+          Report: ID, description, command, expected, actual, status (PASS|FAIL), evidence.
+        """
+        context: current
+
+      criteria_results = session "Add result to list"
+        context: { criteria_results, verification }
+
+  let criteria_summary = session: requirements_validator
+    prompt: """
+      Summarize criteria verification:
+      - Total, passed, failed
+      - Status: ALL CRITERIA MET | SOME FAILED
+      - Failed criteria with expected vs actual
+    """
+    context: criteria_results
+
+  { criteria, criteria_results, criteria_summary }
+
+# ============================================================
+# Phase 5: Review Documentation
+# ============================================================
+
+let documentation_review = do:
+  let doc_inventory = session: documentation_reviewer
+    prompt: """
+      Inventory all documentation:
+      - Check: README.md, docs/libraries.md, docs/adr-*.md, docs/contracts/*.md,
+        {plan_folder}/DEFINITION-OF-DONE.md, {plan_folder}/MANIFEST.md
+      - For each: path, last modified, brief contents
+      - Identify missing/incomplete docs
+    """
+
+  let doc_accuracy = session: documentation_reviewer
+    prompt: """
+      Verify documentation accuracy:
+      - Compare claims to actual code/behavior
+      - Test code examples
+      - Report: accurate, inaccurate, outdated
+    """
+    context: doc_inventory
+
+  let code_comments = session: documentation_reviewer
+    prompt: """
+      Review code documentation:
+      - Check comments for: public APIs, complex algorithms, non-obvious logic
+      - Identify: well-documented, under-documented, over-documented, outdated
+
+      Verify implementation details are in code comments, not doc files.
+    """
+
+  { doc_inventory, doc_accuracy, code_comments }
+
+# ============================================================
+# Phase 6: Review Issues and Discoveries
+# ============================================================
+
+let issue_review = do:
+  let issue_analysis = session: next_steps_compiler
+    prompt: """
+      Analyze issues from execution:
+      - Resolved vs open
+      - Impact on project
+      - Required action
+
+      Categorize: resolved, open blockers, open major, open minor.
+    """
+    context: issues
+
+  let discovery_analysis = session: next_steps_compiler
+    prompt: """
+      Analyze discoveries from execution:
+      - Documented?
+      - Requires code changes?
+      - Valuable for future?
+
+      Categorize: documented, needing docs, requiring code changes, future reference.
+    """
+    context: discoveries
+
+  { issue_analysis, discovery_analysis }
+
+# ============================================================
+# Phase 7: Compile Next Steps
+# ============================================================
+
+let next_steps = do:
+  session: next_steps_compiler
+    prompt: """
+      Create {plan_folder}/NEXT-STEPS.md:
+
+      # Next Steps
+      ## Summary (total, critical, high, medium, low)
+      ## Critical (Must Fix Before Release)
+      ## High Priority
+      ## Medium Priority
+      ## Low Priority
+      ## Resolved in Review
+
+      For each: NEXT-XXX, source, description, reason, related items, suggested approach.
+    """
+    context: { test_verification, runnable_verification, requirements_verification, criteria_verification, documentation_review, issue_review, plan_folder }
+
+# ============================================================
+# Phase 8: Generate Report
+# ============================================================
+
+let final_report = do:
+  session: requirements_validator
+    prompt: """
+      Write {plan_folder}/REVIEW-REPORT.md:
+
+      # Review Report
+      ## Executive Summary (status, tests, requirements, criteria, runnables)
+      ## Test Results
+      ## Runnable Verification
+      ## Requirements Verification
+      ## Success Criteria
+      ## Documentation Status
+      ## Issues Summary
+      ## Discoveries Summary
+      ## Conclusion (readiness, risks, recommendation)
+      ## Next Steps Reference
+    """
+    context: { test_verification, runnable_verification, requirements_verification, criteria_verification, documentation_review, issue_review, next_steps, plan_folder }
+
+# ============================================================
+# Phase 9: Commit
+# ============================================================
+
+let review_commit = do:
+  do commit-work("review", """
+    Review complete: test report, runnables verified, requirements validated,
+    criteria verified, documentation reviewed, next steps compiled.
+  """)
+
+# ============================================================
+# Output
+# ============================================================
+
+output result = do:
+  session: requirements_validator
+    prompt: """
+      Generate review output:
+
+      ## Review Complete
+      ### Overall Status (PASSED|PASSED WITH ISSUES|FAILED)
+      ### Quick Stats
+      ### Plan Folder: {plan_folder}/
+      ### Artifacts Created
+      ### Key Findings (top 3-5)
+      ### Recommendation
+      ### Commands (view report, next steps, issues, discoveries)
+    """
+    context: { test_verification, runnable_verification, requirements_verification, criteria_verification, final_report, next_steps, plan_folder }
