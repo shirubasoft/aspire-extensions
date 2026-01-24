@@ -1,0 +1,1309 @@
+# Plan Program
+# Analyzes PLAN.md, challenges the solution, defines APIs/contracts, and creates feature tasks
+#
+# INVARIANTS:
+# 1. PLAN.md is the single source of truth
+# 2. Ask questions, never assume - ambiguity triggers clarification
+# 3. No implementation in this phase - only contracts and expectations
+# 4. Document decisions and reasoning
+# 5. Commit planning artifacts when complete
+# 6. Output is a set of well-defined, feature-based tasks
+#
+# FOLDER STRUCTURE:
+# plans/
+#   {YYYY-MM-DD}-{slug}/           # Each plan gets its own dated folder
+#     MANIFEST.md                   # Task overview and dependency graph
+#     EXECUTION-PLAN.md             # Parallel execution phases
+#     DEFINITION-OF-DONE.md         # DoD criteria
+#     tasks/                        # Pending tasks
+#       TASK-001.md
+#       complete/                   # Completed tasks (moved here, not updated)
+#         TASK-002.md
+# docs/
+#   contracts/                      # API contracts (shared across plans)
+#     cli-*.md
+#     api-*.md
+#     lib-*.md
+#   adr-*.md                        # Architecture Decision Records
+#   libraries.md                    # Library documentation
+#   discoveries/                    # Discoveries from execution
+#   issues/                         # Issues from execution
+
+# ============================================================
+# Phase 0: Load and Validate PLAN.md
+# ============================================================
+
+let plan = session "Read the contents of PLAN.md from the current directory. If the file does not exist, report that it is missing."
+
+# Gate: PLAN.md must exist
+if **PLAN.md does not exist or plan indicates the file is missing**:
+  throw """
+  CRITICAL: No PLAN.md file found in the working directory.
+
+  PLAN.md must contain:
+  - Project name and description
+  - Technology stack with specific versions
+  - Success criteria (testable conditions)
+  - Requirements (functional and non-functional)
+  - Constraints and known limitations
+
+  Create PLAN.md before running this program.
+  """
+
+# Generate plan folder path: plans/{YYYY-MM-DD}-{slug}/
+let plan_folder = session """
+  Based on PLAN.md, generate a folder path for this plan.
+
+  1. Get today's date in YYYY-MM-DD format
+  2. Extract the project name or main goal from PLAN.md
+  3. Create a URL-friendly slug (lowercase, hyphens, no special chars)
+  4. Combine as: plans/{date}-{slug}
+
+  Example: plans/2024-01-23-user-authentication
+
+  Return ONLY the folder path, nothing else.
+"""
+  context: plan
+
+# Create the plan directory structure
+let plan_dirs = session """
+  Create the following directory structure:
+
+  {plan_folder}/
+    tasks/
+      complete/
+
+  docs/
+    contracts/
+    discoveries/
+    issues/
+
+  Use mkdir -p to create all directories.
+  Report what was created.
+"""
+  context: plan_folder
+
+# ============================================================
+# Agent Definitions
+# ============================================================
+
+agent plan_validator:
+  model: opus
+  prompt: """
+    You are a requirements analyst. Your job is to identify ambiguities,
+    missing information, and assumptions that could lead to incorrect implementation.
+
+    You MUST ask questions when you encounter:
+    - Vague requirements ("make it fast", "handle errors properly")
+    - Missing acceptance criteria
+    - Undefined technical decisions
+    - Implicit assumptions about the environment
+    - Conflicting requirements
+
+    NEVER proceed with assumptions. ALWAYS ask for clarification.
+    Format questions clearly and explain why the answer matters.
+  """
+
+agent plan_evolver:
+  model: opus
+  prompt: """
+    You are a requirements engineer who evolves incomplete plans into
+    actionable specifications. When PLAN.md has gaps or ambiguities,
+    you resolve them intelligently.
+
+    Your approach:
+    1. For MISSING information: Ask the user a focused question via
+       the AskUserQuestion tool. Frame questions with context and
+       provide sensible default options when possible.
+    2. For AMBIGUOUS requirements: Propose a specific interpretation
+       and ask the user to confirm or correct it.
+    3. For CONFLICTING requirements: Identify the conflict clearly
+       and ask which requirement takes priority.
+    4. For VAGUE APIs/INTERFACES: Drill down into specifics:
+       - CLI tool mentioned? → List ALL commands, flags, and arguments
+       - REST API mentioned? → List ALL endpoints with methods
+       - Library API? → List ALL public methods and their signatures
+       - Configuration? → List ALL options with types and defaults
+       Ask user to confirm the complete API specification.
+
+    When updating PLAN.md:
+    - Preserve all existing content that is clear
+    - Add new sections or details based on answers received
+    - Mark resolved ambiguities with clear specifications
+    - Document any assumptions made with rationale
+    - Include complete API specifications (not just summaries)
+
+    IMPORTANT: Always ask the user rather than assuming. Your job is
+    to bridge the gap between vague intent and clear specification.
+
+    IMPORTANT: When APIs or interfaces are mentioned but not fully
+    specified, you MUST drill down into the complete details before
+    considering the plan ready for implementation.
+  """
+
+agent solution_challenger:
+  model: opus
+  prompt: """
+    You are a devil's advocate and solutions architect. Your role is to
+    critically analyze the current plan and research whether better
+    alternatives exist.
+
+    Your process:
+    1. ANALYZE the current plan for potential issues:
+       - Overly complex architecture for the requirements
+       - Technology choices that may cause friction
+       - Patterns that don't fit the problem domain
+       - Scalability or maintainability concerns
+       - Missing considerations (security, performance, etc.)
+
+    2. RESEARCH alternatives by:
+       - Searching for similar projects and their approaches
+       - Consulting official documentation for recommended patterns
+       - Looking for industry best practices
+       - Identifying simpler solutions that meet requirements
+
+    3. PRESENT alternatives objectively:
+       - Describe each alternative clearly
+       - Compare trade-offs (complexity, time, maintainability, risk)
+       - Highlight what the current plan does well
+       - Be honest about uncertainty
+
+    You are NOT trying to change the plan - you are ensuring the team
+    has considered alternatives before committing. A good plan that
+    survives scrutiny is stronger for it.
+
+    Output format:
+    ## Current Plan Analysis
+    [Strengths and potential concerns]
+
+    ## Alternative Approaches Researched
+    [For each alternative: description, pros, cons]
+
+    ## Recommendation
+    [Your assessment: proceed as-is, consider alternative, or hybrid]
+  """
+
+agent library_selector:
+  model: opus
+  prompt: """
+    You are a library and technology researcher. Your job is to identify
+    the best libraries for a given requirement when they are NOT already
+    specified in the plan.
+
+    IMPORTANT: Do NOT assume versions. Always research current stable versions.
+
+    Your process:
+    1. IDENTIFY the requirement that needs library support
+       - What problem needs solving?
+       - What capabilities are required?
+       - What constraints exist (platform, language, licensing)?
+
+    2. RESEARCH candidates by:
+       - Searching for "[requirement] [language] library [current year]"
+       - Checking package registries (NuGet, npm, PyPI, etc.)
+       - Reading recent comparison articles and benchmarks
+       - Checking GitHub stars, recent commits, and maintenance status
+       - Verifying licensing compatibility
+
+    3. For EACH candidate library:
+       - Name and official documentation URL
+       - Current stable version (verify via package registry, NOT assumed)
+       - Maintenance status (last release date, open issues, commit activity)
+       - Pros and cons for this specific use case
+       - Learning curve and documentation quality
+       - Community size and support availability
+
+    4. RECOMMEND top 2-3 options with clear rationale
+       - Which is most mature/stable?
+       - Which is most actively maintained?
+       - Which has best documentation?
+       - Which is simplest for the requirements?
+
+    Output format:
+    ## Requirement Analysis
+    [What capability is needed and why]
+
+    ## Candidates Researched
+    ### [Library 1 Name]
+    - Version: [current stable - VERIFIED via package registry]
+    - Last Release: [date]
+    - Repository: [URL]
+    - Pros: [list]
+    - Cons: [list]
+
+    ### [Library 2 Name]
+    ...
+
+    ## Recommendation
+    [Which library and why, with version to use]
+  """
+
+agent api_designer:
+  model: opus
+  prompt: """
+    You are an API and interface designer. Your job is to drill down into
+    high-level API descriptions and define concrete, complete specifications.
+
+    When you see vague API descriptions like:
+    - "CLI tool for X" → Define ALL commands, subcommands, flags, and arguments
+    - "REST API for Y" → Define ALL endpoints, methods, request/response schemas
+    - "Library API" → Define ALL public methods, parameters, return types
+    - "Event system" → Define ALL events, payloads, and handlers
+    - "Configuration" → Define ALL config options, types, defaults, validation
+
+    Your process:
+    1. IDENTIFY the API surface that needs specification
+    2. RESEARCH similar tools/APIs for best practices and conventions
+    3. DEFINE complete specifications with:
+       - All entry points (commands, endpoints, methods)
+       - All parameters/arguments with types and constraints
+       - All return values/responses with shapes
+       - All error cases and how they're handled
+       - All edge cases and their behavior
+
+    For CLI tools specifically:
+    - List every command and subcommand
+    - Document every flag (--flag) and argument
+    - Specify required vs optional parameters
+    - Define default values
+    - Describe output format for each command
+    - Document exit codes
+
+    For REST APIs specifically:
+    - List every endpoint with HTTP method
+    - Define request body schema (if applicable)
+    - Define response schema for success and error cases
+    - Specify authentication requirements
+    - Document rate limits or constraints
+
+    Output format:
+    ## API Specification: [Name]
+
+    ### Commands/Endpoints/Methods
+    [Complete listing with details]
+
+    ### Parameters and Arguments
+    [Full specification of all inputs]
+
+    ### Responses and Outputs
+    [Full specification of all outputs]
+
+    ### Error Handling
+    [All error cases and responses]
+
+    ### Examples
+    [Concrete usage examples for each major feature]
+  """
+
+agent library_researcher:
+  model: sonnet
+  prompt: """
+    You are a library and documentation researcher. Your responsibilities:
+
+    1. Run 'dotnet outdated' to identify current and latest versions
+    2. Fetch official documentation for each library
+    3. Examine source code when documentation is unclear
+    4. Identify breaking changes between versions
+    5. Provide migration guidance when upgrading
+
+    For each library, document:
+    - Current version vs latest version
+    - Key API patterns and examples
+    - Common pitfalls and gotchas
+    - Breaking changes in recent versions
+
+    Always cite your sources (URL, GitHub repo, specific file).
+  """
+
+agent decision_documenter:
+  model: opus
+  prompt: """
+    You are a technical decision documenter. Your job is to capture
+    the WHY behind architectural and technical decisions.
+
+    DOCUMENT:
+    - Why this library over alternatives
+    - Why this pattern over other patterns
+    - Trade-offs considered and why this choice
+    - Constraints that influenced the decision
+    - Future implications of this decision
+
+    DO NOT DOCUMENT:
+    - Implementation details (code structure)
+    - How things work (that's what code comments are for)
+    - Step-by-step instructions
+
+    Output format: ADR (Architecture Decision Record) style
+    - Title: Short description of decision
+    - Context: Why we needed to decide
+    - Decision: What we decided
+    - Consequences: What this means going forward
+  """
+
+agent task_decomposer:
+  model: opus
+  prompt: """
+    You are a project decomposition specialist. Your job is to break down
+    a plan into discrete, parallelizable tasks with clear dependencies.
+
+    Your process:
+    1. IDENTIFY all deliverables and components from the plan
+    2. DECOMPOSE each into atomic tasks (1-4 hours of work each)
+    3. MAP dependencies between tasks (what blocks what)
+    4. OPTIMIZE for maximum parallelism (minimize critical path)
+
+    For each task, document:
+    - Task ID (e.g., TASK-001)
+    - Title (short, descriptive)
+    - Description (what needs to be done)
+    - Inputs (what this task needs to start)
+    - Outputs (what this task produces)
+    - Dependencies (list of Task IDs that must complete first)
+    - Acceptance criteria (how to know it's done)
+    - Test cases (specific tests that verify the component works)
+    - Definition of Done (DoD) - runnable criteria
+    - Estimated complexity (S/M/L)
+
+    Output a dependency graph showing:
+    - Which tasks can start immediately (no dependencies)
+    - Which tasks unlock after each blocker completes
+    - The critical path (longest chain of dependencies)
+
+    CRITICAL PRINCIPLES:
+    - Tests are PART OF each implementation task, NOT separate tasks
+    - NEVER create separate "Unit Tests" or "Integration Tests" tasks
+    - Each task includes: implement, write tests, run tests until passing
+    - Each task must define what "runnable" means (test command, sample, etc.)
+    - Prefer many small tasks over few large ones
+    - Tasks with no dependencies should be runnable in parallel
+    - Each task should be completable by a single agent session
+    - Tasks should have clear boundaries (no shared mutable state)
+  """
+
+agent commit_manager:
+  model: sonnet
+  prompt: """
+    You are a git commit specialist. Your job is to create meaningful,
+    atomic commits that document the project's evolution.
+
+    Commit guidelines:
+    - One logical change per commit
+    - Descriptive commit messages (what and why)
+    - Group related changes together
+    - Don't commit broken code
+
+    Before committing:
+    - Verify build passes
+    - Verify tests pass
+    - Run any linters/formatters
+
+    Commit message format:
+    <type>: <description>
+
+    <body explaining why, not what>
+
+    Types: feat, fix, refactor, test, docs, chore
+  """
+
+# ============================================================
+# Reusable Blocks
+# ============================================================
+
+block validate-plan-section(section_name, required_fields):
+  session: plan_validator
+    prompt: """
+      Analyze the {section_name} section of PLAN.md.
+
+      Required fields: {required_fields}
+
+      For each field:
+      1. Check if it exists
+      2. Check if it is specific enough to implement
+      3. Identify any ambiguities or assumptions needed
+
+      If ANY information is missing or ambiguous, list questions that
+      MUST be answered before proceeding. Do not proceed with assumptions.
+
+      Output format:
+      - Field: <name>
+        Status: CLEAR | AMBIGUOUS | MISSING
+        Questions: [list of questions if not CLEAR]
+    """
+
+block identify-missing-libraries():
+  session: plan_validator
+    prompt: """
+      Analyze PLAN.md to determine if libraries/dependencies are needed
+      but NOT specified.
+
+      Consider:
+      1. Is this a NEW solution (not modifying existing code)?
+      2. Does the functionality require external libraries?
+         - CLI parsing, HTTP clients, database access, etc.
+         - Testing frameworks, mocking libraries
+         - Serialization, logging, configuration
+      3. Are libraries mentioned but without specific names/versions?
+
+      Output:
+      - libraries_specified: YES | NO | PARTIAL
+      - libraries_needed: [list of capabilities that need library support]
+      - research_required: YES | NO
+
+      Examples of capabilities needing research:
+      - "CLI argument parsing" → needs library research
+      - "HTTP client" → needs library research
+      - "JSON serialization" → may need library research
+      - "Unit testing" → needs test framework selection
+    """
+
+block research-library-alternatives(capability):
+  # Research best libraries for a given capability
+  let research = session: library_selector
+    prompt: """
+      Research the best library options for: {capability}
+
+      CRITICAL: Do NOT assume versions. You MUST:
+      1. Search for current information about this library type
+      2. Check the official package registry for current versions
+      3. Verify release dates and maintenance status
+
+      Steps:
+      1. Search for "{capability} library [language] comparison [current year]"
+      2. Identify top 3-5 candidates
+      3. For EACH candidate:
+         - Look up current version on package registry (NuGet, npm, etc.)
+         - Check GitHub/repo for last commit date
+         - Read recent reviews/comparisons
+      4. Recommend top 2-3 with clear rationale
+
+      Be thorough - wrong library choices cause significant rework.
+    """
+
+  # Present options to user
+  let user_choice = session: plan_evolver
+    prompt: """
+      Library research for "{capability}" is complete.
+
+      Research results:
+      {research}
+
+      Present these options to the user using AskUserQuestion:
+      1. Summarize each library option (name, version, key pros/cons)
+      2. Include a "Research more options" choice
+      3. Include an "Other" choice for user to specify
+
+      Based on their response, update PLAN.md with:
+      - The chosen library name and version
+      - Brief rationale for the choice
+      - Add to the "Technology Stack" or "Libraries" section
+
+      If user chooses "Research more options", indicate that more
+      research is needed and what alternatives to explore.
+    """
+    context: research
+
+  { research, user_choice }
+
+block drill-down-api(api_type, api_description):
+  # Expand a vague API description into complete specification
+  let api_research = session: api_designer
+    prompt: """
+      Drill down into the following API/interface to create a complete
+      specification:
+
+      Type: {api_type}
+      Description: {api_description}
+
+      Research similar tools/APIs to understand best practices and
+      common patterns. Then define:
+
+      For CLI:
+      - All commands (main and sub-commands)
+      - All flags with descriptions and defaults
+      - All positional arguments
+      - Output formats for each command
+      - Exit codes
+
+      For REST API:
+      - All endpoints with HTTP methods
+      - Request/response schemas
+      - Authentication requirements
+      - Error responses
+
+      For Library API:
+      - All public classes/modules
+      - All public methods with signatures
+      - Parameter types and return types
+      - Error/exception handling
+
+      Be comprehensive - implementers need complete specifications.
+    """
+
+  # Confirm with user
+  let user_confirmation = session: plan_evolver
+    prompt: """
+      API specification for "{api_description}" has been drafted.
+
+      Specification:
+      {api_research}
+
+      Present this to the user using AskUserQuestion:
+      1. Summarize the proposed API (key commands/endpoints/methods)
+      2. Ask if this looks correct or needs changes
+      3. Options:
+         - "Looks good" - accept as-is
+         - "Add more" - user wants additional features
+         - "Remove some" - user wants fewer features
+         - "Other" - custom feedback
+
+      Based on response, update PLAN.md with the finalized API
+      specification under a new section like:
+      "## API Specification" or "## CLI Commands" etc.
+
+      If user wants changes, iterate until they approve.
+    """
+    context: api_research
+
+  { api_research, user_confirmation }
+
+block research-library(library_name, package_name):
+  # Step 1: Check current vs latest versions
+  let version_check = session: library_researcher
+    prompt: """
+      Run 'dotnet outdated' and find the current and latest version of {package_name}.
+
+      If the package is outdated:
+      1. Note the version difference
+      2. Identify breaking changes between versions
+      3. Recommend whether to upgrade
+    """
+
+  # Step 2: Fetch official documentation
+  let docs = session: library_researcher
+    prompt: """
+      Fetch official documentation for {library_name}.
+
+      Look for:
+      1. Official documentation site
+      2. GitHub README and wiki
+      3. API reference
+      4. Migration guides (if upgrading)
+
+      Extract:
+      - Key concepts and patterns
+      - Common usage examples
+      - Best practices
+      - Gotchas and pitfalls
+    """
+    context: version_check
+
+  # Step 3: Examine source code for unclear APIs
+  let source_analysis = session: library_researcher
+    prompt: """
+      If the documentation is unclear on any API, examine the source code.
+
+      Look at:
+      - Public API surface
+      - Internal implementation patterns
+      - Test files (often show correct usage)
+
+      Provide concrete code examples for how to use the library.
+    """
+    context: docs
+
+  # Output combined research
+  { version_check, docs, source_analysis }
+
+block commit-work(scope, changes_description):
+  session: commit_manager
+    prompt: """
+      Commit the work for: {scope}
+
+      Changes: {changes_description}
+
+      Steps:
+      1. Run 'git status' to see changes
+      2. Run 'dotnet build' to verify code compiles (if applicable)
+      3. Stage relevant files (git add)
+      4. Create commit with meaningful message
+
+      Commit message format:
+      <type>({scope}): <description>
+
+      <body explaining context and decisions>
+    """
+
+# ============================================================
+# Phase 1: Validate Plan
+# ============================================================
+
+let plan_validation = do:
+  # Validate each required section
+  let sections = parallel:
+    overview = do validate-plan-section(
+      "Project Overview",
+      ["name", "description", "goals"]
+    )
+
+    tech_stack = do validate-plan-section(
+      "Technology Stack",
+      ["language", "framework", "libraries with versions"]
+    )
+
+    requirements = do validate-plan-section(
+      "Requirements",
+      ["functional requirements", "non-functional requirements"]
+    )
+
+    success_criteria = do validate-plan-section(
+      "Success Criteria",
+      ["testable conditions", "acceptance criteria"]
+    )
+
+  # Check if libraries need to be researched
+  let library_status = do identify-missing-libraries()
+
+  # Check if APIs need to be drilled down
+  let api_status = session: plan_validator
+    prompt: """
+      Analyze PLAN.md for vague API or interface descriptions that
+      need to be expanded into complete specifications.
+
+      Look for:
+      - CLI tools without complete command listings
+      - REST APIs without complete endpoint specifications
+      - Library APIs without method signatures
+      - Configuration systems without option listings
+      - Event systems without event definitions
+
+      Output:
+      - apis_need_drilling: YES | NO
+      - vague_apis: [list of {type, description} that need expansion]
+
+      Examples:
+      - "CLI tool for managing tasks" → needs command drilling
+      - "REST API for user management" → needs endpoint drilling
+      - "Plugin system" → needs interface drilling
+    """
+    context: sections
+
+  # Aggregate all questions
+  let questions = session: plan_validator
+    prompt: """
+      Review all validation results and compile a list of ALL questions
+      that need answers before proceeding.
+
+      Validation results:
+      {sections}
+
+      Library status:
+      {library_status}
+
+      API status:
+      {api_status}
+
+      If there are ANY questions, list them clearly.
+      Do not proceed with assumptions.
+    """
+    context: { sections, library_status, api_status }
+
+  # Evolve plan if questions exist (instead of halting)
+  loop until **PLAN.md is complete with no ambiguities** (max: 5):
+    if **any questions were identified**:
+      # Evolve the plan by asking user and updating PLAN.md
+      let evolution = session: plan_evolver
+        prompt: """
+          PLAN.md has gaps or ambiguities that need resolution.
+
+          Questions identified:
+          {questions}
+
+          For each question:
+          1. Use AskUserQuestion to get clarification from the user
+          2. Update PLAN.md with the answers received
+          3. Ensure the updated section is clear and specific
+
+          After updating, confirm what changes were made.
+        """
+        context: { plan, questions, sections }
+
+      # Re-validate after evolution
+      sections = parallel:
+        overview = do validate-plan-section(
+          "Project Overview",
+          ["name", "description", "goals"]
+        )
+
+        tech_stack = do validate-plan-section(
+          "Technology Stack",
+          ["language", "framework", "libraries with versions"]
+        )
+
+        requirements = do validate-plan-section(
+          "Requirements",
+          ["functional requirements", "non-functional requirements"]
+        )
+
+        success_criteria = do validate-plan-section(
+          "Success Criteria",
+          ["testable conditions", "acceptance criteria"]
+        )
+
+      # Re-check library and API status
+      library_status = do identify-missing-libraries()
+
+      api_status = session: plan_validator
+        prompt: """
+          Re-analyze PLAN.md for vague API descriptions.
+          Are there still APIs that need complete specifications?
+        """
+        context: sections
+
+      # Re-aggregate questions
+      questions = session: plan_validator
+        prompt: """
+          Review the updated validation results.
+          Are there still any questions or ambiguities?
+
+          Validation results:
+          {sections}
+
+          Library status:
+          {library_status}
+
+          API status:
+          {api_status}
+        """
+        context: { sections, library_status, api_status }
+
+  # If libraries need research, do it now
+  if **library_status indicates research_required**:
+    # Research each needed library capability
+    loop until **all library needs from library_status are resolved** (max: 10):
+      let current_need = session "Extract the next unresolved library capability from the library status that still needs research"
+        context: library_status
+
+      if **current_need indicates no more unresolved needs**:
+        session "All library needs have been resolved"
+
+      else:
+        let library_result = do research-library-alternatives(current_need)
+
+        # Update plan with chosen library
+        session: plan_evolver
+          prompt: """
+            Library has been selected for the current need.
+
+            Current need:
+            {current_need}
+
+            Selection result:
+            {library_result}
+
+            Ensure PLAN.md Technology Stack section is updated with:
+            - Library name
+            - Specific version (verified, not assumed)
+            - Why it was chosen
+          """
+          context: { current_need, library_result }
+
+  # If APIs need drilling down, do it now
+  if **api_status indicates apis_need_drilling**:
+    # Drill down each vague API
+    loop until **all APIs from api_status are fully specified** (max: 10):
+      let current_api = session "Extract the next vague API that needs specification, returning both its type and description"
+        context: api_status
+
+      if **current_api indicates no more APIs need specification**:
+        session "All APIs have been fully specified"
+
+      else:
+        let api_type = session "Extract the API type (CLI, REST, Library, etc.) from the current API info"
+          context: current_api
+
+        let api_description = session "Extract the API description from the current API info"
+          context: current_api
+
+        let api_result = do drill-down-api(api_type, api_description)
+
+        # API specification is added to PLAN.md by the drill-down-api block
+
+  { sections, library_status, api_status }
+
+# ============================================================
+# Phase 2: Challenge the Plan with Alternatives
+# ============================================================
+
+let plan_challenge = do:
+  # Research alternative approaches
+  let alternatives = session: solution_challenger
+    prompt: """
+      Critically analyze the current PLAN.md and research alternatives.
+
+      Current plan context:
+      {plan_validation}
+
+      Your tasks:
+      1. Identify any concerns with the current approach
+      2. Research alternative solutions (search documentation, best practices)
+      3. Compare the current plan against alternatives
+      4. Provide a structured analysis
+
+      Be thorough but fair - the goal is to ensure we've considered options,
+      not to derail a good plan.
+    """
+    context: plan_validation
+
+  # Present alternatives to user if any significant ones found
+  if **alternatives suggest a meaningfully different approach**:
+    # Ask user to analyze the alternative
+    let user_analysis = session: plan_evolver
+      prompt: """
+        The solution challenger has identified alternative approaches.
+
+        Analysis:
+        {alternatives}
+
+        Present this to the user using AskUserQuestion:
+        1. Summarize the current plan's approach (1-2 sentences)
+        2. Summarize the main alternative (1-2 sentences)
+        3. Ask which direction they prefer:
+           - "Current plan" - proceed as designed
+           - "Alternative approach" - adopt the suggested alternative
+           - "Hybrid" - combine elements of both
+           - "Other" - let them specify
+
+        Based on their response, update PLAN.md to document:
+        - The alternatives that were considered
+        - The decision made and rationale
+        - Any modifications to adopt from alternatives
+
+        Add this under a new section: "## Alternatives Considered"
+      """
+      context: { plan, alternatives, plan_validation }
+
+    # Document the decision
+    session: decision_documenter
+      prompt: """
+        Document the alternative analysis decision in ADR format.
+
+        User's analysis and decision:
+        {user_analysis}
+
+        Alternatives considered:
+        {alternatives}
+
+        Write to docs/adr-001-solution-approach.md:
+        - Context: Why we evaluated alternatives
+        - Alternatives: What options were considered
+        - Decision: What was chosen and why
+        - Consequences: Impact of this decision
+      """
+      context: { user_analysis, alternatives }
+
+  else:
+    # No significant alternatives - document that we checked
+    session: decision_documenter
+      prompt: """
+        The solution challenger found no significantly better alternatives
+        to the current plan.
+
+        Analysis:
+        {alternatives}
+
+        Briefly update PLAN.md to note that alternatives were evaluated
+        and the current approach was confirmed as appropriate.
+
+        Add a brief note under "## Alternatives Considered" stating
+        the plan was reviewed and no changes were needed.
+      """
+      context: alternatives
+
+  alternatives
+
+# ============================================================
+# Phase 3: Research Libraries
+# ============================================================
+
+let library_research = do:
+  # Extract library list from plan
+  let libraries = session: library_researcher
+    prompt: """
+      Parse PLAN.md and extract the list of libraries/packages to research.
+
+      For each library, identify:
+      - Package name (NuGet, npm, etc.)
+      - Current specified version (if any)
+      - Purpose in the project
+
+      Return as structured list.
+    """
+    context: plan_validation
+
+  # Research each library
+  let research_results = session: library_researcher
+    prompt: """
+      For EACH library identified, perform comprehensive research:
+
+      1. Run 'dotnet outdated' to check versions
+      2. Fetch official documentation
+      3. Find usage examples
+      4. Identify breaking changes and gotchas
+
+      Libraries to research: {libraries}
+
+      For each library, produce a research document with:
+      - Version status (current vs latest)
+      - Key APIs and patterns
+      - Code examples
+      - Pitfalls to avoid
+    """
+    context: libraries
+
+  # Document library decisions
+  let library_decisions = session: decision_documenter
+    prompt: """
+      Document WHY each library was chosen for this project.
+
+      For each library:
+      - Why this library over alternatives?
+      - What trade-offs were considered?
+      - Are there any risks or concerns?
+
+      Library research: {research_results}
+    """
+    context: research_results
+
+  # Write library documentation to docs/
+  session: decision_documenter
+    prompt: """
+      Write the library decisions to docs/libraries.md
+
+      Include:
+      - Library name and version
+      - Decision rationale
+      - Usage guidelines
+      - Links to documentation
+
+      Format as a reference document for the team.
+    """
+    context: library_decisions
+
+  { libraries, research_results, library_decisions }
+
+# ============================================================
+# Phase 4: Define APIs and Contracts
+# ============================================================
+
+let api_contracts = do:
+  # Extract all API surfaces that need specification
+  let api_surfaces = session: api_designer
+    prompt: """
+      Analyze PLAN.md and identify ALL API surfaces that need
+      complete specifications before implementation.
+
+      Look for:
+      - Public interfaces (CLI, REST, gRPC, etc.)
+      - Internal contracts between components
+      - Configuration schemas
+      - Event/message formats
+      - Data models and DTOs
+
+      For each, note:
+      - Type (CLI, REST, Library, Config, Event, Data)
+      - Current level of specification (None, Partial, Complete)
+      - What needs to be defined
+    """
+    context: { plan_validation, library_research }
+
+  # Define complete contracts for each API surface
+  let contracts = session: api_designer
+    prompt: """
+      For each API surface identified, create a complete contract specification.
+
+      API surfaces:
+      {api_surfaces}
+
+      For each contract, define:
+      1. All entry points with full signatures
+      2. All input types with validation rules
+      3. All output types with schemas
+      4. All error cases with response formats
+      5. Examples of usage
+
+      Write contracts to docs/contracts/ directory:
+      - CLI contracts: docs/contracts/cli-<name>.md
+      - REST contracts: docs/contracts/api-<name>.md
+      - Library contracts: docs/contracts/lib-<name>.md
+      - Config contracts: docs/contracts/config-<name>.md
+
+      These contracts are the ONLY source of truth for implementation.
+      No implementation should deviate from these contracts.
+    """
+    context: api_surfaces
+
+  contracts
+
+# ============================================================
+# Phase 5: Define Definition of Done (DoD)
+# ============================================================
+
+let definition_of_done = do:
+  session: plan_validator
+    prompt: """
+      Create a comprehensive Definition of Done (DoD) for this project.
+
+      Based on PLAN.md and the contracts defined, specify:
+
+      ## Component-Level DoD
+      For each component to be considered "done":
+      - [ ] All acceptance criteria from task are met
+      - [ ] All tests pass (unit + integration)
+      - [ ] Component runs without errors
+      - [ ] Documentation is updated if needed
+      - [ ] Code is committed with meaningful message
+
+      ## Feature-Level DoD
+      For each feature to be considered "done":
+      - [ ] All component tasks are complete
+      - [ ] Feature can be demonstrated end-to-end
+      - [ ] All edge cases are handled
+      - [ ] Performance is acceptable
+
+      ## Project-Level DoD
+      For the project to be considered "done":
+      - [ ] All features are complete
+      - [ ] All tests pass
+      - [ ] All samples/demos run without errors
+      - [ ] All documentation is complete
+      - [ ] All success criteria from PLAN.md are verified
+
+      ## Runnable Verification
+      List everything that must be runnable:
+      - Tests: [specific test commands]
+      - Samples: [specific sample commands]
+      - APIs: [specific API verification commands]
+      - Tools: [specific tool commands]
+
+      Write to {plan_folder}/DEFINITION-OF-DONE.md
+    """
+    context: { plan_validation, api_contracts }
+
+# ============================================================
+# Phase 6: Decompose into Feature Tasks
+# ============================================================
+
+let task_decomposition = do:
+  # Analyze the plan and break it into tasks
+  let task_analysis = session: task_decomposer
+    prompt: """
+      Analyze PLAN.md and decompose it into discrete, parallelizable tasks.
+
+      Context from validation and challenge phases:
+      {plan_validation}
+      {plan_challenge}
+
+      Contracts to implement:
+      {api_contracts}
+
+      Definition of Done:
+      {definition_of_done}
+
+      For each component/feature in the plan:
+      1. Break it into atomic tasks (1-4 hours each)
+      2. Identify dependencies between tasks
+      3. Group tasks into phases based on dependencies
+      4. Include test cases for each component
+      5. Define what "runnable" means for verification
+
+      CRITICAL RULES:
+      - Tests are PART OF each implementation task
+      - Do NOT create separate "Unit Tests" or "Integration Tests" tasks
+      - Each component task includes: implementation + tests + verification
+      - Every task must have specific, testable acceptance criteria
+      - Every task must define its runnable verification
+
+      Output:
+      1. List of all tasks with IDs (TASK-001, TASK-002, etc.)
+      2. Dependency graph (which tasks block which)
+      3. Execution phases (tasks grouped by when they can start)
+      4. For each task: description, test cases, DoD, and verification command
+    """
+    context: { plan_validation, plan_challenge, api_contracts, definition_of_done }
+
+  # Create task files for each identified task
+  let task_files = session: task_decomposer
+    prompt: """
+      For each task identified, create a separate task file.
+
+      Task analysis:
+      {task_analysis}
+
+      IMPORTANT: Tests are PART OF each implementation task.
+      Do NOT create separate test-only tasks.
+
+      For each task, create a file at {plan_folder}/tasks/TASK-XXX.md with:
+
+      ```markdown
+      # TASK-XXX: [Title]
+
+      ## Status
+      pending
+
+      ## Dependencies
+      - [List of TASK-IDs that must complete first, or "none"]
+
+      ## Description
+      [Detailed description of what needs to be done]
+
+      ## Contract Reference
+      [Link to the contract file this task implements]
+
+      ## Inputs
+      - [What this task needs to start - files, data, completed tasks]
+
+      ## Outputs
+      - [What this task produces - files, artifacts, state changes]
+
+      ## Test Cases
+      [Specific test cases that verify this component works correctly]
+      - Test case 1: [description of what to test and expected behavior]
+      - Test case 2: [description of what to test and expected behavior]
+      - Test case 3: [edge case or error condition to test]
+
+      ## Test Filter
+      [A filter string to run just this component's tests, e.g., "ClassName" or "Namespace.ClassName"]
+
+      ## Definition of Done
+      - [ ] [Implementation criterion 1]
+      - [ ] [Implementation criterion 2]
+      - [ ] All test cases pass with zero failures
+      - [ ] Verification command runs without errors
+
+      ## Verification Command
+      [Command to verify this component works, e.g., "dotnet test --filter X" or "dotnet run --project Sample"]
+
+      ## Complexity
+      [S/M/L]
+
+      ## Notes
+      [Any additional context, gotchas, or guidance]
+      ```
+
+      Also create {plan_folder}/MANIFEST.md with:
+      - List of all tasks
+      - Dependency graph (ASCII or markdown)
+      - Suggested execution order
+      - Critical path highlighted
+    """
+    context: { task_analysis, plan_folder }
+
+  # Create the execution plan showing parallel groups
+  let execution_plan = session: task_decomposer
+    prompt: """
+      Create an execution plan that maximizes parallelism.
+
+      Tasks and dependencies:
+      {task_files}
+
+      Create {plan_folder}/EXECUTION-PLAN.md with:
+
+      ## Phase 0: Immediate (no dependencies)
+      Tasks that can start right now:
+      - TASK-XXX: [title] (parallel)
+      - TASK-YYY: [title] (parallel)
+
+      ## Phase 1: After Phase 0 completes
+      Tasks unlocked when Phase 0 finishes:
+      - TASK-ZZZ: [title] (blocks: TASK-XXX)
+
+      ## Phase N: ...
+
+      ## Critical Path
+      The longest chain that determines minimum completion time:
+      TASK-A → TASK-B → TASK-C (total: X tasks)
+
+      ## Parallelism Summary
+      - Total tasks: N
+      - Max parallel at once: M
+      - Estimated phases: P
+    """
+    context: { task_files, plan_folder }
+
+  { task_analysis, task_files, execution_plan }
+
+# ============================================================
+# Phase 7: Commit Planning Artifacts
+# ============================================================
+
+let planning_commit = do:
+  do commit-work(
+    "plan",
+    """
+    Planning phase complete:
+    - Validated and evolved PLAN.md
+    - Researched and documented library decisions
+    - Defined API contracts
+    - Created Definition of Done
+    - Decomposed into feature-based tasks
+    - Created execution plan for parallel development
+    """
+  )
+
+# ============================================================
+# Output
+# ============================================================
+
+output result = do:
+  session: plan_validator
+    prompt: """
+      Generate a summary of the planning phase:
+
+      ## Planning Summary
+
+      ### Plan Validation
+      - Status: [COMPLETE/INCOMPLETE]
+      - Questions resolved: [count]
+      - Ambiguities clarified: [count]
+
+      ### Alternatives Analysis
+      - Alternatives considered: [list]
+      - Decision: [current plan / alternative / hybrid]
+
+      ### Library Research
+      - Libraries researched: [list]
+      - Documentation created: [files]
+
+      ### API Contracts
+      - Contracts defined: [list]
+      - Location: docs/contracts/
+
+      ### Definition of Done
+      - Location: {plan_folder}/DEFINITION-OF-DONE.md
+      - Runnable verifications: [count]
+
+      ### Task Decomposition
+      - Total tasks: [count]
+      - Parallelizable tasks: [count]
+      - Critical path length: [count]
+
+      ### Plan Folder
+      {plan_folder}/
+
+      ### Artifacts Created
+      Plan artifacts:
+      - {plan_folder}/MANIFEST.md
+      - {plan_folder}/EXECUTION-PLAN.md
+      - {plan_folder}/DEFINITION-OF-DONE.md
+      - {plan_folder}/tasks/TASK-*.md
+      - {plan_folder}/tasks/complete/ (empty, for completed tasks)
+
+      Documentation:
+      - docs/contracts/*.md
+      - docs/adr-*.md
+      - docs/libraries.md
+
+      ### Next Step
+      Run `prose run execute.prose --plan {plan_folder}` to begin implementation.
+    """
+    context: { plan_validation, plan_challenge, library_research, api_contracts, definition_of_done, task_decomposition, plan_folder }
