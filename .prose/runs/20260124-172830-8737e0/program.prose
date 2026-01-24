@@ -1,0 +1,19 @@
+# Execute Program (Optimized)
+# Takes tasks from planning phase and executes each with validation
+#
+# INVARIANTS:
+# 1. PLAN.md is READ-ONLY - never modify
+# 2. Tasks executed as specified - no shortcuts
+# 3. Tests are part of each task - not separate
+# 4. Everything developed must be validated
+# 5. Issues documented in docs/issues/ - work stops on blockers
+# 6. Discoveries documented in docs/discoveries/
+# 7. Commits after each successful task
+# 8. Completed tasks MOVED to tasks/complete/
+
+use "shared/agents.prose"
+use "shared/blocks.prose"
+
+input plan_folder: "plans/2026-01-24-aspire-shared-resources"
+
+# [rest of program...]
