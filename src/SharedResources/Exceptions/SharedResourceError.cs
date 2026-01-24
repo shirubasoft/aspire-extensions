@@ -1,7 +1,7 @@
 namespace Aspire.Hosting.SharedResources;
 
 /// <summary>
-/// Represents error information for a shared resource operation.
+/// Represents an error that occurred while processing a shared resource.
 /// </summary>
 /// <remarks>
 /// This class is used to aggregate errors from multiple shared resource operations,
@@ -17,24 +17,36 @@ public class SharedResourceError
     /// ServiceName = "api-service"
     /// </code>
     /// </example>
-    public required string ServiceName { get; init; }
+    public string ServiceName { get; }
 
     /// <summary>
-    /// Gets the error message describing what went wrong.
+    /// Gets the GitHub repository associated with the failure.
     /// </summary>
     /// <example>
     /// <code>
-    /// ErrorMessage = "Failed to build container image: Dockerfile not found"
+    /// GitHubRepository = "myorg/api-service"
     /// </code>
     /// </example>
-    public required string ErrorMessage { get; init; }
+    public string GitHubRepository { get; }
 
     /// <summary>
-    /// Gets the underlying exception, if one was thrown.
+    /// Gets the exception that caused the failure.
     /// </summary>
-    /// <remarks>
-    /// This may be null if the error was detected without an exception being thrown,
-    /// such as when validating configuration before an operation.
-    /// </remarks>
-    public Exception? Exception { get; init; }
+    public Exception Exception { get; }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SharedResourceError"/> class.
+    /// </summary>
+    /// <param name="serviceName">The name of the service that encountered the error.</param>
+    /// <param name="gitHubRepository">The GitHub repository associated with the failure.</param>
+    /// <param name="exception">The exception that caused the failure.</param>
+    public SharedResourceError(
+        string serviceName,
+        string gitHubRepository,
+        Exception exception)
+    {
+        ServiceName = serviceName;
+        GitHubRepository = gitHubRepository;
+        Exception = exception;
+    }
 }

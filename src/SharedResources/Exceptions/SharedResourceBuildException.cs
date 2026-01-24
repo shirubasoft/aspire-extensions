@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Aspire.Hosting.SharedResources;
 
 /// <summary>
@@ -15,25 +17,37 @@ public class SharedResourceBuildException : Exception
     /// Gets the collection of errors that occurred during the build process.
     /// </summary>
     /// <remarks>
-    /// Each error contains the service name, error message, and optionally the
+    /// Each error contains the service name, GitHub repository, and the
     /// underlying exception that caused the failure.
     /// </remarks>
     public IReadOnlyList<SharedResourceError> Errors { get; }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SharedResourceBuildException"/> class
+    /// with a single error message.
+    /// </summary>
+    /// <param name="message">The error message.</param>
+    public SharedResourceBuildException(string message)
+        : base(message)
+    {
+        Errors = Array.Empty<SharedResourceError>();
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SharedResourceBuildException"/> class.
     /// </summary>
     /// <param name="errors">The collection of errors that occurred during the build process.</param>
     /// <exception cref="ArgumentException">Thrown when errors is null or empty.</exception>
-    public SharedResourceBuildException(IReadOnlyList<SharedResourceError> errors)
-        : base(CreateMessage(errors))
+    public SharedResourceBuildException(IEnumerable<SharedResourceError> errors)
+        : base(FormatMessage(errors))
     {
-        if (errors is null || errors.Count == 0)
+        var errorList = errors?.ToList() ?? throw new ArgumentException("At least one error must be provided.", nameof(errors));
+        if (errorList.Count == 0)
         {
             throw new ArgumentException("At least one error must be provided.", nameof(errors));
         }
 
-        Errors = errors;
+        Errors = errorList.AsReadOnly();
     }
 
     /// <summary>
@@ -43,7 +57,7 @@ public class SharedResourceBuildException : Exception
     /// <param name="innerException">The exception that caused this exception.</param>
     /// <exception cref="ArgumentException">Thrown when errors is null or empty.</exception>
     public SharedResourceBuildException(IReadOnlyList<SharedResourceError> errors, Exception innerException)
-        : base(CreateMessage(errors), innerException)
+        : base(FormatMessage(errors), innerException)
     {
         if (errors is null || errors.Count == 0)
         {
@@ -53,19 +67,72 @@ public class SharedResourceBuildException : Exception
         Errors = errors;
     }
 
-    private static string CreateMessage(IReadOnlyList<SharedResourceError> errors)
+    /// <summary>
+    /// Formats the exception message from the list of errors.
+    /// </summary>
+    /// <param name="errors">The errors to format.</param>
+    /// <returns>A formatted error message.</returns>
+    private static string FormatMessage(IEnumerable<SharedResourceError>? errors)
     {
-        if (errors is null || errors.Count == 0)
+        if (errors is null)
         {
             return "One or more shared resource builds failed.";
         }
 
-        if (errors.Count == 1)
+        var errorList = errors.ToList();
+
+        if (errorList.Count == 0)
         {
-            return $"Shared resource build failed for '{errors[0].ServiceName}': {errors[0].ErrorMessage}";
+            return "One or more shared resource builds failed.";
         }
 
-        var serviceNames = string.Join(", ", errors.Select(e => $"'{e.ServiceName}'"));
-        return $"Shared resource builds failed for {errors.Count} services: {serviceNames}";
+        if (errorList.Count == 1)
+        {
+            var error = errorList[0];
+            return $"Failed to build shared resource '{error.ServiceName}': {error.Exception.Message}";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"Failed to build {errorList.Count} shared resources:");
+
+        foreach (var error in errorList)
+        {
+            builder.AppendLine($"  - {error.ServiceName}: {error.Exception.Message}");
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Gets a detailed message with all errors and their details.
+    /// </summary>
+    /// <returns>A detailed error message including repository information and build output when available.</returns>
+    public string GetDetailedMessage()
+    {
+        if (Errors.Count == 0)
+        {
+            return Message;
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine("Shared Resource Build Failures:");
+        builder.AppendLine();
+
+        foreach (var error in Errors)
+        {
+            builder.AppendLine($"Service: {error.ServiceName}");
+            builder.AppendLine($"Repository: {error.GitHubRepository}");
+            builder.AppendLine($"Error: {error.Exception.Message}");
+
+            if (error.Exception is ContainerBuildException buildEx)
+            {
+                builder.AppendLine("Build Output:");
+                builder.AppendLine(buildEx.BuildOutput);
+            }
+
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
     }
 }
