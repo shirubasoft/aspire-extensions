@@ -1,3 +1,13 @@
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url);
+const pathScopedCommitsPlugin = fileURLToPath(
+  new URL("./path-scoped-conventional-commits.mjs", import.meta.url),
+);
+const execPlugin = require.resolve("@semantic-release/exec");
+const githubPlugin = require.resolve("@semantic-release/github");
+
 export function createExtensionReleaseConfig({ extensionPath, packageId, tagPrefix }) {
   if (!extensionPath || !packageId || !tagPrefix) {
     throw new TypeError("extensionPath, packageId, and tagPrefix are required.");
@@ -18,9 +28,9 @@ export function createExtensionReleaseConfig({ extensionPath, packageId, tagPref
     branches: ["main"],
     tagFormat: `${tagPrefix}-v\${version}`,
     plugins: [
-      ["./.github/release/path-scoped-conventional-commits.mjs", conventionalConfig],
+      [pathScopedCommitsPlugin, conventionalConfig],
       [
-        "@semantic-release/exec",
+        execPlugin,
         {
           verifyConditionsCmd:
             "if [ -z \"$NEXT_RELEASE_VERSION_FILE\" ] && [ -z \"$NUGET_API_KEY\" ]; "
@@ -37,7 +47,7 @@ export function createExtensionReleaseConfig({ extensionPath, packageId, tagPref
         },
       ],
       [
-        "@semantic-release/github",
+        githubPlugin,
         {
           assets: [
             { path: `${artifactPath}/*.nupkg`, label: `${packageId} NuGet package` },

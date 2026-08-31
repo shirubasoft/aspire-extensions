@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import { createExtensionReleaseConfig } from "./create-extension-release-config.mjs";
 
@@ -10,6 +11,10 @@ test("creates an independently tagged path-scoped package release", () => {
   });
 
   assert.equal(config.tagFormat, "kafka-v${version}");
+  assert.ok(config.plugins.every(([plugin]) => path.isAbsolute(plugin)));
+  assert.match(config.plugins[0][0], /path-scoped-conventional-commits\.mjs$/u);
+  assert.match(config.plugins[1][0], /@semantic-release[/\\]exec[/\\]index\.js$/u);
+  assert.match(config.plugins[2][0], /@semantic-release[/\\]github[/\\]index\.js$/u);
   assert.equal(config.plugins[0][1].paths[0], "extensions/Shirubasoft.Aspire.Extensions.Kafka/**");
   assert.match(config.plugins[1][1].publishCmd, /Shirubasoft\.Aspire\.Extensions\.Kafka/u);
   assert.deepEqual(
