@@ -1,0 +1,18 @@
+#nullable enable
+Aspire.Hosting.KafkaResourceBuilderExtensions
+static Aspire.Hosting.KafkaResourceBuilderExtensions.AddSchemaRegistry(this Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.KafkaServerResource!>! builder, string! name, int? port = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.KafkaSchemaRegistryResource!>!
+static Aspire.Hosting.KafkaResourceBuilderExtensions.AddTopic(this Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.KafkaServerResource!>! builder, string! name, string? topicName = null, int partitionCount = 1, short replicationFactor = 1) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.KafkaTopicResource!>!
+static Aspire.Hosting.KafkaResourceBuilderExtensions.WithReference<TDestination>(this Aspire.Hosting.ApplicationModel.IResourceBuilder<TDestination>! builder, Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.KafkaSchemaRegistryResource!>! source, string? connectionName = null, bool optional = false) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<TDestination>!
+Aspire.Hosting.KafkaSchemaRegistryResource
+Aspire.Hosting.KafkaSchemaRegistryResource.Address.get -> Aspire.Hosting.ApplicationModel.ReferenceExpression!
+Aspire.Hosting.KafkaSchemaRegistryResource.ConnectionStringExpression.get -> Aspire.Hosting.ApplicationModel.ReferenceExpression!
+Aspire.Hosting.KafkaSchemaRegistryResource.Host.get -> Aspire.Hosting.ApplicationModel.EndpointReferenceExpression!
+Aspire.Hosting.KafkaSchemaRegistryResource.KafkaSchemaRegistryResource(string! name) -> void
+Aspire.Hosting.KafkaSchemaRegistryResource.Port.get -> Aspire.Hosting.ApplicationModel.EndpointReferenceExpression!
+Aspire.Hosting.KafkaSchemaRegistryResource.PrimaryEndpoint.get -> Aspire.Hosting.ApplicationModel.EndpointReference!
+Aspire.Hosting.KafkaTopicResource
+Aspire.Hosting.KafkaTopicResource.KafkaTopicResource(string! name, Aspire.Hosting.KafkaServerResource! parent, string! topicName, int partitionCount, short replicationFactor) -> void
+Aspire.Hosting.KafkaTopicResource.Parent.get -> Aspire.Hosting.KafkaServerResource!
+Aspire.Hosting.KafkaTopicResource.PartitionCount.get -> int
+Aspire.Hosting.KafkaTopicResource.ReplicationFactor.get -> short
+Aspire.Hosting.KafkaTopicResource.TopicName.get -> string!

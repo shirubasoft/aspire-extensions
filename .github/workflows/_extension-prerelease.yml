@@ -1,0 +1,89 @@
+name: Publish extension prerelease
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        required: true
+        type: string
+      extension_path:
+        required: true
+        type: string
+      package_id:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: false
+
+concurrency:
+  group: prerelease-${{ inputs.package_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-pack-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Set up minimum supported .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.102
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install locked release tooling
+        run: npm ci --prefix .github/release
+
+      - name: Validate prerelease version
+        env:
+          PRERELEASE_VERSION: ${{ inputs.version }}
+        run: node .github/release/validate-prerelease-version.mjs "$PRERELEASE_VERSION"
+
+      - name: Validate, test, and pack
+        shell: bash
+        run: >-
+          ./build.sh
+          --extension '${{ inputs.extension_path }}'
+          --package-version '${{ inputs.version }}'
+
+      - name: Upload prerelease packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            artifacts/${{ inputs.package_id }}/*.nupkg
+            artifacts/${{ inputs.package_id }}/*.snupkg
+          if-no-files-found: error
+
+      - name: Publish prerelease packages to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+          PRERELEASE_VERSION: ${{ inputs.version }}
+        run: >-
+          dotnet nuget push
+          "artifacts/$PACKAGE_ID/$PACKAGE_ID.$PRERELEASE_VERSION.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "$NUGET_API_KEY"
+          --symbol-source https://api.nuget.org/v3/index.json
+          --symbol-api-key "$NUGET_API_KEY"
+          --skip-duplicate

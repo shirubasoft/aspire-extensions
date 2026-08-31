@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Kafka.AppHost/Kafka.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Shirubasoft.Aspire.Extensions.Kafka/Shirubasoft.Aspire.Extensions.Kafka.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Shirubasoft.Aspire.Extensions.Kafka.PackageTests/Shirubasoft.Aspire.Extensions.Kafka.PackageTests.csproj" />
+    <Project Path="tests/Shirubasoft.Aspire.Extensions.Kafka.Tests/Shirubasoft.Aspire.Extensions.Kafka.Tests.csproj" />
+  </Folder>
+</Solution>

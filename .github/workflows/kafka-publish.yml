@@ -1,0 +1,31 @@
+name: Publish Kafka NuGet package
+
+on:
+  workflow_run:
+    workflows:
+      - Kafka CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      vars.NUGET_PUBLISH_ENABLED == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-publish.yml
+    with:
+      artifact_name: kafka-nuget-packages
+      head_sha: ${{ github.event.workflow_run.head_sha }}
+      package_id: Shirubasoft.Aspire.Extensions.Kafka
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.Kafka/release.config.mjs
+      tag_prefix: kafka
+      workflow_run_id: ${{ github.event.workflow_run.id }}
+    secrets: inherit

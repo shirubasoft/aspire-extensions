@@ -1,5 +1,9 @@
 {
-  "test": {
-    "runner": "Microsoft.Testing.Platform"
+  "sdk": {
+    "version": "10.0.301",
+    "rollForward": "latestPatch"
+  },
+  "msbuild-sdks": {
+    "Aspire.AppHost.Sdk": "13.4.6"
   }
 }
