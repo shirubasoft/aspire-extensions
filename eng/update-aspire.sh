@@ -26,6 +26,10 @@ aspire="$cli_path/aspire"
 aspire_version="$($aspire --version)"
 manifest_version="${aspire_version%%+*}"
 
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+  printf '%s\n' "$cli_path" >> "$GITHUB_PATH"
+fi
+
 dotnet tool update Aspire.Cli \
   --tool-manifest "$repository_root/.config/dotnet-tools.json" \
   --version "$manifest_version"
@@ -68,8 +72,7 @@ fi
   printf 'This pull request updates every discovered Aspire AppHost and integration to the latest stable version.\n\n'
   printf -- "- Aspire CLI: \`%s\`\n" "$aspire_version"
   printf -- "- AppHosts processed: \`%s\`\n" "${#apphosts[@]}"
-  printf -- "- Validation: \`./build.sh\`\n\n"
-  printf "The workflow records each \`aspire update\` result below.\n"
+  printf "\nThe workflow records each \`aspire update\` result below.\n"
 } > "$report_path"
 
 for index in "${!apphosts[@]}"; do

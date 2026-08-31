@@ -45,8 +45,15 @@ jobs:
           fi
 
       - name: Validate updates
+        id: validation
         if: steps.changes.outputs.found == 'true'
-        run: ./build.sh
+        continue-on-error: true
+        env:
+          ASPIRE_UPDATE_REPORT: ${{ runner.temp }}/aspire-update-pr.md
+        run: >-
+          ./eng/validate-aspire-update.sh
+          "$ASPIRE_UPDATE_REPORT"
+          "${{ runner.temp }}/aspire-update-build.log"
 
       - name: Create or update pull request
         uses: peter-evans/create-pull-request@v8
@@ -58,3 +65,9 @@ jobs:
           commit-message: 'chore(deps): update Aspire dependencies'
           title: 'chore(deps): update Aspire dependencies'
           body-path: ${{ runner.temp }}/aspire-update-pr.md
+
+      - name: Fail when validation failed
+        if: >-
+          steps.changes.outputs.found == 'true' &&
+          steps.validation.outcome == 'failure'
+        run: exit 1
