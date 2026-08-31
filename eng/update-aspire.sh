@@ -30,11 +30,21 @@ dotnet tool update Aspire.Cli \
   --tool-manifest "$repository_root/.config/dotnet-tools.json" \
   --version "$manifest_version"
 
+contains_apphost_sdk() {
+  local project_path="$1"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg --quiet 'Aspire\.AppHost\.Sdk' "$project_path"
+  else
+    grep -q 'Aspire\.AppHost\.Sdk' "$project_path"
+  fi
+}
+
 apphosts=()
 while IFS= read -r -d '' candidate; do
   case "$candidate" in
     *.csproj)
-      if rg --quiet 'Aspire\.AppHost\.Sdk' "$candidate"; then
+      if contains_apphost_sdk "$candidate"; then
         apphosts+=("$candidate")
       fi
       ;;
