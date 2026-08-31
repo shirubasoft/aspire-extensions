@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Title>Shirubasoft Aspire Kafka extensions</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Schema Registry and topic resources for Aspire Kafka AppHosts.</Description>
+    <AssemblyName>Shirubasoft.Aspire.Extensions.Kafka</AssemblyName>
+    <PackageId>Shirubasoft.Aspire.Extensions.Kafka</PackageId>
+    <PackageTags>aspire;apphost;kafka;schema-registry;topics</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Kafka" />
+    <PackageReference Include="Confluent.Kafka" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shirubasoft.Aspire.Extensions.Kafka.Tests" />
+  </ItemGroup>
+</Project>

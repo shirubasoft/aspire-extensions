@@ -1,0 +1,65 @@
+name: Kafka CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.Kafka/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/kafka-ci.yml
+      - .github/workflows/kafka-prerelease.yml
+      - .github/workflows/kafka-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  pull_request:
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.Kafka/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/kafka-ci.yml
+      - .github/workflows/kafka-prerelease.yml
+      - .github/workflows/kafka-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  kafka:
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-ci.yml
+    with:
+      artifact_name: kafka-nuget-packages
+      extension_path: extensions/Shirubasoft.Aspire.Extensions.Kafka
+      package_id: Shirubasoft.Aspire.Extensions.Kafka
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.Kafka/release.config.mjs
+      tag_prefix: kafka

@@ -1,0 +1,204 @@
+name: Extension CI
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        required: true
+        type: string
+      extension_path:
+        required: true
+        type: string
+      package_id:
+        required: true
+        type: string
+      release_config:
+        required: true
+        type: string
+      tag_prefix:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  workflow-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate workflows with actionlint 1.7.12
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: >-
+            -color
+            .github/workflows/_extension-ci.yml
+            .github/workflows/_extension-prerelease.yml
+            .github/workflows/_extension-publish.yml
+            .github/workflows/kafka-ci.yml
+            .github/workflows/kafka-prerelease.yml
+            .github/workflows/kafka-publish.yml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install locked release tooling
+        run: npm ci --prefix .github/release
+
+      - name: Test release tooling
+        run: npm test --prefix .github/release
+
+  release-version:
+    if: >-
+      vars.NUGET_PUBLISH_ENABLED == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.release-version.outputs.version }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install locked release tooling
+        run: npm ci --prefix .github/release
+
+      - name: Bootstrap the package version baseline
+        shell: bash
+        env:
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+        run: |
+          set -euo pipefail
+          if ! git describe --tags --abbrev=0 --match "$TAG_PREFIX-v[0-9]*" >/dev/null 2>&1; then
+            git tag "$TAG_PREFIX-v0.0.0" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+      - name: Calculate release version
+        id: release-version
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NEXT_RELEASE_VERSION_FILE: ${{ runner.temp }}/next-release-version
+          RELEASE_CONFIG: ${{ inputs.release_config }}
+        run: |
+          set -euo pipefail
+          .github/release/node_modules/.bin/semantic-release --dry-run --extends "$RELEASE_CONFIG"
+          if [[ -f "$NEXT_RELEASE_VERSION_FILE" ]]; then
+            echo "version=$(<"$NEXT_RELEASE_VERSION_FILE")" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-test-pack:
+    needs: release-version
+    if: >-
+      always() &&
+      (needs.release-version.result == 'success' || needs.release-version.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Set up minimum supported .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.102
+
+      - name: Validate, test, and pack on Linux
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          EXTENSION_PATH: ${{ inputs.extension_path }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+          RELEASE_VERSION: ${{ needs.release-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            ./build.sh --extension "$EXTENSION_PATH" --package-version "$RELEASE_VERSION"
+            printf '%s\n' "$RELEASE_VERSION" > "artifacts/$PACKAGE_ID/release-version.txt"
+          else
+            ./build.sh --extension "$EXTENSION_PATH"
+          fi
+
+      - name: Enforce the CRAP score gate
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          EXTENSION_PATH: ${{ inputs.extension_path }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+        run: |
+          set -euo pipefail
+          coverage_path="${{ github.workspace }}/artifacts/$PACKAGE_ID/coverage"
+          mkdir -p "$coverage_path"
+          dotnet test "$EXTENSION_PATH/tests/$PACKAGE_ID.Tests/$PACKAGE_ID.Tests.csproj" \
+            --configuration Release --no-build --no-restore \
+            -p:CollectCoverage=true \
+            -p:CoverletOutput="$coverage_path/extension.opencover.xml" \
+            -p:CoverletOutputFormat=opencover \
+            "-p:Include=[$PACKAGE_ID]*"
+          dotnet run --project tools/CrapScore/CrapScore.csproj \
+            --configuration Release --no-build --no-restore -- \
+            "$coverage_path" \
+            --maximum-exclusive 5 \
+            --output "$coverage_path/crap-score.md"
+
+      - name: Upload coverage reports
+        if: always() && runner.os != 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: crap-score-${{ inputs.package_id }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/${{ inputs.package_id }}/coverage
+          if-no-files-found: error
+
+      - name: Validate, test, and pack on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.release-version.outputs.version }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_VERSION)) {
+            ./build.ps1 -Extension '${{ inputs.extension_path }}'
+          }
+          else {
+            ./build.ps1 -Extension '${{ inputs.extension_path }}' -PackageVersion $env:RELEASE_VERSION
+          }
+
+      - name: Upload packages
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            artifacts/${{ inputs.package_id }}/*.nupkg
+            artifacts/${{ inputs.package_id }}/*.snupkg
+            artifacts/${{ inputs.package_id }}/release-version.txt
+          if-no-files-found: error

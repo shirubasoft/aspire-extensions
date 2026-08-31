@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createExtensionReleaseConfig } from "./create-extension-release-config.mjs";
+
+test("creates an independently tagged path-scoped package release", () => {
+  const config = createExtensionReleaseConfig({
+    extensionPath: "extensions/Shirubasoft.Aspire.Extensions.Kafka",
+    packageId: "Shirubasoft.Aspire.Extensions.Kafka",
+    tagPrefix: "kafka",
+  });
+
+  assert.equal(config.tagFormat, "kafka-v${version}");
+  assert.equal(config.plugins[0][1].paths[0], "extensions/Shirubasoft.Aspire.Extensions.Kafka/**");
+  assert.match(config.plugins[1][1].publishCmd, /Shirubasoft\.Aspire\.Extensions\.Kafka/u);
+  assert.deepEqual(
+    config.plugins[2][1].assets.map((asset) => asset.path),
+    [
+      "artifacts/Shirubasoft.Aspire.Extensions.Kafka/*.nupkg",
+      "artifacts/Shirubasoft.Aspire.Extensions.Kafka/*.snupkg",
+    ],
+  );
+});
+
+test("rejects incomplete extension release metadata", () => {
+  assert.throws(
+    () => createExtensionReleaseConfig({ extensionPath: "extensions/Kafka" }),
+    /required/u,
+  );
+});

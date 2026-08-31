@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/extensions/">
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.Kafka/samples/Kafka.AppHost/Kafka.AppHost.csproj" />
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.Kafka/src/Shirubasoft.Aspire.Extensions.Kafka/Shirubasoft.Aspire.Extensions.Kafka.csproj" />
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.Kafka/tests/Shirubasoft.Aspire.Extensions.Kafka.PackageTests/Shirubasoft.Aspire.Extensions.Kafka.PackageTests.csproj" />
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.Kafka/tests/Shirubasoft.Aspire.Extensions.Kafka.Tests/Shirubasoft.Aspire.Extensions.Kafka.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/CrapScore/CrapScore.csproj" />
+    <Project Path="tests/CrapScore.Tests/CrapScore.Tests.csproj" />
+  </Folder>
+</Solution>
