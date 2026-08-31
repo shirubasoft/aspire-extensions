@@ -13,7 +13,11 @@ function Invoke-DotNet {
     }
 }
 
-$extensionPath = $ExtensionPath.TrimEnd('/', '\\')
+$directorySeparators = [char[]] @(
+    [System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar
+)
+$extensionPath = $ExtensionPath.TrimEnd($directorySeparators)
 $packageId = Split-Path $extensionPath -Leaf
 $solution = Join-Path $extensionPath "$packageId.slnx"
 $packageProject = Join-Path $extensionPath "src/$packageId/$packageId.csproj"
