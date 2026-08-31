@@ -1,11 +1,10 @@
-<Project Sdk="Aspire.AppHost.Sdk">
+<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <UserSecretsId>shirubasoft-aspire-extensions-kafka-sample</UserSecretsId>
     <AspireUseCliBundle Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(AspireHostingSDKVersion)', '13.5.0'))">true</AspireUseCliBundle>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Shirubasoft.Aspire.Extensions.Kafka/Shirubasoft.Aspire.Extensions.Kafka.csproj"
-                      IsAspireProjectResource="false" />
+    <ProjectReference Include="../../src/Shirubasoft.Aspire.Extensions.Kafka/Shirubasoft.Aspire.Extensions.Kafka.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
 </Project>
