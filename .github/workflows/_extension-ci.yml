@@ -36,6 +36,7 @@ jobs:
         with:
           args: >-
             -color
+            .github/workflows/aspire-update.yml
             .github/workflows/_extension-ci.yml
             .github/workflows/_extension-prerelease.yml
             .github/workflows/_extension-publish.yml

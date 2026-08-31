@@ -1,0 +1,60 @@
+name: Update Aspire dependencies
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: update-aspire-dependencies
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Update Aspire AppHosts and integrations
+        env:
+          ASPIRE_UPDATE_REPORT: ${{ runner.temp }}/aspire-update-pr.md
+        run: ./eng/update-aspire.sh "$ASPIRE_UPDATE_REPORT"
+
+      - name: Check for updates
+        id: changes
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate updates
+        if: steps.changes.outputs.found == 'true'
+        run: ./build.sh
+
+      - name: Create or update pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ github.token }}
+          base: ${{ github.event.repository.default_branch }}
+          branch: codex/aspire-updates
+          delete-branch: true
+          commit-message: 'chore(deps): update Aspire dependencies'
+          title: 'chore(deps): update Aspire dependencies'
+          body-path: ${{ runner.temp }}/aspire-update-pr.md
