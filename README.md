@@ -30,7 +30,7 @@ The repository uses shared reusable workflows for CI, stable releases, and manua
 
 Each package versions independently from Conventional Commits that touch its own folder or shared package inputs. For example, Kafka releases use tags such as `kafka-v1.2.3`. A `feat` commit produces a minor release, a `fix` commit produces a patch release, and a breaking change produces a major release.
 
-CI runs on Linux and Windows. Linux also measures method-level CRAP scores from OpenCover data and fails unless every method scores strictly below 5. Publishing requires the repository variable `NUGET_PUBLISH_ENABLED=true` and the `NUGET_API_KEY` secret.
+CI runs on Linux and Windows. Linux also measures method-level CRAP scores from OpenCover data and fails unless every method scores strictly below 5. After a successful `main` build, semantic-release publishes the package and symbols to NuGet.org with the `NUGET_API_KEY` organization secret, creates the package tag, and attaches both files to a GitHub release.
 
 ## Add an extension
 

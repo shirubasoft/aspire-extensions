@@ -56,7 +56,6 @@ jobs:
 
   release-version:
     if: >-
-      vars.NUGET_PUBLISH_ENABLED == 'true' &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
