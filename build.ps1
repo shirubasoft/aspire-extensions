@@ -28,9 +28,11 @@ else {
 }
 
 foreach ($path in $extensionPaths) {
-    $arguments = @("-ExtensionPath", $path)
+    $arguments = @{
+        ExtensionPath = $path
+    }
     if (-not [string]::IsNullOrWhiteSpace($PackageVersion)) {
-        $arguments += @("-PackageVersion", $PackageVersion)
+        $arguments.PackageVersion = $PackageVersion
     }
 
     & "$PSScriptRoot/eng/build-extension.ps1" @arguments
