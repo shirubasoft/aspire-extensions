@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Title>Shirubasoft Aspire resource group extensions</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Logical resource groups for Aspire AppHosts.</Description>
+    <AssemblyName>Shirubasoft.Aspire.Extensions.ResourceGroups</AssemblyName>
+    <RootNamespace>Aspire.Hosting</RootNamespace>
+    <PackageId>Shirubasoft.Aspire.Extensions.ResourceGroups</PackageId>
+    <PackageTags>aspire;apphost;resource-groups;dashboard;topology</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shirubasoft.Aspire.Extensions.ResourceGroups.Tests" />
+  </ItemGroup>
+</Project>
