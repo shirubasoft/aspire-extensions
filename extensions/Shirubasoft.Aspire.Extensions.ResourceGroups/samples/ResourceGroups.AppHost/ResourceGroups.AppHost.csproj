@@ -1,0 +1,11 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>shirubasoft-aspire-extensions-resource-groups-sample</UserSecretsId>
+    <AspireUseCliBundle Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(AspireHostingSDKVersion)', '13.5.0'))">true</AspireUseCliBundle>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Shirubasoft.Aspire.Extensions.ResourceGroups/Shirubasoft.Aspire.Extensions.ResourceGroups.csproj"
+                      IsAspireProjectResource="false" />
+  </ItemGroup>
+</Project>

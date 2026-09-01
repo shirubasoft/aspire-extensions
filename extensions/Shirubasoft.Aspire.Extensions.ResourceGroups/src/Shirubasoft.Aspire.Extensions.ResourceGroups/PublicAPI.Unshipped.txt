@@ -1,0 +1,6 @@
+#nullable enable
+Aspire.Hosting.IResourceGroupBuilder
+Aspire.Hosting.ResourceGroupBuilderExtensions
+static Aspire.Hosting.ResourceGroupBuilderExtensions.AddResourceGroup(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name) -> Aspire.Hosting.IResourceGroupBuilder!
+Aspire.Hosting.ResourceGroupResource
+Aspire.Hosting.ResourceGroupResource.ResourceGroupResource(string! name) -> void

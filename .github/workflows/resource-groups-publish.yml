@@ -1,0 +1,30 @@
+name: Publish Resource Groups NuGet package
+
+on:
+  workflow_run:
+    workflows:
+      - Resource Groups CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-publish.yml
+    with:
+      artifact_name: resource-groups-nuget-packages
+      head_sha: ${{ github.event.workflow_run.head_sha }}
+      package_id: Shirubasoft.Aspire.Extensions.ResourceGroups
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.ResourceGroups/release.config.mjs
+      tag_prefix: resource-groups
+      workflow_run_id: ${{ github.event.workflow_run.id }}
+    secrets: inherit
