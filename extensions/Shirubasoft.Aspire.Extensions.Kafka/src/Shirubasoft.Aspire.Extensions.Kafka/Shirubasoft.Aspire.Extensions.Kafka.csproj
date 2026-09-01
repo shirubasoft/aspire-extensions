@@ -4,6 +4,7 @@
     <Authors>Shirubasoft</Authors>
     <Description>Schema Registry and topic resources for Aspire Kafka AppHosts.</Description>
     <AssemblyName>Shirubasoft.Aspire.Extensions.Kafka</AssemblyName>
+    <RootNamespace>Aspire.Hosting</RootNamespace>
     <PackageId>Shirubasoft.Aspire.Extensions.Kafka</PackageId>
     <PackageTags>aspire;apphost;kafka;schema-registry;topics</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
