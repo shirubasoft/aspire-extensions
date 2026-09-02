@@ -8,12 +8,29 @@ const pathScopedCommitsPlugin = fileURLToPath(
 const execPlugin = require.resolve("@semantic-release/exec");
 const githubPlugin = require.resolve("@semantic-release/github");
 
-export function createExtensionReleaseConfig({ extensionPath, packageId, tagPrefix }) {
+export function createExtensionReleaseConfig({
+  extensionPath,
+  packageId,
+  packages = [{ id: packageId, symbols: true }],
+  tagPrefix,
+}) {
   if (!extensionPath || !packageId || !tagPrefix) {
     throw new TypeError("extensionPath, packageId, and tagPrefix are required.");
   }
+  if (!Array.isArray(packages) || packages.length === 0) {
+    throw new TypeError("packages must contain at least one package.");
+  }
+  for (const packageDefinition of packages) {
+    if (!packageDefinition?.id || typeof packageDefinition.symbols !== "boolean") {
+      throw new TypeError("Each package requires an id and a symbols boolean.");
+    }
+  }
 
   const artifactPath = `artifacts/${packageId}`;
+  const packageSpecs = packages
+    .map((packageDefinition) =>
+      `${packageDefinition.id}${packageDefinition.symbols ? ":symbols" : ""}`)
+    .join(";");
   const conventionalConfig = {
     preset: "conventionalcommits",
     paths: [
@@ -38,12 +55,10 @@ export function createExtensionReleaseConfig({ extensionPath, packageId, tagPref
           verifyReleaseCmd:
             `if [ -n "$NEXT_RELEASE_VERSION_FILE" ]; then printf '%s\\n' '\${nextRelease.version}' `
             + `> "$NEXT_RELEASE_VERSION_FILE"; else bash .github/release/verify-release-assets.sh `
-            + `'\${nextRelease.version}' '${packageId}'; fi`,
+            + `'\${nextRelease.version}' '${packageId}' '${packageSpecs}'; fi`,
           publishCmd:
-            `dotnet nuget push "${artifactPath}/${packageId}.\${nextRelease.version}.nupkg" `
-            + "--source https://api.nuget.org/v3/index.json --api-key \"$NUGET_API_KEY\" "
-            + "--symbol-source https://api.nuget.org/v3/index.json --symbol-api-key \"$NUGET_API_KEY\" "
-            + "--skip-duplicate",
+            `bash .github/release/publish-release-assets.sh `
+            + `'\${nextRelease.version}' '${packageId}' '${packageSpecs}'`,
         },
       ],
       [

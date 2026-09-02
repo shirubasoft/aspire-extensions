@@ -12,6 +12,10 @@ on:
       package_id:
         required: true
         type: string
+      package_specs:
+        required: false
+        type: string
+        default: ""
       version:
         required: true
         type: string
@@ -78,12 +82,10 @@ jobs:
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
           PACKAGE_ID: ${{ inputs.package_id }}
+          PACKAGE_SPECS: ${{ inputs.package_specs }}
           PRERELEASE_VERSION: ${{ inputs.version }}
-        run: >-
-          dotnet nuget push
-          "artifacts/$PACKAGE_ID/$PACKAGE_ID.$PRERELEASE_VERSION.nupkg"
-          --source https://api.nuget.org/v3/index.json
-          --api-key "$NUGET_API_KEY"
-          --symbol-source https://api.nuget.org/v3/index.json
-          --symbol-api-key "$NUGET_API_KEY"
-          --skip-duplicate
+        shell: bash
+        run: |
+          package_specs="${PACKAGE_SPECS:-$PACKAGE_ID:symbols}"
+          bash .github/release/publish-release-assets.sh \
+            "$PRERELEASE_VERSION" "$PACKAGE_ID" "$package_specs"

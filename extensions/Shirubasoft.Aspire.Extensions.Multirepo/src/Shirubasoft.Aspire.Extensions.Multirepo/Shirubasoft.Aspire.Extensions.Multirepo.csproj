@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Title>Shirubasoft Aspire Multirepo extensions</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Composable module import and export support for Aspire AppHosts.</Description>
+    <AssemblyName>Shirubasoft.Aspire.Extensions.Multirepo</AssemblyName>
+    <RootNamespace>Aspire.Hosting</RootNamespace>
+    <PackageId>Shirubasoft.Aspire.Extensions.Multirepo</PackageId>
+    <PackageTags>aspire;apphost;modules;multi-repository;containers</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+    <PackageReference Include="CliWrap" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Shirubasoft.Aspire.Extensions.Multirepo.Generators/Shirubasoft.Aspire.Extensions.Multirepo.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../Shirubasoft.Aspire.Extensions.Multirepo.Generators/bin/$(Configuration)/netstandard2.0/Shirubasoft.Aspire.Extensions.Multirepo.Generators.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+    <None Include="../Shirubasoft.Aspire.Extensions.Multirepo.Generators/bin/$(Configuration)/netstandard2.0/Shirubasoft.Aspire.Extensions.Multirepo.Generators.pdb"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+</Project>

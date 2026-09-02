@@ -1,0 +1,379 @@
+name: Multirepo CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.Multirepo/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/multirepo-ci.yml
+      - .github/workflows/multirepo-prerelease.yml
+      - .github/workflows/multirepo-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  pull_request:
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.Multirepo/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/multirepo-ci.yml
+      - .github/workflows/multirepo-prerelease.yml
+      - .github/workflows/multirepo-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  multirepo:
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-ci.yml
+    with:
+      artifact_name: multirepo-nuget-packages
+      extension_path: extensions/Shirubasoft.Aspire.Extensions.Multirepo
+      initial_version: 15.0.0
+      package_id: Shirubasoft.Aspire.Extensions.Multirepo
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.Multirepo/release.config.mjs
+      tag_prefix: multirepo
+
+  e2e-docker-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASPIRE_TEST_DEPLOYMENT_ENVIRONMENT: CI
+      ASPIRE_TEST_DEPLOYMENT_OUTPUT_PATH: ${{ github.workspace }}/extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.AppHost/aspire-output
+      Parameters__orders_api_key: e2e-orders-key
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore the pinned Aspire CLI
+        id: restore-aspire
+        run: dotnet tool restore
+
+      - name: Restore
+        run: >-
+          dotnet restore
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
+
+      - name: Build E2E sample
+        run: >-
+          dotnet build
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
+          --configuration Release
+          --no-restore
+
+      - name: Test E2E through builder-owned Docker Compose
+        id: compose-tests
+        env:
+          ESHOP_E2E_MODE: compose
+        run: >-
+          dotnet test
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+
+      - name: Emergency Docker Compose teardown
+        if: ${{ always() && steps.restore-aspire.outcome == 'success' && (steps.compose-tests.outcome == 'failure' || steps.compose-tests.outcome == 'cancelled') }}
+        run: >-
+          dotnet tool run aspire -- destroy
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.AppHost/EShop.E2E.AppHost.csproj
+          --output-path extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.AppHost/aspire-output
+          --environment CI
+          --yes
+          --non-interactive
+
+  e2e-modular-samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASPIRE_CONTAINER_RUNTIME: docker
+      MODULAR_SAMPLES_E2E: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore the pinned Aspire CLI
+        run: dotnet tool restore
+
+      - name: Restore the modular sample graph
+        run: >-
+          dotnet restore
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ModularSamples.Tests/ModularSamples.Tests.csproj
+
+      - name: Start and validate both modular AppHosts
+        run: >-
+          dotnet test
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ModularSamples.Tests/ModularSamples.Tests.csproj
+          --configuration Release
+          --no-restore
+
+  e2e-image-registry-pipelines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ASPIRE_CONTAINER_RUNTIME: docker
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore the pinned Aspire CLI and image-push AppHost
+        run: |
+          dotnet tool restore
+          dotnet restore extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ImagePushE2E/ImagePush.E2E.AppHost/ImagePush.E2E.AppHost.csproj
+
+      - name: Describe effective module image identities
+        run: >-
+          bash
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ImagePushE2E/test-image-describe.sh
+
+      - name: Push scoped and complete image sets to a local registry
+        run: >-
+          bash
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ImagePushE2E/test-image-push.sh
+
+      - name: Pull scoped and complete image sets from a local registry
+        run: >-
+          bash
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ImagePushE2E/test-image-pull.sh
+
+  e2e-workflow-image-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ASPIRE_CONTAINER_RUNTIME: docker
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore the pinned Aspire CLI
+        run: dotnet tool restore
+
+      - name: Restore the producer and consumer sample
+        run: >-
+          dotnet restore
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj
+
+      - name: Pack the workflow tool
+        run: >-
+          dotnet pack
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/src/Shirubasoft.Aspire.Extensions.Multirepo.Tool/Shirubasoft.Aspire.Extensions.Multirepo.Tool.csproj
+          --configuration Release
+          --output artifacts/workflow-tool-package
+          -p:PackageVersion=0.0.0-workflow-e2e
+
+      - name: Install the packed workflow tool
+        run: >-
+          dotnet tool install
+          --tool-path artifacts/workflow-tool
+          --add-source artifacts/workflow-tool-package
+          --version 0.0.0-workflow-e2e
+          Shirubasoft.Aspire.Extensions.Multirepo.Tool
+
+      - name: Publish Repo B images and emit the workflow document
+        run: >-
+          artifacts/workflow-tool/modular-apphosts images publish
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Producer.AppHost
+          --resource multi-repo-api
+          --tag workflow-e2e
+          --output artifacts/module-image-workflow.json
+
+      - name: Validate publisher fallback without the build checkout
+        env:
+          MODULAR_PUBLISHER_FALLBACK_IMAGE: localhost:5000/multi-repo-e2e-resource:workflow-e2e
+        run: >-
+          dotnet test
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj
+          --configuration Release
+          --filter FullyQualifiedName~PublisherFallbackTests
+
+      - name: Run Repo A E2E tests against the overridden image
+        run: >-
+          artifacts/workflow-tool/modular-apphosts images apply
+          --file artifacts/module-image-workflow.json
+          --
+          dotnet test
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj
+          --configuration Release
+
+  e2e-multi-repo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore the pinned Aspire CLI
+        run: dotnet tool restore
+
+      - name: Validate initialization and runtime repository policies
+        env:
+          ASPIRE_CONTAINER_RUNTIME: docker
+          MULTI_REPO_E2E: true
+        run: >-
+          dotnet test
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/tests/Spire.MultiRepo.E2E.Tests/Spire.MultiRepo.E2E.Tests.csproj
+          --configuration Release
+
+      - name: Upload multi-repository failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: multi-repository-e2e-failure
+          path: artifacts/e2e/multi-repo-failure
+          if-no-files-found: ignore
+
+  e2e-remote-initialization-sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore the pinned Aspire CLI
+        run: dotnet tool restore
+
+      - name: Restore the remote initialization sample
+        run: >-
+          dotnet restore
+          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization/RemoteInitialization.AppHost.csproj
+
+      - name: Initialize the remote module repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          dotnet tool run aspire -- "do" initialize
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --non-interactive
+
+      - name: Select project mode
+        run: >-
+          dotnet tool run aspire -- "do" use-projects
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --non-interactive
+
+      - name: Verify the notification service resource step
+        run: >-
+          dotnet tool run aspire -- "do" use-project-notification-service
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --non-interactive
+
+      - name: Build the notification service image
+        run: >-
+          dotnet tool run aspire -- "do" build-notification-service
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --non-interactive
+
+      - name: Select container mode
+        run: >-
+          dotnet tool run aspire -- "do" use-containers
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --non-interactive
+
+      - name: Start the initialized sample
+        run: >-
+          dotnet tool run aspire -- start
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --isolated
+          --non-interactive
+
+      - name: Wait for the initialized service
+        run: >-
+          dotnet tool run aspire -- wait notification-service
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --timeout 120
+          --non-interactive
+
+      - name: Verify the required tool resource
+        run: >-
+          dotnet tool run aspire -- wait git-cli
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --timeout 30
+          --non-interactive
+
+      - name: Stop the sample
+        if: always()
+        run: >-
+          dotnet tool run aspire -- stop
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --non-interactive
+
+      - name: Reset developer-local mode overrides
+        if: always()
+        run: >-
+          dotnet tool run aspire -- "do" use-configured-modes
+          --apphost extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/RemoteInitialization
+          --non-interactive

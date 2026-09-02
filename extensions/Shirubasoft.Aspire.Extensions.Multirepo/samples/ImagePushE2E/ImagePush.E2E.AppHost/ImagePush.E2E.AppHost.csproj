@@ -1,0 +1,13 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Docker" />
+    <ProjectReference Include="../../../src/Shirubasoft.Aspire.Extensions.Multirepo/Shirubasoft.Aspire.Extensions.Multirepo.csproj"
+                      IsAspireProjectResource="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="ExportedProject/**/*.cs" />
+  </ItemGroup>
+</Project>

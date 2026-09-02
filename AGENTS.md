@@ -14,6 +14,14 @@ Backward compatibility is not a constraint before the first stable release. Mark
 
 Use `fix:` or `perf:` for patch releases, `feat:` for minor releases, and `!` or `BREAKING CHANGE:` for major releases. Release tooling filters commits by extension path, so keep each commit focused.
 
+After opening or updating a pull request, monitor its required checks until they pass or a genuine external blocker is identified. Inspect and fix in-scope failures before stopping.
+
 Every public feature needs tests and a runnable sample. CI must build the sample, inspect the packed `.nupkg` and `.snupkg`, and keep every production method's CRAP score below 5.
+
+Samples must run with their checked-in defaults through `aspire run --project <apphost>`.
+
+Prefer standard .NET configuration APIs such as `IConfiguration` and `IOptions<T>` over reading environment variables directly.
+
+Keep tool commands identical locally and in CI. Put tool-backed workflow orchestration in the tool instead of inline shell or `jq` in a workflow.
 
 Run container-backed tests with Docker or Podman. Check which runtime is available before choosing one.

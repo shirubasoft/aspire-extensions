@@ -41,6 +41,7 @@ Copy the closest extension, then replace every package ID, namespace, sample nam
 - Put dependency versions in `Directory.Packages.props`; package projects use versionless `PackageReference` items.
 - Inherit root compilation, symbols, Source Link, warnings, and repository metadata settings.
 - Keep `build.sh`, `build.ps1`, `eng/`, and `tools/CrapScore` generic. Add parameters or conventions when reuse needs improvement; do not add package-name branches.
+- For a related package family, list the packable project paths in `pack-projects.txt`. List additional coverage projects and their Coverlet filters in `coverage-projects.txt`. Single-package extensions use the conventional project paths and need neither manifest.
 - Add the extension solution to `Aspire.Extensions.slnx` and its package to the root README catalog.
 - Extend the shared workflow-lint file list with all new wrapper workflows.
 
@@ -65,7 +66,7 @@ Add `<slug>-ci.yml`, `<slug>-publish.yml`, and `<slug>-prerelease.yml` as thin c
 - shared CRAP tooling;
 - shared release tooling and the relevant reusable workflow.
 
-Create `release.config.mjs` with `createExtensionReleaseConfig`. The extension folder is the primary semantic-release scope. Shared package inputs may also trigger a release. Do not let changes to unrelated extension folders change this package's version.
+Create `release.config.mjs` with `createExtensionReleaseConfig`. The extension folder is the primary semantic-release scope. A related package family declares every package and whether it ships symbols; the packages share one release version. Shared package inputs may also trigger a release. Do not let changes to unrelated extension folders change this extension's version.
 
 ## Validate
 

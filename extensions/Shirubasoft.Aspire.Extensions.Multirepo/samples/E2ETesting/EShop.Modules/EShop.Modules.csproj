@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Shirubasoft.Aspire.Extensions.Multirepo.Generators/Shirubasoft.Aspire.Extensions.Multirepo.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../../src/Shirubasoft.Aspire.Extensions.Multirepo/Shirubasoft.Aspire.Extensions.Multirepo.csproj" />
+  </ItemGroup>
+</Project>

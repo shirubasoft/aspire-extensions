@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IncludeSymbols>false</IncludeSymbols>
+    <PackageId>Shirubasoft.Aspire.Extensions.Multirepo.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <Title>Shirubasoft Aspire Multirepo templates</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>dotnet new templates for Aspire multi-repository module contracts.</Description>
+    <PackageTags>aspire;apphost;modules;multi-repository;templates</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="aspire-module/**/*" Pack="true" PackagePath="content" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

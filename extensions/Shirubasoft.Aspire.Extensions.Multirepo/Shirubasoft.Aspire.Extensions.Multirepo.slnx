@@ -1,0 +1,47 @@
+<Solution>
+  <Folder Name="/samples/E2ETesting/">
+    <Project Path="samples/E2ETesting/EShop.Catalog.Api/EShop.Catalog.Api.csproj" />
+    <Project Path="samples/E2ETesting/EShop.E2E.AppHost/EShop.E2E.AppHost.csproj" />
+    <Project Path="samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj" />
+    <Project Path="samples/E2ETesting/EShop.Modules/EShop.Modules.csproj" />
+    <Project Path="samples/E2ETesting/EShop.Orders.Api/EShop.Orders.Api.csproj" />
+  </Folder>
+  <Folder Name="/samples/ImagePushE2E/">
+    <Project Path="samples/ImagePushE2E/ImagePush.E2E.AppHost/ExportedProject/ImagePush.ExportedProject.csproj" />
+    <Project Path="samples/ImagePushE2E/ImagePush.E2E.AppHost/ImagePush.E2E.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/samples/MultiRepoE2E/">
+    <Project Path="samples/MultiRepoE2E/Spire.Consumer.AppHost/Spire.Consumer.AppHost.csproj" />
+    <Project Path="samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj" />
+    <Project Path="samples/MultiRepoE2E/Spire.ModuleContract/Spire.ModuleContract.csproj" />
+    <Project Path="samples/MultiRepoE2E/Spire.Producer.AppHost/Spire.Producer.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/samples/RemoteInitialization/">
+    <Project Path="samples/RemoteInitialization/RemoteInitialization.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Shirubasoft.Aspire.Extensions.Multirepo.Tool/Shirubasoft.Aspire.Extensions.Multirepo.Tool.csproj" />
+    <Project Path="src/Shirubasoft.Aspire.Extensions.Multirepo.Testing/Shirubasoft.Aspire.Extensions.Multirepo.Testing.csproj" />
+    <Project Path="src/Shirubasoft.Aspire.Extensions.Multirepo/Shirubasoft.Aspire.Extensions.Multirepo.csproj" />
+    <Project Path="src/Shirubasoft.Aspire.Extensions.Multirepo.Generators/Shirubasoft.Aspire.Extensions.Multirepo.Generators.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Shirubasoft.Aspire.Extensions.Multirepo.PackageTests/Shirubasoft.Aspire.Extensions.Multirepo.PackageTests.csproj" />
+    <Project Path="tests/Shirubasoft.Aspire.Extensions.Multirepo.Tool.Tests/Shirubasoft.Aspire.Extensions.Multirepo.Tool.Tests.csproj" />
+    <Project Path="tests/Shirubasoft.Aspire.Extensions.Multirepo.Testing.Tests/Shirubasoft.Aspire.Extensions.Multirepo.Testing.Tests.csproj" />
+    <Project Path="tests/Shirubasoft.Aspire.Extensions.Multirepo.Tests/Shirubasoft.Aspire.Extensions.Multirepo.Tests.csproj" />
+    <Project Path="tests/Spire.MultiRepo.E2E.Support/Spire.MultiRepo.E2E.Support.csproj" />
+    <Project Path="tests/Spire.MultiRepo.E2E.Tests/Spire.MultiRepo.E2E.Tests.csproj" />
+  </Folder>
+  <Folder Name="/templates/">
+    <Project Path="templates/Shirubasoft.Aspire.Extensions.Multirepo.Templates.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/ModularSamples.Tests/ModularSamples.Tests.csproj" />
+    <Project Path="samples/ModuleContract/ModularSample.ModuleContract.csproj" />
+    <Project Path="samples/AppHostA/Api/ModularSample.Api.csproj" />
+    <Project Path="samples/AppHostA/ModularSample.AppHostA.csproj" />
+    <Project Path="samples/AppHostB/Gateway/ModularSample.Gateway.csproj" />
+    <Project Path="samples/AppHostB/ModularSample.AppHostB.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,14 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Docker" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Shirubasoft.Aspire.Extensions.Multirepo.Testing/Shirubasoft.Aspire.Extensions.Multirepo.Testing.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="../EShop.Modules/EShop.Modules.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="../EShop.Catalog.Api/EShop.Catalog.Api.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="../EShop.Orders.Api/EShop.Orders.Api.csproj" IsAspireProjectResource="false" />
+  </ItemGroup>
+</Project>

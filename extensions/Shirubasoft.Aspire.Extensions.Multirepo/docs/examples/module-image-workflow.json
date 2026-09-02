@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "images": [
+    {
+      "module": "orders",
+      "resource": "api",
+      "resourceKind": "project",
+      "registry": "ghcr.io",
+      "repository": "your-org/orders-api",
+      "tag": "0123456789abcdef",
+      "digest": null
+    },
+    {
+      "module": "orders",
+      "resource": "worker",
+      "resourceKind": "container",
+      "registry": "ghcr.io",
+      "repository": "your-org/orders-worker",
+      "tag": null,
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

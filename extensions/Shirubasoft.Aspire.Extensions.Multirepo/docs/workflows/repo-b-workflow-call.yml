@@ -1,0 +1,83 @@
+name: Validate Repo B through reusable Repo A E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: Tag used for Repo B images
+        required: false
+        type: string
+      resource-tags:
+        description: Repo B tag overrides keyed by module/resource as JSON
+        required: false
+        default: '{}'
+        type: string
+      repo-a-image-tag:
+        description: Optional tag Repo A applies after receiving the workflow document
+        required: false
+        type: string
+      repo-a-resource-tags:
+        description: Repo A tag overrides keyed by module/resource as JSON
+        required: false
+        default: '{}'
+        type: string
+      repo-a-ref:
+        description: Repo A source revision to test
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-images:
+    runs-on: ubuntu-latest
+    outputs:
+      image-workflow: ${{ steps.images.outputs['workflow-document'] }}
+    env:
+      MODULE_IMAGE_TAG: ${{ inputs.image-tag || github.sha }}
+      MODULE_RESOURCE_TAGS: ${{ inputs.resource-tags || '{}' }}
+
+    steps:
+      - name: Check out Repo B
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Log in to the image registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Aspire
+        run: dotnet tool install --global Aspire.Cli --version 13.5.3
+
+      - name: Restore pinned repository tools
+        run: dotnet tool restore
+
+      - name: Publish selected Repo B images
+        id: images
+        run: >-
+          dotnet tool run modular-apphosts -- images publish
+          --apphost src/RepoB.AppHost
+          --module orders
+          --tag "$MODULE_IMAGE_TAG"
+          --resource-tags "$MODULE_RESOURCE_TAGS"
+
+  external-e2e:
+    needs: publish-images
+    uses: your-org/repo-a/.github/workflows/external-e2e.yml@main
+    with:
+      image-workflow: ${{ needs.publish-images.outputs.image-workflow }}
+      repo-a-ref: ${{ inputs.repo-a-ref || 'main' }}
+      image-tag: ${{ inputs.repo-a-image-tag }}
+      resource-tags: ${{ inputs.repo-a-resource-tags || '{}' }}
+    secrets: inherit

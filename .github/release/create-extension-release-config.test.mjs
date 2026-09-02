@@ -32,3 +32,38 @@ test("rejects incomplete extension release metadata", () => {
     /required/u,
   );
 });
+
+test("publishes a related package family from one extension artifact", () => {
+  const config = createExtensionReleaseConfig({
+    extensionPath: "extensions/Shirubasoft.Aspire.Extensions.Multirepo",
+    packageId: "Shirubasoft.Aspire.Extensions.Multirepo",
+    packages: [
+      { id: "Shirubasoft.Aspire.Extensions.Multirepo", symbols: true },
+      { id: "Shirubasoft.Aspire.Extensions.Multirepo.Templates", symbols: false },
+    ],
+    tagPrefix: "multirepo",
+  });
+
+  const releaseCommands = config.plugins[1][1];
+  assert.match(
+    releaseCommands.verifyReleaseCmd,
+    /Multirepo:symbols;Shirubasoft\.Aspire\.Extensions\.Multirepo\.Templates/u,
+  );
+  assert.match(releaseCommands.publishCmd, /publish-release-assets\.sh/u);
+  assert.match(
+    releaseCommands.publishCmd,
+    /Multirepo:symbols;Shirubasoft\.Aspire\.Extensions\.Multirepo\.Templates/u,
+  );
+});
+
+test("rejects invalid package family metadata", () => {
+  assert.throws(
+    () => createExtensionReleaseConfig({
+      extensionPath: "extensions/Multirepo",
+      packageId: "Multirepo",
+      packages: [{ id: "Multirepo" }],
+      tagPrefix: "multirepo",
+    }),
+    /symbols boolean/u,
+  );
+});

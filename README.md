@@ -1,6 +1,6 @@
 # Aspire extensions
 
-This repository contains independently versioned Aspire extensions. Each package owns its source, tests, runnable sample, documentation, semantic-release configuration, and workflow entry points under one folder in `extensions/`.
+This repository contains independently versioned Aspire extensions. Each extension owns its packages, source, tests, runnable samples, documentation, semantic-release configuration, and workflow entry points under one folder in `extensions/`.
 
 ## Extensions
 
@@ -8,6 +8,7 @@ This repository contains independently versioned Aspire extensions. Each package
 | --- | --- | --- |
 | `Shirubasoft.Aspire.CloudflareTunnels` | Named Cloudflare Tunnels and account-free Quick Tunnels. | [Cloudflare Tunnels extension](extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/README.md) |
 | `Shirubasoft.Aspire.Extensions.Kafka` | Confluent Schema Registry and idempotent Kafka topic resources. | [Kafka extension](extensions/Shirubasoft.Aspire.Extensions.Kafka/README.md) |
+| `Shirubasoft.Aspire.Extensions.Multirepo` | Typed module contracts and multi-repository AppHost composition, testing, templates, and workflow tooling. | [Multirepo extension](extensions/Shirubasoft.Aspire.Extensions.Multirepo/README.md) |
 | `Shirubasoft.Aspire.Extensions.ResourceGroups` | Logical parent resources that organize an AppHost resource graph. | [Resource Groups extension](extensions/Shirubasoft.Aspire.Extensions.ResourceGroups/README.md) |
 
 ## Build
@@ -24,13 +25,13 @@ Build one extension with:
 ./build.sh --extension extensions/Shirubasoft.Aspire.Extensions.Kafka
 ```
 
-The Windows entry point is `./build.ps1`. Both entry points restore tools, verify formatting, build with warnings as errors, run unit and package contract tests, and create `.nupkg` and `.snupkg` files under `artifacts/<package-id>/`.
+The Windows entry point is `./build.ps1`. Both entry points restore tools, verify formatting, build with warnings as errors, run unit and package contract tests, and create `.nupkg` and `.snupkg` files under `artifacts/<primary-package-id>/`. An extension can publish related packages from that artifact directory under one version.
 
 ## Quality and release model
 
-The repository uses shared reusable workflows for CI, stable releases, and manually confirmed prereleases. Thin package workflows supply the package path, artifact name, release configuration, and tag prefix.
+The repository uses shared reusable workflows for CI, stable releases, and manually confirmed prereleases. Thin extension workflows supply the extension path, primary package ID, artifact name, release configuration, and tag prefix.
 
-Each package versions independently from Conventional Commits that touch its own folder or shared package inputs. For example, Kafka releases use tags such as `kafka-v1.2.3`. A `feat` commit produces a minor release, a `fix` commit produces a patch release, and a breaking change produces a major release.
+Each extension versions independently from Conventional Commits that touch its own folder or shared package inputs. Related packages from one extension share that version. For example, Kafka releases use tags such as `kafka-v1.2.3`. A `feat` commit produces a minor release, a `fix` commit produces a patch release, and a breaking change produces a major release.
 
 CI runs on Linux and Windows. Linux also measures method-level CRAP scores from OpenCover data and fails unless every method scores strictly below 5. After a successful `main` build, semantic-release publishes the package and symbols to NuGet.org with the `NUGET_API_KEY` organization secret, creates the package tag, and attaches both files to a GitHub release.
 

@@ -1,0 +1,32 @@
+name: Publish Multirepo prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: NuGet SemVer prerelease version, such as 1.0.0-preview.1
+        required: true
+        type: string
+      confirm_publish:
+        description: Publish the generated packages to NuGet.org
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      vars.NUGET_PUBLISH_ENABLED == 'true' &&
+      inputs.confirm_publish &&
+      github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/_extension-prerelease.yml
+    with:
+      artifact_name: multirepo-nuget-prerelease-packages
+      extension_path: extensions/Shirubasoft.Aspire.Extensions.Multirepo
+      package_id: Shirubasoft.Aspire.Extensions.Multirepo
+      package_specs: Shirubasoft.Aspire.Extensions.Multirepo:symbols;Shirubasoft.Aspire.Extensions.Multirepo.Testing:symbols;Shirubasoft.Aspire.Extensions.Multirepo.Tool:symbols;Shirubasoft.Aspire.Extensions.Multirepo.Templates
+      version: ${{ inputs.version }}
+    secrets: inherit

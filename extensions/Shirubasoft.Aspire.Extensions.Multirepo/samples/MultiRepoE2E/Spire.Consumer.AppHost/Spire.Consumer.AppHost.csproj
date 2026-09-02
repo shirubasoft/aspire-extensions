@@ -1,0 +1,12 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(SpireContractPackageVersion)' == ''">
+    <ProjectReference Include="../Spire.ModuleContract/Spire.ModuleContract.csproj"
+                      IsAspireProjectResource="false" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(SpireContractPackageVersion)' != ''">
+    <PackageReference Include="Shirubasoft.Spire.Sample.ModuleContract" />
+  </ItemGroup>
+</Project>

@@ -50,9 +50,15 @@ jobs:
             .github/workflows/cloudflare-tunnels-ci.yml
             .github/workflows/cloudflare-tunnels-prerelease.yml
             .github/workflows/cloudflare-tunnels-publish.yml
+            .github/workflows/multirepo-ci.yml
+            .github/workflows/multirepo-prerelease.yml
+            .github/workflows/multirepo-publish.yml
             .github/workflows/resource-groups-ci.yml
             .github/workflows/resource-groups-prerelease.yml
             .github/workflows/resource-groups-publish.yml
+            extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-a-e2e.yml
+            extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-dispatch.yml
+            extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-workflow-call.yml
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -169,14 +175,8 @@ jobs:
         run: |
           set -euo pipefail
           coverage_path="${{ github.workspace }}/artifacts/$PACKAGE_ID/coverage"
-          extension_name="$(basename "$EXTENSION_PATH")"
-          mkdir -p "$coverage_path"
-          dotnet test "$EXTENSION_PATH/tests/$extension_name.Tests/$extension_name.Tests.csproj" \
-            --configuration Release --no-build --no-restore \
-            -p:CollectCoverage=true \
-            -p:CoverletOutput="$coverage_path/extension.opencover.xml" \
-            -p:CoverletOutputFormat=opencover \
-            "-p:Include=[$PACKAGE_ID]*"
+          bash eng/collect-extension-coverage.sh \
+            "$EXTENSION_PATH" "$PACKAGE_ID" "$coverage_path"
           dotnet run --project tools/CrapScore/CrapScore.csproj \
             --configuration Release --no-build --no-restore -- \
             "$coverage_path" \

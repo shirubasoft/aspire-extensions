@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>modular-apphosts</ToolCommandName>
+    <PackageId>Shirubasoft.Aspire.Extensions.Multirepo.Tool</PackageId>
+    <Title>Shirubasoft Aspire Multirepo tool</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Module image workflow tooling for Aspire multi-repository AppHosts.</Description>
+    <PackageTags>aspire;apphost;modules;multi-repository;containers;dotnet-tool;github-actions</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <AssemblyName>Shirubasoft.Aspire.Extensions.Multirepo.Tool</AssemblyName>
+    <RootNamespace>Shirubasoft.Aspire.Extensions.Multirepo.Tool</RootNamespace>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ActionsToolkit.Core" />
+    <PackageReference Include="CliWrap" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Shirubasoft.Aspire.Extensions.Multirepo/Shirubasoft.Aspire.Extensions.Multirepo.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

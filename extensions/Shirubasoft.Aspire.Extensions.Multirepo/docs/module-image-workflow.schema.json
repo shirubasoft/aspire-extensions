@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Shirubasoft/aspire-extensions/blob/main/extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/module-image-workflow.schema.json",
+  "title": "Aspire modular AppHost module image workflow document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "images"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/image"
+      }
+    }
+  },
+  "$defs": {
+    "identitySegment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!.*(__|[:/=])).+$"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "resource",
+        "resourceKind",
+        "registry",
+        "repository",
+        "tag",
+        "digest"
+      ],
+      "properties": {
+        "module": {
+          "$ref": "#/$defs/identitySegment"
+        },
+        "resource": {
+          "$ref": "#/$defs/identitySegment"
+        },
+        "resourceKind": {
+          "enum": ["project", "container"]
+        },
+        "registry": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!.*://)[^/]+$"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*@)(?:[^/]|.+[^/])$"
+        },
+        "tag": {
+          "type": ["string", "null"]
+        },
+        "digest": {
+          "type": ["string", "null"]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "tag": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+            },
+            "digest": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "tag": {
+              "type": "null"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

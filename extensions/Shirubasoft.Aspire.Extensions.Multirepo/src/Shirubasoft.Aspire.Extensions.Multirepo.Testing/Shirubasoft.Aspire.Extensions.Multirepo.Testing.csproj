@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Title>Shirubasoft Aspire Multirepo testing extensions</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Docker Compose deployment testing support for Aspire multi-repository AppHosts.</Description>
+    <AssemblyName>Shirubasoft.Aspire.Extensions.Multirepo.Testing</AssemblyName>
+    <RootNamespace>Aspire.Hosting.Testing</RootNamespace>
+    <PackageId>Shirubasoft.Aspire.Extensions.Multirepo.Testing</PackageId>
+    <PackageTags>aspire;apphost;multi-repository;testing;docker-compose</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Docker" />
+    <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="CliWrap" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Shirubasoft.Aspire.Extensions.Multirepo/Shirubasoft.Aspire.Extensions.Multirepo.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
