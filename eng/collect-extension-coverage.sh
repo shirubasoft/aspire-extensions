@@ -9,11 +9,12 @@ fi
 extension_path="${1%/}"
 package_id="$2"
 coverage_path_input="$3"
+extension_name="$(basename "$extension_path")"
 coverage_projects_file="$extension_path/coverage-projects.txt"
 mkdir -p "$coverage_path_input"
 coverage_path="$(cd -- "$coverage_path_input" && pwd -P)"
 
-coverage_projects=("tests/$package_id.Tests/$package_id.Tests.csproj|$package_id")
+coverage_projects=("tests/$extension_name.Tests/$extension_name.Tests.csproj|$package_id")
 if [[ -f "$coverage_projects_file" ]]; then
   coverage_projects=()
   while IFS= read -r coverage_project || [[ -n "$coverage_project" ]]; do
