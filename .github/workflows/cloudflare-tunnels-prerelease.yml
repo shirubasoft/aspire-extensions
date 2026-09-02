@@ -1,0 +1,31 @@
+name: Publish Cloudflare Tunnels prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: NuGet SemVer prerelease version, such as 1.2.0-preview.1
+        required: true
+        type: string
+      confirm_publish:
+        description: Publish the generated packages to NuGet.org
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      vars.NUGET_PUBLISH_ENABLED == 'true' &&
+      inputs.confirm_publish &&
+      github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/_extension-prerelease.yml
+    with:
+      artifact_name: cloudflare-tunnels-nuget-prerelease-packages
+      extension_path: extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels
+      package_id: Shirubasoft.Aspire.CloudflareTunnels
+      version: ${{ inputs.version }}
+    secrets: inherit

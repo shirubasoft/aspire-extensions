@@ -1,0 +1,14 @@
+#nullable enable
+Aspire.Hosting.ApplicationModel.CloudflareQuickTunnelResource
+Aspire.Hosting.ApplicationModel.CloudflareQuickTunnelResource.CloudflareQuickTunnelResource(string! name) -> void
+Aspire.Hosting.ApplicationModel.CloudflareQuickTunnelResource.MetricsEndpoint.get -> Aspire.Hosting.ApplicationModel.EndpointReference!
+Aspire.Hosting.ApplicationModel.CloudflareQuickTunnelResource.PublicUrl.get -> string?
+Aspire.Hosting.ApplicationModel.CloudflareTunnelResource
+Aspire.Hosting.ApplicationModel.CloudflareTunnelResource.CloudflareTunnelResource(string! name) -> void
+Aspire.Hosting.ApplicationModel.CloudflareTunnelResource.MetricsEndpoint.get -> Aspire.Hosting.ApplicationModel.EndpointReference!
+Aspire.Hosting.ApplicationModel.CloudflareTunnelResource.TunnelId.get -> string?
+Aspire.Hosting.CloudflareTunnelResourceBuilderExtensions
+static Aspire.Hosting.CloudflareTunnelResourceBuilderExtensions.AddCloudflareQuickTunnel(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name, int? metricsPort = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.CloudflareQuickTunnelResource!>!
+static Aspire.Hosting.CloudflareTunnelResourceBuilderExtensions.AddCloudflareTunnel(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name, int? metricsPort = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.CloudflareTunnelResource!>!
+static Aspire.Hosting.CloudflareTunnelResourceBuilderExtensions.WithCloudflareTunnel<T>(this Aspire.Hosting.ApplicationModel.IResourceBuilder<T>! builder, Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.CloudflareTunnelResource!>! tunnel, string! hostname, string! endpointName = "http") -> Aspire.Hosting.ApplicationModel.IResourceBuilder<T>!
+static Aspire.Hosting.CloudflareTunnelResourceBuilderExtensions.WithReference<T>(this Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.CloudflareQuickTunnelResource!>! tunnel, Aspire.Hosting.ApplicationModel.IResourceBuilder<T>! target, string! endpointName = "http") -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.CloudflareQuickTunnelResource!>!

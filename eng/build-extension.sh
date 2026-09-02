@@ -26,15 +26,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-package_id="$(basename "$extension_path")"
-solution="$extension_path/$package_id.slnx"
-package_project="$extension_path/src/$package_id/$package_id.csproj"
-artifact_path="artifacts/$package_id"
+extension_name="$(basename "$extension_path")"
+solution="$extension_path/$extension_name.slnx"
+package_project="$extension_path/src/$extension_name/$extension_name.csproj"
 
 if [[ ! -f "$solution" || ! -f "$package_project" ]]; then
   echo "The extension does not follow the repository layout: $extension_path" >&2
   exit 1
 fi
+
+package_id="$(dotnet msbuild "$package_project" -getProperty:PackageId -nologo)"
+if [[ -z "$package_id" ]]; then
+  echo "The extension package project does not define PackageId: $package_project" >&2
+  exit 1
+fi
+artifact_path="artifacts/$package_id"
 
 version_arguments=()
 if [[ -n "$package_version" ]]; then

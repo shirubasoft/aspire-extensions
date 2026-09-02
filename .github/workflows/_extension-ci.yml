@@ -12,6 +12,10 @@ on:
       package_id:
         required: true
         type: string
+      initial_version:
+        default: 0.0.0
+        required: false
+        type: string
       release_config:
         required: true
         type: string
@@ -43,6 +47,9 @@ jobs:
             .github/workflows/kafka-ci.yml
             .github/workflows/kafka-prerelease.yml
             .github/workflows/kafka-publish.yml
+            .github/workflows/cloudflare-tunnels-ci.yml
+            .github/workflows/cloudflare-tunnels-prerelease.yml
+            .github/workflows/cloudflare-tunnels-publish.yml
             .github/workflows/resource-groups-ci.yml
             .github/workflows/resource-groups-prerelease.yml
             .github/workflows/resource-groups-publish.yml
@@ -86,10 +93,11 @@ jobs:
         shell: bash
         env:
           TAG_PREFIX: ${{ inputs.tag_prefix }}
+          INITIAL_VERSION: ${{ inputs.initial_version }}
         run: |
           set -euo pipefail
           if ! git describe --tags --abbrev=0 --match "$TAG_PREFIX-v[0-9]*" >/dev/null 2>&1; then
-            git tag "$TAG_PREFIX-v0.0.0" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+            git tag "$TAG_PREFIX-v$INITIAL_VERSION" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
           fi
 
       - name: Calculate release version
@@ -161,8 +169,9 @@ jobs:
         run: |
           set -euo pipefail
           coverage_path="${{ github.workspace }}/artifacts/$PACKAGE_ID/coverage"
+          extension_name="$(basename "$EXTENSION_PATH")"
           mkdir -p "$coverage_path"
-          dotnet test "$EXTENSION_PATH/tests/$PACKAGE_ID.Tests/$PACKAGE_ID.Tests.csproj" \
+          dotnet test "$EXTENSION_PATH/tests/$extension_name.Tests/$extension_name.Tests.csproj" \
             --configuration Release --no-build --no-restore \
             -p:CollectCoverage=true \
             -p:CoverletOutput="$coverage_path/extension.opencover.xml" \
