@@ -62,6 +62,7 @@ jobs:
     with:
       artifact_name: multirepo-nuget-packages
       extension_path: extensions/Shirubasoft.Aspire.Extensions.Multirepo
+      initial_version: 15.0.0
       package_id: Shirubasoft.Aspire.Extensions.Multirepo
       release_config: ./extensions/Shirubasoft.Aspire.Extensions.Multirepo/release.config.mjs
       tag_prefix: multirepo
