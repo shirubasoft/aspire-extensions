@@ -1,0 +1,30 @@
+name: Publish Multirepo NuGet packages
+
+on:
+  workflow_run:
+    workflows:
+      - Multirepo CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-publish.yml
+    with:
+      artifact_name: multirepo-nuget-packages
+      head_sha: ${{ github.event.workflow_run.head_sha }}
+      package_id: Shirubasoft.Aspire.Extensions.Multirepo
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.Multirepo/release.config.mjs
+      tag_prefix: multirepo
+      workflow_run_id: ${{ github.event.workflow_run.id }}
+    secrets: inherit

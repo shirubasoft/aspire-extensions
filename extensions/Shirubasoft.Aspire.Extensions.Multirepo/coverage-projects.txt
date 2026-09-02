@@ -1,0 +1,3 @@
+tests/Shirubasoft.Aspire.Extensions.Multirepo.Tests/Shirubasoft.Aspire.Extensions.Multirepo.Tests.csproj|Shirubasoft.Aspire.Extensions.Multirepo*
+tests/Shirubasoft.Aspire.Extensions.Multirepo.Testing.Tests/Shirubasoft.Aspire.Extensions.Multirepo.Testing.Tests.csproj|Shirubasoft.Aspire.Extensions.Multirepo.Testing
+tests/Shirubasoft.Aspire.Extensions.Multirepo.Tool.Tests/Shirubasoft.Aspire.Extensions.Multirepo.Tool.Tests.csproj|Shirubasoft.Aspire.Extensions.Multirepo.Tool

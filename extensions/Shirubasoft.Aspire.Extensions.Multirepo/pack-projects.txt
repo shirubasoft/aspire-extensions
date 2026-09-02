@@ -1,0 +1,4 @@
+src/Shirubasoft.Aspire.Extensions.Multirepo/Shirubasoft.Aspire.Extensions.Multirepo.csproj
+src/Shirubasoft.Aspire.Extensions.Multirepo.Testing/Shirubasoft.Aspire.Extensions.Multirepo.Testing.csproj
+src/Shirubasoft.Aspire.Extensions.Multirepo.Tool/Shirubasoft.Aspire.Extensions.Multirepo.Tool.csproj
+templates/Shirubasoft.Aspire.Extensions.Multirepo.Templates.csproj

@@ -1,0 +1,12 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>aspire-multirepo-sample-b</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ModuleContract/ModularSample.ModuleContract.csproj" IsAspireProjectResource="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Gateway/**/*.cs" />
+  </ItemGroup>
+</Project>

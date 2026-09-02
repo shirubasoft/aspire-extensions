@@ -1,0 +1,98 @@
+name: External E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      image-workflow:
+        description: Compact modular AppHost image workflow document
+        required: true
+        type: string
+      image-tag:
+        description: Optional Repo A tag override for every listed image
+        required: false
+        type: string
+      resource-tags:
+        description: Optional Repo A tag overrides keyed by module/resource as JSON
+        required: false
+        default: '{}'
+        type: string
+      repo-a-ref:
+        description: Repo A revision to test
+        required: false
+        default: main
+        type: string
+  workflow_call:
+    inputs:
+      image-workflow:
+        description: Compact modular AppHost image workflow document
+        required: true
+        type: string
+      image-tag:
+        description: Optional Repo A tag override for every listed image
+        required: false
+        type: string
+      resource-tags:
+        description: Optional Repo A tag overrides keyed by module/resource as JSON
+        required: false
+        default: '{}'
+        type: string
+      repo-a-ref:
+        description: Repo A revision to test
+        required: false
+        default: main
+        type: string
+    secrets:
+      REGISTRY_USERNAME:
+        required: false
+      REGISTRY_PASSWORD:
+        required: false
+      REPO_A_CHECKOUT_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE_WORKFLOW: ${{ inputs.image-workflow }}
+      IMAGE_TAG: ${{ inputs.image-tag }}
+      RESOURCE_TAGS: ${{ inputs.resource-tags }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+
+    steps:
+      - name: Check out Repo A explicitly
+        uses: actions/checkout@v7
+        with:
+          repository: your-org/repo-a
+          ref: ${{ inputs.repo-a-ref }}
+          token: ${{ secrets.REPO_A_CHECKOUT_TOKEN || github.token }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Log in to the image registry
+        if: env.REGISTRY_PASSWORD != ''
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Restore pinned repository tools
+        run: dotnet tool restore
+
+      - name: Run Repo A E2E tests with producer images
+        run: >-
+          dotnet tool run modular-apphosts -- images apply
+          --json "$IMAGE_WORKFLOW"
+          --tag "$IMAGE_TAG"
+          --resource-tags "$RESOURCE_TAGS"
+          --
+          dotnet test tests/RepoA.E2E.Tests/RepoA.E2E.Tests.csproj
+          --configuration Release

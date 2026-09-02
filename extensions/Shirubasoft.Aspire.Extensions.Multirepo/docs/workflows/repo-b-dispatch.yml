@@ -1,0 +1,91 @@
+name: Validate Repo B in Repo A
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: Tag used for Repo B images
+        required: false
+        type: string
+      resource-tags:
+        description: Repo B tag overrides keyed by module/resource as JSON
+        required: false
+        default: '{}'
+        type: string
+      repo-a-image-tag:
+        description: Optional tag Repo A applies after receiving the workflow document
+        required: false
+        type: string
+      repo-a-resource-tags:
+        description: Repo A tag overrides keyed by module/resource as JSON
+        required: false
+        default: '{}'
+        type: string
+      repo-a-ref:
+        description: Repo A workflow and source revision to test
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  external-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      MODULE_IMAGE_TAG: ${{ inputs.image-tag || github.sha }}
+      MODULE_RESOURCE_TAGS: ${{ inputs.resource-tags || '{}' }}
+      REPO_A_REF: ${{ inputs.repo-a-ref || vars.REPO_A_E2E_REF || 'main' }}
+      GH_TOKEN: ${{ secrets.REPO_A_ACTIONS_TOKEN }}
+
+    steps:
+      - name: Check out Repo B
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Log in to the image registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Aspire
+        run: dotnet tool install --global Aspire.Cli --version 13.4.6
+
+      - name: Restore pinned repository tools
+        run: dotnet tool restore
+
+      - name: Publish selected Repo B images
+        id: images
+        run: >-
+          dotnet tool run modular-apphosts -- images publish
+          --apphost src/RepoB.AppHost
+          --module orders
+          --tag "$MODULE_IMAGE_TAG"
+          --resource-tags "$MODULE_RESOURCE_TAGS"
+          --output module-image-workflow.json
+
+      - name: Dispatch Repo A and propagate its conclusion
+        id: dispatch
+        env:
+          IMAGE_WORKFLOW_PATH: ${{ steps.images.outputs['workflow-document-path'] }}
+          REPO_A_IMAGE_TAG: ${{ inputs.repo-a-image-tag }}
+          REPO_A_RESOURCE_TAGS: ${{ inputs.repo-a-resource-tags || '{}' }}
+        run: >-
+          dotnet tool run modular-apphosts -- workflow dispatch
+          --repository your-org/repo-a
+          --workflow external-e2e.yml
+          --ref "$REPO_A_REF"
+          --workflow-document "$IMAGE_WORKFLOW_PATH"
+          --input "repo-a-ref=$REPO_A_REF"
+          --input "image-tag=$REPO_A_IMAGE_TAG"
+          --input "resource-tags=$REPO_A_RESOURCE_TAGS"

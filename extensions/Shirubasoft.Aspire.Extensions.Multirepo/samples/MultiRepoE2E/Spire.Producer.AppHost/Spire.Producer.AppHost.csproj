@@ -1,0 +1,9 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Spire.ModuleContract/Spire.ModuleContract.csproj"
+                      IsAspireProjectResource="false" />
+  </ItemGroup>
+</Project>

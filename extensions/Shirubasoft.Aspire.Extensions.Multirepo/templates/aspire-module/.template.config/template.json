@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Shirubasoft",
+  "classifications": [
+    "Aspire",
+    "Cloud"
+  ],
+  "identity": "Shirubasoft.Aspire.Extensions.Multirepo.Module",
+  "name": "Aspire modular AppHost module",
+  "shortName": "aspire-module",
+  "sourceName": "CatalogModule",
+  "preferNameDirectory": false,
+  "symbols": {
+    "namespace": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "Aspire.Modules",
+      "description": "Namespace for the generated module contract.",
+      "replaces": "AspireModuleNamespace"
+    },
+    "moduleName": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "catalog",
+      "description": "Stable module identity used by importing AppHosts.",
+      "replaces": "catalog-module-name"
+    }
+  }
+}
