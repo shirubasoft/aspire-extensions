@@ -32,9 +32,14 @@ fi
 
 index=0
 for coverage_project in "${coverage_projects[@]}"; do
-  IFS='|' read -r relative_project assembly_filter extra <<< "$coverage_project"
+  IFS='|' read -r relative_project assembly_filter line_threshold extra <<< "$coverage_project"
   if [[ -z "$relative_project" || -z "$assembly_filter" || -n "$extra" ]]; then
-    echo "Coverage entries must use <project>|<assembly-filter>: $coverage_project" >&2
+    echo "Coverage entries must use <project>|<assembly-filter>[|<line-threshold>]: $coverage_project" >&2
+    exit 1
+  fi
+  if [[ -n "$line_threshold" ]] &&
+    { [[ ! "$line_threshold" =~ ^[0-9]+$ ]] || (( 10#$line_threshold > 100 )); }; then
+    echo "Coverage line thresholds must be whole percentages from 0 through 100: $coverage_project" >&2
     exit 1
   fi
   case "$relative_project" in
@@ -50,12 +55,20 @@ for coverage_project in "${coverage_projects[@]}"; do
   fi
   index=$((index + 1))
   report_path="$coverage_path/extension-$index.opencover.xml"
+  threshold_arguments=()
+  if [[ -n "$line_threshold" ]]; then
+    threshold_arguments+=(
+      "-p:Threshold=$line_threshold"
+      "-p:ThresholdType=line"
+      "-p:ThresholdStat=total")
+  fi
   dotnet test "$project" \
     --configuration Release --no-build --no-restore \
     -p:CollectCoverage=true \
     -p:CoverletOutput="$report_path" \
     -p:CoverletOutputFormat=opencover \
-    "-p:Include=[$assembly_filter]*"
+    "-p:Include=[$assembly_filter]*" \
+    "${threshold_arguments[@]}"
   if [[ ! -s "$report_path" ]]; then
     echo "Coverage project did not create $report_path" >&2
     exit 1

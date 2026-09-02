@@ -30,4 +30,4 @@ Every extension must include:
 - a package README and an initially empty `AGENTS.md`;
 - an independent semantic-release configuration and path-filtered CI, publish, and prerelease workflow wrappers.
 
-An extension that publishes related packages lists their project paths in `pack-projects.txt`. Its release configuration lists every package ID and whether the package has symbols. When production code is covered by more than one test project, `coverage-projects.txt` lists each project and its Coverlet include filter. The shared build and CI scripts read these manifests; a single-package extension does not need them.
+An extension that publishes related packages lists their project paths in `pack-projects.txt`. Its release configuration lists every package ID and whether the package has symbols. When production code is covered by more than one test project, `coverage-projects.txt` lists each project and its Coverlet include filter as `<project>|<assembly-filter>`. Append an optional whole-number line-coverage floor from 0 through 100 as a third field. The shared build and CI scripts read these manifests; a single-package extension does not need them.
