@@ -14,6 +14,7 @@
     <RepositoryType>git</RepositoryType>
     <AssemblyName>Shirubasoft.Aspire.Extensions.Multirepo.Tool</AssemblyName>
     <RootNamespace>Shirubasoft.Aspire.Extensions.Multirepo.Tool</RootNamespace>
+    <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="ActionsToolkit.Core" />
