@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Title>Shirubasoft Aspire Cloudflare Tunnels integration</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Cloudflare Tunnel and Quick Tunnel resources for Aspire AppHosts.</Description>
+    <AssemblyName>Shirubasoft.Aspire.CloudflareTunnels</AssemblyName>
+    <RootNamespace>Aspire.Hosting</RootNamespace>
+    <PackageId>Shirubasoft.Aspire.CloudflareTunnels</PackageId>
+    <PackageTags>aspire;apphost;cloudflare;cloudflared;tunnel</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shirubasoft.Aspire.Extensions.CloudflareTunnels.Tests" />
+  </ItemGroup>
+</Project>

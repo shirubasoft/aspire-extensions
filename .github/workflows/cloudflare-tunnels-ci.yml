@@ -1,0 +1,68 @@
+name: Cloudflare Tunnels CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/cloudflare-tunnels-ci.yml
+      - .github/workflows/cloudflare-tunnels-prerelease.yml
+      - .github/workflows/cloudflare-tunnels-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  pull_request:
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/cloudflare-tunnels-ci.yml
+      - .github/workflows/cloudflare-tunnels-prerelease.yml
+      - .github/workflows/cloudflare-tunnels-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  cloudflare-tunnels:
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-ci.yml
+    with:
+      artifact_name: cloudflare-tunnels-nuget-packages
+      extension_path: extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels
+      initial_version: 1.1.8
+      package_id: Shirubasoft.Aspire.CloudflareTunnels
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/release.config.mjs
+      tag_prefix: cloudflare-tunnels

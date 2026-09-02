@@ -30,7 +30,7 @@ public sealed class KafkaResourceBuilderExtensionsTests
         Assert.Equal(8081, endpoint.TargetPort);
         Assert.Equal(ProtocolType.Tcp, endpoint.Protocol);
         Assert.Contains(registry.Resource.Annotations, annotation => annotation is WaitAnnotation);
-#pragma warning disable CS0618 // The public test helper is the supported assertion API in Aspire 13.4.
+#pragma warning disable CS0618 // The public test helper is the supported assertion API.
         var environment = await registry.Resource.GetEnvironmentVariableValuesAsync(
             DistributedApplicationOperation.Publish);
 #pragma warning restore CS0618
@@ -83,7 +83,7 @@ public sealed class KafkaResourceBuilderExtensionsTests
         Assert.Equal(2, consumer.Resource.Annotations.OfType<EnvironmentCallbackAnnotation>().Count());
         var relationships = consumer.Resource.Annotations.OfType<ResourceRelationshipAnnotation>();
         Assert.Contains(relationships, relationship => relationship.Resource == registry.Resource);
-#pragma warning disable CS0618 // The public test helper is the supported assertion API in Aspire 13.4.
+#pragma warning disable CS0618 // The public test helper is the supported assertion API.
         var environment = await consumer.Resource.GetEnvironmentVariableValuesAsync(
             DistributedApplicationOperation.Publish);
 #pragma warning restore CS0618

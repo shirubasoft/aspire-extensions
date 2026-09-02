@@ -6,7 +6,7 @@ Place every extension's public API in namespaces already defined by the Aspire a
 
 Reuse the root build entry points, CRAP score tool, release tooling, and reusable GitHub workflows. Do not copy their implementations into extension folders.
 
-Public packages target .NET 10 and Aspire 13.4.6. Pin package versions in `Directory.Packages.props`. Enable nullable reference types, XML documentation, package validation, Source Link, symbols, and the public API analyzer.
+Public packages target .NET 10 and the Aspire versions pinned in `Directory.Packages.props`. Pin the AppHost SDK in `global.json`. Enable nullable reference types, XML documentation, package validation, Source Link, symbols, and the public API analyzer.
 
 Never synchronously block on asynchronous work. Propagate `Task`, `ValueTask`, and cancellation tokens to callers.
 
