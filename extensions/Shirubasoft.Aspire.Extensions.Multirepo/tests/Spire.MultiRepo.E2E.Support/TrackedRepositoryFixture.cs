@@ -17,9 +17,6 @@ internal static partial class Program
                     [
                         "-C", source,
                         "ls-files",
-                        "--cached",
-                        "--others",
-                        "--exclude-standard",
                         "-z",
                         "--",
                         .. pathSpecs
