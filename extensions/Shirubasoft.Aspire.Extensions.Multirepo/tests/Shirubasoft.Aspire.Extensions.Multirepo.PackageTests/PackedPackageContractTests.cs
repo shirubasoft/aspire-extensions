@@ -2,6 +2,8 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
+using System.Text.Json;
 using System.Xml.Linq;
 using CliWrap;
 using CliWrap.Buffered;
@@ -17,6 +19,7 @@ public sealed class PackedPackageContractTests
     private const string ToolPackageId = "Shirubasoft.Aspire.Extensions.Multirepo.Tool";
     private const string TemplatePackageId = "Shirubasoft.Aspire.Extensions.Multirepo.Templates";
     private const string MinimumSupportedSdkVersion = "10.0.100";
+    private static readonly Guid SourceLinkKind = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
     private static readonly SemaphoreSlim PackageBuildLock = new(1, 1);
     private static PackageArtifacts? _packageArtifacts;
     private readonly PackageTestWorkspace _workspace;
@@ -78,6 +81,55 @@ public sealed class PackedPackageContractTests
         Assert.True(File.Exists(packages.CoreSymbolPackagePath));
         Assert.True(File.Exists(packages.TestingSymbolPackagePath));
         Assert.True(File.Exists(packages.ToolSymbolPackagePath));
+    }
+
+    [Fact]
+    public async Task Runtime_packages_ship_their_documentation()
+    {
+        var packages = await GetPackagesAsync(TestContext.Current.CancellationToken);
+
+        var coreReadme = ReadTextEntry(packages.CorePackagePath, "README.md");
+        var testingReadme = ReadTextEntry(packages.TestingPackagePath, "README.md");
+
+        Assert.StartsWith($"# {CorePackageId}", coreReadme, StringComparison.Ordinal);
+        Assert.Contains("## Quick start", coreReadme, StringComparison.Ordinal);
+        Assert.StartsWith($"# {TestingPackageId}", testingReadme, StringComparison.Ordinal);
+        Assert.Contains("DockerComposeDeploymentTestingBuilder", testingReadme, StringComparison.Ordinal);
+        AssertXmlDocumentation(
+            packages.CorePackagePath,
+            $"lib/net10.0/{CorePackageId}.xml",
+            CorePackageId);
+        AssertXmlDocumentation(
+            packages.TestingPackagePath,
+            $"lib/net10.0/{TestingPackageId}.xml",
+            TestingPackageId);
+        AssertXmlDocumentation(
+            packages.ToolPackagePath,
+            $"tools/net10.0/any/{ToolPackageId}.xml",
+            ToolPackageId);
+    }
+
+    [Fact]
+    public async Task Symbol_packages_link_sources_to_the_repository_commit()
+    {
+        var packages = await GetPackagesAsync(TestContext.Current.CancellationToken);
+
+        AssertSourceLink(
+            packages.CoreSymbolPackagePath,
+            $"lib/net10.0/{CorePackageId}.pdb",
+            ReadMetadata(packages.CorePackagePath).RepositoryCommit);
+        AssertSourceLink(
+            packages.CoreSymbolPackagePath,
+            $"analyzers/dotnet/cs/{CorePackageId}.Generators.pdb",
+            ReadMetadata(packages.CorePackagePath).RepositoryCommit);
+        AssertSourceLink(
+            packages.TestingSymbolPackagePath,
+            $"lib/net10.0/{TestingPackageId}.pdb",
+            ReadMetadata(packages.TestingPackagePath).RepositoryCommit);
+        AssertSourceLink(
+            packages.ToolSymbolPackagePath,
+            $"tools/net10.0/any/{ToolPackageId}.pdb",
+            ReadMetadata(packages.ToolPackagePath).RepositoryCommit);
     }
 
     [Fact]
@@ -560,6 +612,48 @@ public sealed class PackedPackageContractTests
         using var archive = ZipFile.OpenRead(packagePath);
         return archive.Entries.Any(entry =>
             string.Equals(entry.FullName, entryPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void AssertXmlDocumentation(
+        string packagePath,
+        string entryPath,
+        string assemblyName)
+    {
+        var documentation = XDocument.Parse(ReadTextEntry(packagePath, entryPath));
+        Assert.Equal(assemblyName, documentation.Root?.Element("assembly")?.Element("name")?.Value);
+        Assert.NotNull(documentation.Root?.Element("members"));
+    }
+
+    private static void AssertSourceLink(
+        string packagePath,
+        string entryPath,
+        string repositoryCommit)
+    {
+        using var archive = ZipFile.OpenRead(packagePath);
+        var entry = Assert.Single(archive.Entries, entry =>
+            string.Equals(entry.FullName, entryPath, StringComparison.OrdinalIgnoreCase));
+        using var stream = entry.Open();
+        using var pdbStream = new MemoryStream();
+        stream.CopyTo(pdbStream);
+        pdbStream.Position = 0;
+        using var provider = MetadataReaderProvider.FromPortablePdbStream(pdbStream);
+        var metadata = provider.GetMetadataReader();
+        var sourceLinkHandle = Assert.Single(
+            metadata.CustomDebugInformation,
+            handle => metadata.GetGuid(metadata.GetCustomDebugInformation(handle).Kind) == SourceLinkKind);
+        var sourceLink = metadata.GetCustomDebugInformation(sourceLinkHandle);
+        var sourceLinkJson = Encoding.UTF8.GetString(metadata.GetBlobBytes(sourceLink.Value));
+        using var document = JsonDocument.Parse(sourceLinkJson);
+        var sourceUrls = document.RootElement
+            .GetProperty("documents")
+            .EnumerateObject()
+            .Select(property => property.Value.GetString())
+            .OfType<string>()
+            .ToArray();
+
+        Assert.Contains(
+            $"https://raw.githubusercontent.com/shirubasoft/aspire-extensions/{repositoryCommit}/*",
+            sourceUrls);
     }
 
     private static string ReadTextEntry(string packagePath, string entryPath)
