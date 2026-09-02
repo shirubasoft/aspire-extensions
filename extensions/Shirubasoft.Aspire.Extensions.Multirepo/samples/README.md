@@ -2,7 +2,7 @@
 
 The main sample has two AppHosts. AppHost A exports a typed module containing projects, containers, parameters, and other Aspire resources; AppHost B imports the same contract and adds a gateway that references its three HTTP services.
 
-Requirements: .NET 10 SDK, Aspire CLI 13.4.6 or later, and a running Docker or Podman runtime.
+Requirements: .NET 10 SDK, Aspire CLI 13.5.3 or later, and a running Docker or Podman runtime.
 
 ## Run the two-AppHost sample
 

@@ -2,7 +2,7 @@
 
 This sample imports `notification-service` from the unpinned [`shirubasoft/spire-external-repo-sample`](https://github.com/shirubasoft/spire-external-repo-sample) repository.
 
-Requirements: .NET 10 SDK, Aspire CLI 13.4.6 or later, and GitHub CLI. Git may already be installed or can be installed by the initialization pipeline.
+Requirements: .NET 10 SDK, Aspire CLI 13.5.3 or later, and GitHub CLI. Git may already be installed or can be installed by the initialization pipeline.
 
 From this directory, start the AppHost before initializing it:
 

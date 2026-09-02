@@ -6,7 +6,7 @@ This sample separates three concerns:
 - `ResourceBuildRepository` contains the Dockerfile and build inputs for `multi-repo-api`.
 - Producer and consumer AppHosts hand the built image identity across a workflow document.
 
-Requirements: .NET 10 SDK, Aspire CLI 13.4.6 or later, Git, and Docker or Podman.
+Requirements: .NET 10 SDK, Aspire CLI 13.5.3 or later, Git, and Docker or Podman.
 
 ## Run either AppHost
 

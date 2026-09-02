@@ -6,6 +6,7 @@ This repository contains independently versioned Aspire extensions. Each extensi
 
 | Package | Purpose | Documentation |
 | --- | --- | --- |
+| `Shirubasoft.Aspire.CloudflareTunnels` | Named Cloudflare Tunnels and account-free Quick Tunnels. | [Cloudflare Tunnels extension](extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/README.md) |
 | `Shirubasoft.Aspire.Extensions.Kafka` | Confluent Schema Registry and idempotent Kafka topic resources. | [Kafka extension](extensions/Shirubasoft.Aspire.Extensions.Kafka/README.md) |
 | `Shirubasoft.Aspire.Extensions.Multirepo` | Typed module contracts and multi-repository AppHost composition, testing, templates, and workflow tooling. | [Multirepo extension](extensions/Shirubasoft.Aspire.Extensions.Multirepo/README.md) |
 | `Shirubasoft.Aspire.Extensions.ResourceGroups` | Logical parent resources that organize an AppHost resource graph. | [Resource Groups extension](extensions/Shirubasoft.Aspire.Extensions.ResourceGroups/README.md) |

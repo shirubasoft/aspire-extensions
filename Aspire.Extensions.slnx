@@ -1,5 +1,9 @@
 <Solution>
   <Folder Name="/extensions/">
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/samples/CloudflareTunnels.AppHost/CloudflareTunnels.AppHost.csproj" />
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/src/Shirubasoft.Aspire.Extensions.CloudflareTunnels/Shirubasoft.Aspire.Extensions.CloudflareTunnels.csproj" />
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/tests/Shirubasoft.Aspire.Extensions.CloudflareTunnels.PackageTests/Shirubasoft.Aspire.Extensions.CloudflareTunnels.PackageTests.csproj" />
+    <Project Path="extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/tests/Shirubasoft.Aspire.Extensions.CloudflareTunnels.Tests/Shirubasoft.Aspire.Extensions.CloudflareTunnels.Tests.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.Kafka/samples/Kafka.AppHost/Kafka.AppHost.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.Kafka/src/Shirubasoft.Aspire.Extensions.Kafka/Shirubasoft.Aspire.Extensions.Kafka.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.Kafka/tests/Shirubasoft.Aspire.Extensions.Kafka.PackageTests/Shirubasoft.Aspire.Extensions.Kafka.PackageTests.csproj" />

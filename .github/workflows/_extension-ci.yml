@@ -12,6 +12,10 @@ on:
       package_id:
         required: true
         type: string
+      initial_version:
+        default: 0.0.0
+        required: false
+        type: string
       release_config:
         required: true
         type: string
@@ -43,6 +47,9 @@ jobs:
             .github/workflows/kafka-ci.yml
             .github/workflows/kafka-prerelease.yml
             .github/workflows/kafka-publish.yml
+            .github/workflows/cloudflare-tunnels-ci.yml
+            .github/workflows/cloudflare-tunnels-prerelease.yml
+            .github/workflows/cloudflare-tunnels-publish.yml
             .github/workflows/multirepo-ci.yml
             .github/workflows/multirepo-prerelease.yml
             .github/workflows/multirepo-publish.yml
@@ -92,10 +99,11 @@ jobs:
         shell: bash
         env:
           TAG_PREFIX: ${{ inputs.tag_prefix }}
+          INITIAL_VERSION: ${{ inputs.initial_version }}
         run: |
           set -euo pipefail
           if ! git describe --tags --abbrev=0 --match "$TAG_PREFIX-v[0-9]*" >/dev/null 2>&1; then
-            git tag "$TAG_PREFIX-v0.0.0" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+            git tag "$TAG_PREFIX-v$INITIAL_VERSION" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
           fi
 
       - name: Calculate release version

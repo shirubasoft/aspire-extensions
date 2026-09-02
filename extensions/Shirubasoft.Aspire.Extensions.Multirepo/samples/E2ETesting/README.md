@@ -17,7 +17,7 @@ Aspire starts both project resources, waits for health, and provides their HTTP 
 
 ## Run through Docker Compose
 
-Install Aspire CLI 13.4.6 or later, start Docker or Podman, and run:
+Install Aspire CLI 13.5.3 or later, start Docker or Podman, and run:
 
 ```bash
 ESHOP_E2E_MODE=compose \

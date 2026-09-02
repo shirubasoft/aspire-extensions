@@ -5,7 +5,7 @@
 Requirements:
 
 - .NET 10 SDK to install the tool.
-- Aspire CLI 13.4.6 or later for `images publish`.
+- Aspire CLI 13.5.3 or later for `images publish`.
 - GitHub CLI 2.87.0 or later for `workflow dispatch`.
 - Registry authentication available to Aspire's selected Docker or Podman runtime.
 - The same tool and `Shirubasoft.Aspire.Extensions.Multirepo` release in both repositories.

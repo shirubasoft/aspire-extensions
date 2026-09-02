@@ -11,11 +11,11 @@ Define an Aspire resource graph once, expose it as a typed C# contract, and reus
 | `Shirubasoft.Aspire.Extensions.Multirepo.Templates` | Scaffold a module contract with `dotnet new aspire-module`. |
 | `Shirubasoft.Aspire.Extensions.Multirepo.Tool` | Publish and apply module image workflow documents or dispatch cross-repository E2E workflows. |
 
-The runtime packages target .NET 10, the source generator supports .NET SDK 10.0.100 or later, and the Aspire-facing packages require Aspire 13.4.6 or later. The project uses the repository's [MIT License](https://github.com/Shirubasoft/aspire-extensions/blob/main/LICENSE).
+The runtime packages target .NET 10, the source generator supports .NET SDK 10.0.100 or later, and the Aspire-facing packages require Aspire 13.5.3 or later. The project uses the repository's [MIT License](https://github.com/Shirubasoft/aspire-extensions/blob/main/LICENSE).
 
 ## Quick start
 
-Prerequisites are .NET SDK 10.0.100 or later, Aspire CLI 13.4.6 or later, and a running Docker or Podman runtime. Add the core package to an AppHost or shared contract project, install the template, and scaffold a module:
+Prerequisites are .NET SDK 10.0.100 or later, Aspire CLI 13.5.3 or later, and a running Docker or Podman runtime. Add the core package to an AppHost or shared contract project, install the template, and scaffold a module:
 
 ```bash
 dotnet add package Shirubasoft.Aspire.Extensions.Multirepo

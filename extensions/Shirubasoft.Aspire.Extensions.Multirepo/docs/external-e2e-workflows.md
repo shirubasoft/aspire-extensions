@@ -31,7 +31,7 @@ dotnet tool install Shirubasoft.Aspire.Extensions.Multirepo.Tool --version <VERS
 git add .config/dotnet-tools.json
 ```
 
-Restore the manifest with `dotnet tool restore`. Publishing also needs Aspire CLI 13.4.6 or later; dispatch needs GitHub CLI 2.87.0 or later.
+Restore the manifest with `dotnet tool restore`. Publishing also needs Aspire CLI 13.5.3 or later; dispatch needs GitHub CLI 2.87.0 or later.
 
 See the [tool reference](../src/Shirubasoft.Aspire.Extensions.Multirepo.Tool/README.md) for command behavior, the strict workflow-document schema, tag precedence, limits, and exit codes. Use each command's `--help` output for its complete option list.
 

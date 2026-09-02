@@ -59,7 +59,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Aspire
-        run: dotnet tool install --global Aspire.Cli --version 13.4.6
+        run: dotnet tool install --global Aspire.Cli --version 13.5.3
 
       - name: Restore pinned repository tools
         run: dotnet tool restore

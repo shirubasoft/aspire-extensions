@@ -10,7 +10,7 @@ Add the package to an Aspire AppHost that already uses `Aspire.Hosting.Kafka`:
 dotnet add package Shirubasoft.Aspire.Extensions.Kafka
 ```
 
-The package targets .NET 10 and Aspire 13.4.6 or later within the Aspire 13.4 line.
+The package targets .NET 10 and Aspire 13.5.3 or later within the Aspire 13.5 line.
 
 ## Add Schema Registry and topics
 

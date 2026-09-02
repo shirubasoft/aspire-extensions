@@ -18,15 +18,23 @@ $directorySeparators = [char[]] @(
     [System.IO.Path]::AltDirectorySeparatorChar
 )
 $extensionPath = $ExtensionPath.TrimEnd($directorySeparators)
-$packageId = Split-Path $extensionPath -Leaf
-$solution = Join-Path $extensionPath "$packageId.slnx"
-$packageProject = Join-Path $extensionPath "src/$packageId/$packageId.csproj"
+$extensionName = Split-Path $extensionPath -Leaf
+$solution = Join-Path $extensionPath "$extensionName.slnx"
+$packageProject = Join-Path $extensionPath "src/$extensionName/$extensionName.csproj"
 $packProjectsFile = Join-Path $extensionPath "pack-projects.txt"
-$artifactPath = "artifacts/$packageId"
 
 if (-not (Test-Path $solution) -or -not (Test-Path $packageProject)) {
     throw "The extension does not follow the repository layout: $extensionPath"
 }
+
+$packageId = (& dotnet msbuild $packageProject -getProperty:PackageId -nologo).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not read PackageId from $packageProject."
+}
+if ([string]::IsNullOrWhiteSpace($packageId)) {
+    throw "The extension package project does not define PackageId: $packageProject"
+}
+$artifactPath = "artifacts/$packageId"
 
 $versionArguments = @()
 if (-not [string]::IsNullOrWhiteSpace($PackageVersion)) {
