@@ -2,7 +2,7 @@
 
 ## Repository contract
 
-Keep every extension self-contained under `extensions/Shirubasoft.Aspire.Extensions.<Name>/`. Do not add extension-specific branches to root build scripts or shared workflow implementations. Supply package differences through paths and workflow inputs.
+Keep every extension self-contained under `extensions/Shirubasoft.Aspire.Extensions.<Name>/`. Do not add extension-specific branches to root build scripts or shared workflow implementations. Supply package differences through paths, manifests, release configuration, and workflow inputs.
 
 Use the repo-scoped `add-aspire-extension` skill when creating a package. Start from the nearest existing local extension, copy only source-controlled inputs, and adapt all package names, tags, documentation, tests, and workflow filters.
 
@@ -29,3 +29,5 @@ Every extension must include:
 - a runnable Aspire AppHost sample;
 - a package README and an initially empty `AGENTS.md`;
 - an independent semantic-release configuration and path-filtered CI, publish, and prerelease workflow wrappers.
+
+An extension that publishes related packages lists their project paths in `pack-projects.txt`. Its release configuration lists every package ID and whether the package has symbols. When production code is covered by more than one test project, `coverage-projects.txt` lists each project and its Coverlet include filter. The shared build and CI scripts read these manifests; a single-package extension does not need them.
