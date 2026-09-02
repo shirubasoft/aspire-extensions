@@ -68,6 +68,8 @@ In run mode, Aspire prompts for these parameters:
 
 The integration reuses a tunnel with the requested name. It creates the tunnel when none exists, retrieves its connector token, upserts each CNAME record, and replaces the AppHost-managed ingress rules. Ingress rules that use other hostnames remain unchanged.
 
+Aspire keeps the connector token inside the tunnel resource and passes it directly to `cloudflared` through the secret `TUNNEL_TOKEN` environment variable. Application code uses the resource builder without handling the token.
+
 The API token needs these Cloudflare permissions:
 
 | Scope | Permission |
