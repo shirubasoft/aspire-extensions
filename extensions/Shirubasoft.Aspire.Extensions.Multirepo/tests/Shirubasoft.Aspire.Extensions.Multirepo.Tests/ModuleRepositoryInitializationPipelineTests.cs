@@ -475,10 +475,15 @@ public sealed class ModuleRepositoryInitializationPipelineTests
             "acme/services",
             revision: null,
             updateOnInitialize: true).Requirement;
+        var initialized = false;
         var step = ModuleRepositoryInitializationPipeline.CreateRepositoryStep(
             requirement,
             static () => new ModuleRepositoryInitializationSettings("git", "gh", TimeSpan.FromMinutes(2)),
-            static (_, _, _) => Task.CompletedTask);
+            (_, _, _) =>
+            {
+                initialized = true;
+                return Task.CompletedTask;
+            });
         var builder = DistributedApplication.CreateBuilder();
         await using var application = builder.Build();
         var pipelineContext = new PipelineContext(
@@ -487,15 +492,20 @@ public sealed class ModuleRepositoryInitializationPipelineTests
             application.Services,
             NullLogger.Instance,
             TestContext.Current.CancellationToken);
-        await using var reportingStep = await new NullPublishingActivityReporter().CreateStepAsync(
-            step.Name,
-            TestContext.Current.CancellationToken);
+        await using var reportingStep = new RecordingReportingStep();
 
         await step.Action(new PipelineStepContext
         {
             PipelineContext = pipelineContext,
             ReportingStep = reportingStep
         });
+
+        Assert.True(initialized);
+        var reportingTask = Assert.Single(reportingStep.Tasks);
+        Assert.Equal($"Initialize {requirement.NormalizedRepository}", reportingTask.InitialStatusText);
+        Assert.Equal($"Initialized at {requirement.RepositoryPath}", reportingTask.CompletionMessage);
+        Assert.Equal(CompletionState.Completed, reportingTask.RecordedCompletionState);
+        Assert.True(reportingTask.IsDisposed);
     }
 
     [Theory]

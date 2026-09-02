@@ -351,15 +351,21 @@ public sealed class RequiredToolResourceTests
             application.Services,
             NullLogger.Instance,
             TestContext.Current.CancellationToken);
-        await using var reportingStep = await new NullPublishingActivityReporter().CreateStepAsync(
-            step.Name,
-            TestContext.Current.CancellationToken);
+        await using var reportingStep = new RecordingReportingStep();
 
         await step.Action(new PipelineStepContext
         {
             PipelineContext = pipelineContext,
             ReportingStep = reportingStep
         });
+
+        var reportingTask = Assert.Single(reportingStep.Tasks);
+        Assert.Equal("Install dotnet-sdk", reportingTask.InitialStatusText);
+        Assert.Equal(
+            $"Available at {RequiredToolPathResolver.Resolve("dotnet")}",
+            reportingTask.CompletionMessage);
+        Assert.Equal(CompletionState.Completed, reportingTask.RecordedCompletionState);
+        Assert.True(reportingTask.IsDisposed);
     }
 
     private static async Task<IReadOnlyList<PipelineStep>> CreatePipelineStepsAsync(IResource resource)
