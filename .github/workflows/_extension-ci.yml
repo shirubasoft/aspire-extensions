@@ -56,6 +56,9 @@ jobs:
             .github/workflows/resource-groups-ci.yml
             .github/workflows/resource-groups-prerelease.yml
             .github/workflows/resource-groups-publish.yml
+            .github/workflows/test-projects-ci.yml
+            .github/workflows/test-projects-prerelease.yml
+            .github/workflows/test-projects-publish.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-a-e2e.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-dispatch.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-workflow-call.yml

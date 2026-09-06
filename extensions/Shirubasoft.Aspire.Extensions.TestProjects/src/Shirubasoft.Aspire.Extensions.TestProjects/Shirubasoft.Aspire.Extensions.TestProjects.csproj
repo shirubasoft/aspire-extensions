@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Title>Shirubasoft Aspire test project extensions</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Run test projects against AppHost resources and display Markdown test results in the Aspire dashboard.</Description>
+    <AssemblyName>Shirubasoft.Aspire.Extensions.TestProjects</AssemblyName>
+    <RootNamespace>Aspire.Hosting</RootNamespace>
+    <PackageId>Shirubasoft.Aspire.Extensions.TestProjects</PackageId>
+    <PackageTags>aspire;apphost;testing;dashboard;trx</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shirubasoft.Aspire.Extensions.TestProjects.Tests" />
+  </ItemGroup>
+</Project>

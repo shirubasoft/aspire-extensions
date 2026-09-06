@@ -1,0 +1,8 @@
+#nullable enable
+Aspire.Hosting.TestProjectBuilderExtensions
+Aspire.Hosting.TestProjectOptions
+Aspire.Hosting.TestProjectOptions.ResultsDirectory.get -> string!
+Aspire.Hosting.TestProjectOptions.ResultsDirectory.init -> void
+Aspire.Hosting.TestProjectOptions.TestProjectOptions() -> void
+static Aspire.Hosting.TestProjectBuilderExtensions.AddTestProject(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name, string! projectPath, Aspire.Hosting.TestProjectOptions? options = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.ProjectResource!>!
+static Aspire.Hosting.TestProjectBuilderExtensions.AddTestProject<TProject>(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name, Aspire.Hosting.TestProjectOptions? options = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.ProjectResource!>!
