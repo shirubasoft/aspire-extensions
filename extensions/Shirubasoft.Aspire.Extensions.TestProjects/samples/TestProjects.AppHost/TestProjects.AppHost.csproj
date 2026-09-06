@@ -9,6 +9,5 @@
                       IsAspireProjectResource="false" />
     <ProjectReference Include="../TestProjects.Api/TestProjects.Api.csproj" />
     <ProjectReference Include="../TestProjects.Tests/TestProjects.Tests.csproj" />
-    <ProjectReference Include="../TestProjects.MtpTests/TestProjects.MtpTests.csproj" />
   </ItemGroup>
 </Project>

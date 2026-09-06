@@ -1,8 +1,6 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/TestProjects.Api/TestProjects.Api.csproj" />
-    <Project Path="samples/TestProjects.Tests/TestProjects.Tests.csproj" />
-
     <Project Path="samples/TestProjects.AppHost/TestProjects.AppHost.csproj" />
   </Folder>
   <Folder Name="/src/">

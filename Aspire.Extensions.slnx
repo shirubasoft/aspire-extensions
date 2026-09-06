@@ -43,7 +43,6 @@
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.ResourceGroups/tests/Shirubasoft.Aspire.Extensions.ResourceGroups.Tests/Shirubasoft.Aspire.Extensions.ResourceGroups.Tests.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.TestProjects/samples/TestProjects.Api/TestProjects.Api.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.TestProjects/samples/TestProjects.AppHost/TestProjects.AppHost.csproj" />
-    <Project Path="extensions/Shirubasoft.Aspire.Extensions.TestProjects/samples/TestProjects.Tests/TestProjects.Tests.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.TestProjects/src/Shirubasoft.Aspire.Extensions.TestProjects/Shirubasoft.Aspire.Extensions.TestProjects.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.TestProjects/tests/Shirubasoft.Aspire.Extensions.TestProjects.PackageTests/Shirubasoft.Aspire.Extensions.TestProjects.PackageTests.csproj" />
     <Project Path="extensions/Shirubasoft.Aspire.Extensions.TestProjects/tests/Shirubasoft.Aspire.Extensions.TestProjects.Tests/Shirubasoft.Aspire.Extensions.TestProjects.Tests.csproj" />

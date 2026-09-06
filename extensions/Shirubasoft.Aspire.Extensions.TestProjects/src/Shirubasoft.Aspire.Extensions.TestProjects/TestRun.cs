@@ -1,95 +1,128 @@
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 
 namespace Aspire.Hosting;
 
-internal sealed class TestRun(TestProjectResource resource, TestProjectOptions options, string appHostDirectory)
+internal sealed class TestRun(ProjectResource resource, string resultsDirectory)
 {
-    private int _running;
-    private ExecuteCommandResult _lastResult = TestResultMarkdown.Create(true, "No test results", "# 🟡 No tests run yet\n\nChoose **Run tests** to run this suite.");
+    private TestRunSession? _current;
+    private int _commandRunning;
+    private ExecuteCommandResult _lastResult = TestResultMarkdown.Create(true, "No test results", "# 🟡 No tests run yet\n\nChoose **Run tests** or **Start** to run this suite.");
 
-    internal bool IsRunning => Volatile.Read(ref _running) != 0;
-    internal string DirectoryPath { get; private set; } = "";
+    internal TestRunSession? Current => Volatile.Read(ref _current);
     internal ExecuteCommandResult LastResult => Volatile.Read(ref _lastResult);
+    internal string[] Arguments => ["--report-trx", "--report-trx-filename", "results.trx", "--results-directory", Current!.DirectoryPath];
 
-    internal async Task<ExecuteCommandResult> ExecuteAsync(ExecuteCommandContext context, Func<ExecuteCommandContext, Task<ExecuteCommandResult>> execute)
+    internal void Prepare()
     {
-        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
+        var session = new TestRunSession(Path.Combine(resultsDirectory, resource.Name, Guid.NewGuid().ToString("N")));
+        Directory.CreateDirectory(session.DirectoryPath);
+        Volatile.Write(ref _current, session);
+    }
+
+    internal async Task CompleteAsync(CustomResourceSnapshot snapshot, CancellationToken token)
+    {
+        var session = Current;
+        if (session is null)
         {
-            return TestResultMarkdown.Error("Tests already running", "Wait for the active run or cancel it in its progress dialog.");
+            return;
+        }
+        var result = await TestRunArtifacts.ReadAndSaveAsync(resource.Name, session, snapshot, token);
+        Volatile.Write(ref _lastResult, result);
+        session.Completion.TrySetResult(result);
+    }
+
+    internal async Task<ExecuteCommandResult> ExecuteAsync(ExecuteCommandContext context)
+    {
+        if (Interlocked.CompareExchange(ref _commandRunning, 1, 0) != 0)
+        {
+            return TestResultMarkdown.Error("Tests already running", "Wait for the active run or stop the test resource.");
         }
         try
         {
-            await PublishAsync(context, new("Running", KnownResourceStateStyles.Info));
-            var result = await ExecuteAndSaveAsync(context, execute);
-            Volatile.Write(ref _lastResult, result);
-            await PublishAsync(context, ResultState(result));
-            return result;
+            context.CancellationToken.ThrowIfCancellationRequested();
+            return await StartAndWaitAsync(context);
+        }
+        catch (OperationCanceledException)
+        {
+            return TestResultMarkdown.Error("Test run canceled", "The start request was canceled.", canceled: true);
         }
         finally
         {
-            Interlocked.Exchange(ref _running, 0);
+            Interlocked.Exchange(ref _commandRunning, 0);
         }
     }
 
-    private async Task<ExecuteCommandResult> ExecuteAndSaveAsync(ExecuteCommandContext context, Func<ExecuteCommandContext, Task<ExecuteCommandResult>> execute)
+    private async Task<ExecuteCommandResult> StartAndWaitAsync(ExecuteCommandContext context)
     {
+        var commands = context.Services.GetRequiredService<ResourceCommandService>();
+        var previous = Current;
         try
         {
-            DirectoryPath = Path.Combine(Path.GetFullPath(options.ResultsDirectory, appHostDirectory), resource.Name, Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(DirectoryPath);
-            var result = await ExecuteWithTimeoutAsync(context, execute);
-            using var saveTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "results.md"), result.Data!.Value, saveTimeout.Token);
-            return result;
+            var started = await commands.ExecuteCommandAsync(resource, KnownResourceCommands.StartCommand, context.CancellationToken);
+            started = CheckStartup(context, started);
+            if (!started.Success)
+            {
+                return RecordStartFailure(started);
+            }
+            var session = Current;
+            if (session == previous)
+            {
+                return TestResultMarkdown.Error("Tests already running", "The test project did not start a new run.");
+            }
+            return await session!.Completion.Task.WaitAsync(context.CancellationToken);
         }
-        catch (Exception exception)
+        catch (OperationCanceledException)
         {
-            return TestResultMarkdown.Error("Could not run tests or save results", exception.Message);
+            return await StopAsync(commands, previous);
         }
     }
 
-    private async Task<ExecuteCommandResult> ExecuteWithTimeoutAsync(ExecuteCommandContext context, Func<ExecuteCommandContext, Task<ExecuteCommandResult>> execute)
+    internal ExecuteCommandResult GetLastResult(ExecuteCommandContext context) => CheckStartup(context, LastResult);
+
+    private ExecuteCommandResult CheckStartup(ExecuteCommandContext context, ExecuteCommandResult result)
     {
-        var lifetime = context.Services.GetRequiredService<IHostApplicationLifetime>();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken, lifetime.ApplicationStopping);
-        timeout.CancelAfter(options.Timeout);
-        var invocation = new ExecuteCommandContext
+        if (GetResourceState(context) == KnownResourceStates.FailedToStart)
         {
-            Services = context.Services,
-            ResourceName = context.ResourceName,
-            Logger = context.Logger,
-            Arguments = context.Arguments,
-            CancellationToken = timeout.Token,
-        };
-        var result = await execute(invocation);
-        return Normalize(result, context.CancellationToken.IsCancellationRequested || lifetime.ApplicationStopping.IsCancellationRequested);
-    }
-
-    internal static ExecuteCommandResult Normalize(ExecuteCommandResult result, bool canceled)
-    {
-        if (result.Canceled)
-        {
-            return CancellationResult(canceled);
+            return TestResultMarkdown.Error("Could not start tests", "See the test resource's console logs in Aspire for the startup error.");
         }
-        return result.Data is null ? RunnerError(result) : result;
+        return result;
     }
 
-    private static ExecuteCommandResult CancellationResult(bool canceled) =>
-        TestResultMarkdown.Error(canceled ? "Test run canceled" : "Test run timed out",
-            "The test process was stopped. Any partial TRX files remain in the run directory.", canceled);
+    private static string? GetResourceState(ExecuteCommandContext context)
+    {
+        var notifications = context.Services.GetRequiredService<ResourceNotificationService>();
+        notifications.TryGetCurrentState(context.ResourceName, out var state);
+        return state?.Snapshot.State?.Text;
+    }
 
-    private static ExecuteCommandResult RunnerError(ExecuteCommandResult result) =>
-        TestResultMarkdown.Error("Test runner error", result.Message ?? "The runner did not return results.");
+    private ExecuteCommandResult RecordStartFailure(ExecuteCommandResult started)
+    {
+        var result = TestResultMarkdown.Error("Could not start tests", started.Message ?? "Aspire could not start the test project.");
+        Volatile.Write(ref _lastResult, result);
+        Current?.Completion.TrySetResult(result);
+        return result;
+    }
 
-    private Task PublishAsync(ExecuteCommandContext context, ResourceStateSnapshot state) =>
-        context.Services.GetRequiredService<ResourceNotificationService>().PublishUpdateAsync(resource,
-            snapshot => snapshot with { State = state });
+    private async Task<ExecuteCommandResult> StopAsync(ResourceCommandService commands, TestRunSession? previous)
+    {
+        var session = Current;
+        if (session == previous)
+        {
+            return TestResultMarkdown.Error("Test run canceled", "The start request was canceled.", canceled: true);
+        }
+        session!.Cancel();
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await commands.ExecuteCommandAsync(resource, KnownResourceCommands.StopCommand, cleanup.Token);
+        return await session.Completion.Task.WaitAsync(cleanup.Token);
+    }
+}
 
-    private static ResourceStateSnapshot ResultState(ExecuteCommandResult result) => result.Canceled
-        ? new("Canceled", KnownResourceStateStyles.Warn)
-        : new(result.Message ?? "Finished", ResultStyle(result.Success));
-
-    private static string ResultStyle(bool success) => success ? KnownResourceStateStyles.Success : KnownResourceStateStyles.Error;
+internal sealed class TestRunSession(string directoryPath)
+{
+    private int _canceled;
+    internal string DirectoryPath { get; } = directoryPath;
+    internal TaskCompletionSource<ExecuteCommandResult> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal bool Canceled => Volatile.Read(ref _canceled) != 0;
+    internal void Cancel() => Interlocked.Exchange(ref _canceled, 1);
 }
