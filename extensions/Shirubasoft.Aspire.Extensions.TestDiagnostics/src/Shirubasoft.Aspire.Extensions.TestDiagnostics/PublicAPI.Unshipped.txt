@@ -1,0 +1,20 @@
+#nullable enable
+Aspire.Hosting.Testing.DiagnosticsTestingBuilder
+Aspire.Hosting.Testing.TestDiagnosticsExport
+Aspire.Hosting.Testing.TestDiagnosticsExport.DirectoryPath.get -> string!
+Aspire.Hosting.Testing.TestDiagnosticsExport.Errors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Aspire.Hosting.Testing.TestDiagnosticsExportMode
+Aspire.Hosting.Testing.TestDiagnosticsExportMode.Always = 1 -> Aspire.Hosting.Testing.TestDiagnosticsExportMode
+Aspire.Hosting.Testing.TestDiagnosticsExportMode.OnFailure = 0 -> Aspire.Hosting.Testing.TestDiagnosticsExportMode
+Aspire.Hosting.Testing.TestDiagnosticsExtensions
+Aspire.Hosting.Testing.TestDiagnosticsOptions
+Aspire.Hosting.Testing.TestDiagnosticsOptions.ExportMode.get -> Aspire.Hosting.Testing.TestDiagnosticsExportMode
+Aspire.Hosting.Testing.TestDiagnosticsOptions.ExportMode.set -> void
+Aspire.Hosting.Testing.TestDiagnosticsOptions.ExportTimeout.get -> System.TimeSpan
+Aspire.Hosting.Testing.TestDiagnosticsOptions.ExportTimeout.set -> void
+Aspire.Hosting.Testing.TestDiagnosticsOptions.OutputDirectory.get -> string!
+Aspire.Hosting.Testing.TestDiagnosticsOptions.OutputDirectory.set -> void
+Aspire.Hosting.Testing.TestDiagnosticsOptions.TestDiagnosticsOptions() -> void
+static Aspire.Hosting.Testing.DiagnosticsTestingBuilder.CreateAsync<TEntryPoint>(string![]? args = null, System.Action<Aspire.Hosting.DistributedApplicationOptions!, Microsoft.Extensions.Hosting.HostApplicationBuilderSettings!>? configureBuilder = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Aspire.Hosting.Testing.IDistributedApplicationTestingBuilder!>!
+static Aspire.Hosting.Testing.TestDiagnosticsExtensions.ExportDiagnosticsAsync(this Aspire.Hosting.DistributedApplication! application, string! outputDirectory, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Aspire.Hosting.Testing.TestDiagnosticsExport!>!
+static Aspire.Hosting.Testing.TestDiagnosticsExtensions.RunWithDiagnosticsAsync(this Aspire.Hosting.DistributedApplication! application, System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task!>! operation, Aspire.Hosting.Testing.TestDiagnosticsOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Aspire.Hosting.Testing.TestDiagnosticsExport?>!
