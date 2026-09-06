@@ -2,6 +2,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/TestDiagnostics.Api/TestDiagnostics.Api.csproj" />
     <Project Path="samples/TestDiagnostics.AppHost/TestDiagnostics.AppHost.csproj" />
+    <Project Path="samples/TestDiagnostics.Tests/TestDiagnostics.Tests.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Shirubasoft.Aspire.Extensions.TestDiagnostics/Shirubasoft.Aspire.Extensions.TestDiagnostics.csproj" />

@@ -129,10 +129,22 @@ The formatter follows Aspire 13.5.3's [CLI output format specification](https://
 
 ## Run the sample
 
+The runnable xUnit sample demonstrates the library's public API in [DiagnosticsTests.cs](samples/TestDiagnostics.Tests/DiagnosticsTests.cs). It references the sample AppHost and the library project; an installed consumer would use a package reference for the library.
+
 From the repository root:
 
 ```bash
-dotnet test extensions/Shirubasoft.Aspire.Extensions.TestDiagnostics/tests/Shirubasoft.Aspire.Extensions.TestDiagnostics.Tests --filter FullyQualifiedName~DistributedDiagnosticsTests
+dotnet test extensions/Shirubasoft.Aspire.Extensions.TestDiagnostics/samples/TestDiagnostics.Tests --logger "console;verbosity=detailed"
 ```
 
-The distributed tests start the sample API, emit logs and traces, and prove that concurrent AppHosts export only their own telemetry. They exercise manual exports, successful always-export operations, and a simulated test failure that preserves its original exception.
+The examples demonstrate failure-triggered exports, successful operations with `ExportMode.Always`, and an explicit export in asynchronous teardown. Each starts the sample AppHost, calls the API to emit a marked log and trace, and verifies the saved files. The failure example catches its intentional assertion failure outside `RunWithDiagnosticsAsync`, so the sample suite passes. In a real test, let that failure propagate to the runner.
+
+The tests print the dashboard endpoint and each export's absolute path. Final exports remain under `samples/TestDiagnostics.Tests/bin/<configuration>/net10.0/TestResults/aspire-diagnostics/<scenario>/<export-id>/` after teardown. Open the `otlp/` files with the dashboard's Import action as described above. `SampleTelemetry` waits for asynchronous telemetry delivery using temporary snapshots and removes those scratch files.
+
+To run only the application and dashboard:
+
+```bash
+aspire run --project extensions/Shirubasoft.Aspire.Extensions.TestDiagnostics/samples/TestDiagnostics.AppHost/TestDiagnostics.AppHost.csproj
+```
+
+The AppHost composes the API. The sample test project enables the dashboard for testing and performs the diagnostics exports.
