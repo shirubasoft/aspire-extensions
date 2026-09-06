@@ -1,3 +1,6 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,21 +42,28 @@ internal static class DashboardTelemetry
     internal static async Task ExportResponsesAsync(HttpClient client, string directory,
         List<string> errors, CancellationToken cancellationToken)
     {
+        var resourceData = await client.GetFromJsonAsync<JsonNode>("/api/telemetry/resources", cancellationToken).ConfigureAwait(false);
+        var resources = new TelemetryResourceNames(resourceData);
         foreach (var signal in new[] { "logs", "traces" })
         {
             await DiagnosticsExporter.CollectAsync(signal, errors,
-                () => WriteResponseAsync(client, signal, directory, cancellationToken), cancellationToken)
+                () => WriteResponseAsync(client, signal, resources, directory, cancellationToken), cancellationToken)
                 .ConfigureAwait(false);
         }
     }
 
-    private static async Task WriteResponseAsync(HttpClient client, string signal, string directory,
+    private static async Task WriteResponseAsync(HttpClient client, string signal, TelemetryResourceNames resources, string directory,
         CancellationToken cancellationToken)
     {
         using var response = await client.GetAsync($"/api/telemetry/{signal}?limit={int.MaxValue}",
             HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
+        var data = await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken).ConfigureAwait(false);
+        var dashboardUrl = client.BaseAddress!.AbsoluteUri;
+        var formatted = signal == "logs"
+            ? CliLogJson.Convert(data, resources, dashboardUrl)
+            : CliTraceJson.Convert(data, resources, dashboardUrl);
         await using var output = File.Create(Path.Combine(directory, signal + ".json"));
-        await response.Content.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+        await JsonSerializer.SerializeAsync(output, formatted, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

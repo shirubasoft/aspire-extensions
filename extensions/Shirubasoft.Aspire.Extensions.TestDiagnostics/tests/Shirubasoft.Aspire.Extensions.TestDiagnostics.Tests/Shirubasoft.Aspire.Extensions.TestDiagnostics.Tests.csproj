@@ -17,4 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="../../samples/TestDiagnostics.AppHost/TestDiagnostics.AppHost.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

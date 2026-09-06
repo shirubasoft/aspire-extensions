@@ -2,6 +2,8 @@
 
 Save an Aspire test application's console logs, structured logs, and distributed traces before teardown. The core package works with any test runner. It uses Aspire's console-log service and the dashboard HTTP telemetry API directly, so parallel tests export from their own application instance.
 
+Telemetry files match `aspire otel logs --format Json` and `aspire otel traces --format Json` for the pinned Aspire version. The library formats the responses in process; exporting does not require the CLI.
+
 ## Install
 
 Add the package to your distributed test project and reference your AppHost project:
@@ -111,15 +113,15 @@ Every call creates a unique directory beneath `OutputDirectory`:
 | File | Contents |
 | --- | --- |
 | `consolelogs/<resource>.txt` | Resource console output, including hidden resources and combined replica output. |
-| `logs.json` | Dashboard response containing OTLP structured logs and record counts. |
-| `traces.json` | Dashboard response containing OTLP traces and record counts. |
+| `logs.json` | CLI-format array of structured log objects, including messages, severity, resource names, attributes, and exceptions. |
+| `traces.json` | CLI-format array of trace objects with grouped spans, durations, timestamps, and error status. |
 | `manifest.json` | Absolute export directory and errors from individual sources. |
 
-Collection continues after an individual source fails. For example, console output remains available when the dashboard is missing. A timeout or explicit cancellation can leave partial files. Credentials used to query the dashboard are kept out of the manifest; application log and trace contents are exported as received.
+Collection continues after an individual source fails. For example, console output remains available when the dashboard is missing. A timeout or explicit cancellation can leave partial files. The manifest omits the credentials used to query the dashboard.
 
-Exports are snapshots of data already received and retained by Aspire. Flush or wait for your application's telemetry before exporting if the last operation must be included. Dashboard retention and application sampling still apply. The JSON files preserve the dashboard API envelope, including `totalCount` and `returnedCount`; they are diagnostic artifacts rather than dashboard-import ZIP archives.
+Exports are snapshots of data already received and retained by Aspire. Flush or wait for your application's telemetry before exporting if the last operation must be included. Dashboard retention and application sampling still apply. The JSON files use the CLI snapshot format, including dashboard links and replica names. Empty results are `[]`. The exports request all retained records instead of the CLI's default item limit. They are diagnostic artifacts rather than dashboard-import ZIP archives.
 
-The implementation uses the same [dashboard HTTP telemetry API](https://aspire.dev/fundamentals/telemetry/) used by CLI telemetry commands. The [Aspire export command](https://aspire.dev/reference/cli/commands/aspire-export/) describes the related CLI archive format.
+The formatter follows Aspire 13.5.3's [CLI output format specification](https://github.com/microsoft/aspire/blob/b5f143315ffb6968ea939a9978797a5b20e4c688/docs/specs/cli-output-formats.md). Compatibility tests feed identical telemetry to the package and the pinned CLI, then compare their parsed JSON.
 
 ## Run the sample
 

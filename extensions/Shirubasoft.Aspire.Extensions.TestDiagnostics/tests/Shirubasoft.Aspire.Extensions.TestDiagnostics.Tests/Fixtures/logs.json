@@ -1,0 +1,261 @@
+{
+  "data": {
+    "resourceLogs": [
+      {
+        "resource": {
+          "attributes": [
+            {
+              "key": "service.name",
+              "value": {
+                "stringValue": "api"
+              }
+            },
+            {
+              "key": "service.instance.id",
+              "value": {
+                "stringValue": "11111111-2222-3333-4444-555555555555"
+              }
+            }
+          ]
+        },
+        "scopeLogs": [
+          {
+            "scope": {
+              "name": "Sample.Logger"
+            },
+            "logRecords": [
+              {
+                "body": {
+                  "stringValue": "Request failed <tag>\n\u96ea"
+                },
+                "severityText": "Error",
+                "spanId": "0123456789abcdef",
+                "traceId": "11111111111111111111111111111111",
+                "attributes": [
+                  {
+                    "key": "aspire.log_id",
+                    "value": {
+                      "stringValue": "42"
+                    }
+                  },
+                  {
+                    "key": "exception.type",
+                    "value": {
+                      "stringValue": "InvalidOperationException"
+                    }
+                  },
+                  {
+                    "key": "exception.message",
+                    "value": {
+                      "stringValue": "failure"
+                    }
+                  },
+                  {
+                    "key": "count",
+                    "value": {
+                      "intValue": "00042"
+                    }
+                  },
+                  {
+                    "key": "ratio",
+                    "value": {
+                      "doubleValue": 1.25
+                    }
+                  },
+                  {
+                    "key": "enabled",
+                    "value": {
+                      "boolValue": true
+                    }
+                  },
+                  {
+                    "key": "empty",
+                    "value": {
+                      "stringValue": ""
+                    }
+                  },
+                  {
+                    "key": "null",
+                    "value": {
+                      "stringValue": null
+                    }
+                  },
+                  {
+                    "key": "array",
+                    "value": {
+                      "arrayValue": {
+                        "values": [
+                          {
+                            "stringValue": "a"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "key": "http.response.status_code",
+                    "value": {
+                      "intValue": "500"
+                    }
+                  }
+                ]
+              },
+              {
+                "body": {
+                  "stringValue": "Duplicate message"
+                },
+                "attributes": [
+                  {
+                    "key": "exception.stacktrace",
+                    "value": {
+                      "stringValue": "The stack trace"
+                    }
+                  },
+                  {
+                    "key": "exception.message",
+                    "value": {
+                      "stringValue": "Ignored message"
+                    }
+                  },
+                  {
+                    "key": "aspire.log_id",
+                    "value": {
+                      "stringValue": "invalid"
+                    }
+                  }
+                ]
+              },
+              {
+                "body": {
+                  "stringValue": "Duplicate message"
+                },
+                "attributes": [
+                  {
+                    "key": "exception.message",
+                    "value": {
+                      "stringValue": "Message only"
+                    }
+                  },
+                  {
+                    "key": "enabled",
+                    "value": {
+                      "boolValue": false
+                    }
+                  }
+                ]
+              },
+              {
+                "body": {
+                  "intValue": "123"
+                },
+                "attributes": [
+                  {
+                    "key": "missing"
+                  },
+                  {
+                    "key": "exception.type",
+                    "value": {
+                      "stringValue": "OnlyType"
+                    }
+                  }
+                ]
+              },
+              {
+                "attributes": [
+                  {
+                    "key": "exception.stacktrace",
+                    "value": {
+                      "stringValue": ""
+                    }
+                  },
+                  {
+                    "key": "exception.message",
+                    "value": {
+                      "stringValue": ""
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {}
+        ]
+      },
+      {
+        "resource": {
+          "attributes": [
+            {
+              "key": "service.name",
+              "value": {
+                "stringValue": "api"
+              }
+            },
+            {
+              "key": "service.instance.id",
+              "value": {
+                "stringValue": "pod-2"
+              }
+            }
+          ]
+        },
+        "scopeLogs": [
+          {
+            "logRecords": [
+              {}
+            ]
+          }
+        ]
+      },
+      {
+        "resource": {
+          "attributes": [
+            {
+              "key": "service.name",
+              "value": {
+                "stringValue": "api"
+              }
+            }
+          ]
+        },
+        "scopeLogs": [
+          {
+            "logRecords": [
+              {}
+            ]
+          }
+        ]
+      },
+      {
+        "resource": {
+          "attributes": [
+            {
+              "key": "service.name",
+              "value": {
+                "stringValue": "worker"
+              }
+            }
+          ]
+        },
+        "scopeLogs": [
+          {
+            "logRecords": [
+              {}
+            ]
+          }
+        ]
+      },
+      {
+        "scopeLogs": [
+          {
+            "logRecords": [
+              {}
+            ]
+          }
+        ]
+      },
+      {}
+    ]
+  },
+  "totalCount": 9,
+  "returnedCount": 9
+}

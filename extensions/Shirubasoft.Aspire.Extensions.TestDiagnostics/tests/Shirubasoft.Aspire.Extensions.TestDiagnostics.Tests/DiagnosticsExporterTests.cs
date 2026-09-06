@@ -51,7 +51,7 @@ public sealed class DiagnosticsExporterTests : IDisposable
         await DashboardTelemetry.ExportResponsesAsync(client, _directory, errors, TestContext.Current.CancellationToken);
         Assert.Contains("logs:", Assert.Single(errors));
         Assert.False(File.Exists(Path.Combine(_directory, "logs.json")));
-        Assert.Equal("{\"data\":{\"resourceSpans\":[]}}", await File.ReadAllTextAsync(Path.Combine(_directory, "traces.json"), TestContext.Current.CancellationToken));
+        Assert.Equal("[]", await File.ReadAllTextAsync(Path.Combine(_directory, "traces.json"), TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -80,6 +80,10 @@ public sealed class DiagnosticsExporterTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsolutePath.EndsWith("resources", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
+            }
             Assert.Equal("?limit=2147483647", request.RequestUri!.Query);
             var response = request.RequestUri.AbsolutePath.EndsWith("logs", StringComparison.Ordinal)
                 ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
