@@ -1,9 +1,13 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <AspireDashboardTestVersion>13.5.3</AspireDashboardTestVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="ActionsToolkit.Core" Version="1.0.0" />
+    <PackageVersion Include="Aspire.Dashboard.Sdk.$(NETCoreSdkRuntimeIdentifier)"
+                    Version="$(AspireDashboardTestVersion)"
+                    Condition="'$(MSBuildProjectName)' == 'Shirubasoft.Aspire.Extensions.TestDiagnostics.Tests'" />
     <PackageVersion Include="Aspire.Hosting" Version="13.5.3" />
     <PackageVersion Include="Aspire.Hosting.Docker" Version="13.5.3" />
     <PackageVersion Include="Aspire.Hosting.Kafka" Version="13.5.3" />
@@ -22,6 +26,8 @@
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.301" />
     <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.7.23" />
     <PackageVersion Include="NSubstitute" Version="6.0.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
     <PackageVersion Include="Shirubasoft.Spire.Sample.ModuleContract"
                     Version="$(SpireContractPackageVersion)"
                     Condition="'$(SpireContractPackageVersion)' != ''" />

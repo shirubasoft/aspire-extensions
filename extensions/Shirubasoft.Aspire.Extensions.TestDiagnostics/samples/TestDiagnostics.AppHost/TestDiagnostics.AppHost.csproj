@@ -1,0 +1,11 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>shirubasoft-aspire-extensions-test-diagnostics-sample</UserSecretsId>
+    <AspireUseCliBundle Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(AspireHostingSDKVersion)', '13.5.0'))">true</AspireUseCliBundle>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+    <ProjectReference Include="../TestDiagnostics.Api/TestDiagnostics.Api.csproj" />
+  </ItemGroup>
+</Project>

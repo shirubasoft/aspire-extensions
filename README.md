@@ -10,6 +10,7 @@ This repository contains independently versioned Aspire extensions. Each extensi
 | `Shirubasoft.Aspire.Extensions.Kafka` | Confluent Schema Registry and idempotent Kafka topic resources. | [Kafka extension](extensions/Shirubasoft.Aspire.Extensions.Kafka/README.md) |
 | `Shirubasoft.Aspire.Extensions.Multirepo` | Typed module contracts and multi-repository AppHost composition, testing, templates, and workflow tooling. | [Multirepo extension](extensions/Shirubasoft.Aspire.Extensions.Multirepo/README.md) |
 | `Shirubasoft.Aspire.Extensions.ResourceGroups` | Logical parent resources that organize an AppHost resource graph. | [Resource Groups extension](extensions/Shirubasoft.Aspire.Extensions.ResourceGroups/README.md) |
+| `Shirubasoft.Aspire.Extensions.TestDiagnostics` | Console logs and telemetry artifacts from distributed test failures or every run. | [Test Diagnostics extension](extensions/Shirubasoft.Aspire.Extensions.TestDiagnostics/README.md) |
 
 ## Build
 

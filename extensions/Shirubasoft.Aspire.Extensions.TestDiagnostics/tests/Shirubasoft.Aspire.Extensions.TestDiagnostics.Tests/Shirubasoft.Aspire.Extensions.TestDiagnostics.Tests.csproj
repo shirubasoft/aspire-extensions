@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Aspire.Dashboard.Sdk.$(NETCoreSdkRuntimeIdentifier)" PrivateAssets="all" ExcludeAssets="all" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.msbuild" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Shirubasoft.Aspire.Extensions.TestDiagnostics/Shirubasoft.Aspire.Extensions.TestDiagnostics.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../samples/TestDiagnostics.AppHost/TestDiagnostics.AppHost.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Reference the shipped importer, so compatibility tests run Aspire code rather than a local copy. -->
+    <Reference Include="Aspire.Dashboard">
+      <HintPath>$(NuGetPackageRoot)aspire.dashboard.sdk.$(NETCoreSdkRuntimeIdentifier)/$(AspireDashboardTestVersion)/tools/Aspire.Dashboard.dll</HintPath>
+    </Reference>
+    <None Update="Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,176 @@
+{
+  "data": {
+    "resourceSpans": [
+      {
+        "resource": {
+          "attributes": [
+            {
+              "key": "service.name",
+              "value": {
+                "stringValue": "api"
+              }
+            },
+            {
+              "key": "service.instance.id",
+              "value": {
+                "stringValue": "pod-2"
+              }
+            }
+          ]
+        },
+        "scopeSpans": [
+          {
+            "spans": [
+              {
+                "traceId": "11111111111111111111111111111111",
+                "spanId": "0000000000000002",
+                "parentSpanId": "0000000000000001",
+                "name": "DB query",
+                "kind": 3,
+                "startTimeUnixNano": "1700000000000100000",
+                "endTimeUnixNano": "1700000000002500000",
+                "status": {
+                  "code": 2,
+                  "message": "unavailable"
+                },
+                "attributes": [
+                  {
+                    "key": "http.response.status_code",
+                    "value": {
+                      "intValue": "599"
+                    }
+                  },
+                  {
+                    "key": "rpc.grpc.status_code",
+                    "value": {
+                      "stringValue": "custom"
+                    }
+                  },
+                  {
+                    "key": "enabled",
+                    "value": {
+                      "boolValue": true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "resource": {
+          "attributes": [
+            {
+              "key": "service.name",
+              "value": {
+                "stringValue": "api"
+              }
+            },
+            {
+              "key": "service.instance.id",
+              "value": {
+                "stringValue": "11111111-2222-3333-4444-555555555555"
+              }
+            }
+          ]
+        },
+        "scopeSpans": [
+          {
+            "scope": {
+              "name": "Sample.Tracer"
+            },
+            "spans": [
+              {
+                "traceId": "11111111111111111111111111111111",
+                "spanId": "0000000000000001",
+                "name": "HTTP GET",
+                "kind": 2,
+                "startTimeUnixNano": "1700000000000000100",
+                "endTimeUnixNano": "1700000000000500100",
+                "status": {
+                  "code": 1
+                },
+                "attributes": [
+                  {
+                    "key": "aspire.destination",
+                    "value": {
+                      "stringValue": "worker"
+                    }
+                  },
+                  {
+                    "key": "http.response.status_code",
+                    "value": {
+                      "intValue": "200"
+                    }
+                  },
+                  {
+                    "key": "rpc.grpc.status_code",
+                    "value": {
+                      "intValue": 14
+                    }
+                  }
+                ],
+                "links": [
+                  {
+                    "traceId": "22222222222222222222222222222222",
+                    "spanId": "0000000000000009",
+                    "attributes": [
+                      {
+                        "key": "ignored",
+                        "value": {
+                          "stringValue": "value"
+                        }
+                      }
+                    ]
+                  },
+                  {}
+                ]
+              },
+              {
+                "traceId": "22222222222222222222222222222222",
+                "spanId": "0000000000000003",
+                "parentSpanId": "missing",
+                "name": "orphan",
+                "kind": 1,
+                "startTimeUnixNano": "1700000000000000000",
+                "status": {
+                  "code": 0
+                }
+              },
+              {
+                "traceId": "33333333333333333333333333333333",
+                "spanId": "0000000000000004",
+                "kind": 4,
+                "endTimeUnixNano": "1700000000003500000",
+                "attributes": [
+                  {
+                    "key": "rpc.grpc.status_code",
+                    "value": {
+                      "intValue": "99"
+                    }
+                  }
+                ]
+              },
+              {
+                "traceId": "44444444444444444444444444444444",
+                "spanId": "0000000000000005",
+                "kind": 5
+              },
+              {
+                "traceId": "55555555555555555555555555555555",
+                "spanId": "0000000000000006",
+                "kind": 99
+              },
+              {}
+            ]
+          },
+          {}
+        ]
+      },
+      {}
+    ]
+  },
+  "totalCount": 6,
+  "returnedCount": 6
+}

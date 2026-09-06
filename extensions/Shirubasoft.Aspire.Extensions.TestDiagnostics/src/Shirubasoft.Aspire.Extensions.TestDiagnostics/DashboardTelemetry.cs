@@ -1,0 +1,79 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Aspire.Hosting.ApplicationModel;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Aspire.Hosting.Testing;
+
+internal static class DashboardTelemetry
+{
+    internal static async Task ExportAsync(IServiceProvider services, string directory,
+        List<string> errors, CancellationToken cancellationToken)
+    {
+        var resource = services.GetRequiredService<DistributedApplicationModel>().Resources
+            .OfType<IResourceWithEndpoints>().SingleOrDefault(resource => resource.Name == "aspire-dashboard")
+            ?? throw new InvalidOperationException("The dashboard is unavailable. Create the builder with DiagnosticsTestingBuilder.CreateAsync and start the application before exporting telemetry.");
+        await services.GetRequiredService<ResourceNotificationService>()
+            .WaitForResourceHealthyAsync(resource.Name, WaitBehavior.StopOnResourceUnavailable, cancellationToken)
+            .ConfigureAwait(false);
+        var endpoint = resource.GetEndpoint("https").Exists ? resource.GetEndpoint("https") : resource.GetEndpoint("http");
+        var url = await endpoint.GetValueAsync(cancellationToken).ConfigureAwait(false);
+        var configuration = services.GetRequiredService<IConfiguration>();
+        using var client = CreateClient(new Uri(url!), configuration["AppHost:DashboardApiKey"]);
+        await ExportResponsesAsync(client, directory, errors, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static HttpClient CreateClient(Uri address, string? apiKey)
+    {
+        var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+        {
+            BaseAddress = address,
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+        }
+        return client;
+    }
+
+    internal static async Task ExportResponsesAsync(HttpClient client, string directory,
+        List<string> errors, CancellationToken cancellationToken)
+    {
+        var resourceData = await client.GetFromJsonAsync<JsonNode>("/api/telemetry/resources", cancellationToken).ConfigureAwait(false);
+        var resources = new TelemetryResourceNames(resourceData);
+        foreach (var signal in new[] { "logs", "traces" })
+        {
+            await DiagnosticsExporter.CollectAsync(signal, errors,
+                () => WriteResponseAsync(client, signal, resources, directory, cancellationToken), cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WriteResponseAsync(HttpClient client, string signal, TelemetryResourceNames resources, string directory,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync($"/api/telemetry/{signal}?limit={int.MaxValue}",
+            HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var data = await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken).ConfigureAwait(false);
+        await WriteOtlpAsync(data, signal, directory, cancellationToken).ConfigureAwait(false);
+        var dashboardUrl = client.BaseAddress!.AbsoluteUri;
+        var formatted = signal == "logs"
+            ? CliLogJson.Convert(data, resources, dashboardUrl)
+            : CliTraceJson.Convert(data, resources, dashboardUrl);
+        await using var output = File.Create(Path.Combine(directory, signal + ".json"));
+        await JsonSerializer.SerializeAsync(output, formatted, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task WriteOtlpAsync(JsonNode? response, string signal, string directory,
+        CancellationToken cancellationToken)
+    {
+        var importDirectory = Directory.CreateDirectory(Path.Combine(directory, "otlp"));
+        await using var output = File.Create(Path.Combine(importDirectory.FullName, signal + ".json"));
+        var data = TelemetryJson.Property(response, "data") ?? new JsonObject();
+        await JsonSerializer.SerializeAsync(output, data, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+}
