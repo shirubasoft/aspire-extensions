@@ -59,11 +59,21 @@ internal static class DashboardTelemetry
             HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         var data = await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken).ConfigureAwait(false);
+        await WriteOtlpAsync(data, signal, directory, cancellationToken).ConfigureAwait(false);
         var dashboardUrl = client.BaseAddress!.AbsoluteUri;
         var formatted = signal == "logs"
             ? CliLogJson.Convert(data, resources, dashboardUrl)
             : CliTraceJson.Convert(data, resources, dashboardUrl);
         await using var output = File.Create(Path.Combine(directory, signal + ".json"));
         await JsonSerializer.SerializeAsync(output, formatted, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task WriteOtlpAsync(JsonNode? response, string signal, string directory,
+        CancellationToken cancellationToken)
+    {
+        var importDirectory = Directory.CreateDirectory(Path.Combine(directory, "otlp"));
+        await using var output = File.Create(Path.Combine(importDirectory.FullName, signal + ".json"));
+        var data = TelemetryJson.Property(response, "data") ?? new JsonObject();
+        await JsonSerializer.SerializeAsync(output, data, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

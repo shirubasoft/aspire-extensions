@@ -95,7 +95,7 @@ public sealed class DistributedDiagnosticsTests(ITestOutputHelper output)
         }
     }
 
-    private static async Task WaitForTelemetryAsync(DistributedApplication app, string directory,
+    internal static async Task<TestDiagnosticsExport> WaitForTelemetryAsync(DistributedApplication app, string directory,
         string marker, CancellationToken cancellationToken)
     {
         while (true)
@@ -104,9 +104,9 @@ public sealed class DistributedDiagnosticsTests(ITestOutputHelper output)
             Assert.Empty(result.Errors);
             var logs = await File.ReadAllTextAsync(Path.Combine(result.DirectoryPath, "logs.json"), cancellationToken);
             var traces = await File.ReadAllTextAsync(Path.Combine(result.DirectoryPath, "traces.json"), cancellationToken);
-            if (logs.Contains(marker, StringComparison.Ordinal) && traces.Contains(marker, StringComparison.Ordinal))
+            if (logs.Contains($"Sample diagnostic message {marker}", StringComparison.Ordinal) && traces.Contains(marker, StringComparison.Ordinal))
             {
-                return;
+                return result;
             }
             await Task.Delay(100, cancellationToken);
         }

@@ -46,6 +46,10 @@ public sealed class CliFormatTests
             {
                 var expected = JsonNode.Parse(await RunCliAsync(signal, url, token));
                 var actual = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(directory, signal + ".json"), token));
+                var original = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", signal + ".json"), token));
+                var imported = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(directory, "otlp", signal + ".json"), token));
+                Assert.True(JsonNode.DeepEquals(empty ? new JsonObject() : original!["data"], imported),
+                    $"{signal} import file must retain the original OTLP payload.");
                 Assert.IsType<JsonArray>(actual);
                 Assert.True(JsonNode.DeepEquals(expected, actual), $"{signal} differs from aspire otel --format Json.\nExpected: {expected}\nActual: {actual}");
             }
