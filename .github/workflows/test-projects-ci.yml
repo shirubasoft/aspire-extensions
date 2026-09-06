@@ -1,0 +1,67 @@
+name: Test Projects CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.TestProjects/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/test-projects-ci.yml
+      - .github/workflows/test-projects-prerelease.yml
+      - .github/workflows/test-projects-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  pull_request:
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.TestProjects/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/test-projects-ci.yml
+      - .github/workflows/test-projects-prerelease.yml
+      - .github/workflows/test-projects-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  test-projects:
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-ci.yml
+    with:
+      artifact_name: test-projects-nuget-packages
+      extension_path: extensions/Shirubasoft.Aspire.Extensions.TestProjects
+      package_id: Shirubasoft.Aspire.Extensions.TestProjects
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.TestProjects/release.config.mjs
+      tag_prefix: test-projects

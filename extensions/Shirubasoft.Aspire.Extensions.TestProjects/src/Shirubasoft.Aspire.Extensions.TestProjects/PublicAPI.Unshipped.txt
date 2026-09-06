@@ -1,0 +1,20 @@
+#nullable enable
+Aspire.Hosting.ApplicationModel.TestProjectResource
+Aspire.Hosting.ApplicationModel.TestProjectResource.ProjectPath.get -> string!
+Aspire.Hosting.ApplicationModel.TestProjectResource.TestProjectResource(string! name, string! projectPath) -> void
+Aspire.Hosting.TestProjectBuilderExtensions
+Aspire.Hosting.TestProjectOptions
+Aspire.Hosting.TestProjectOptions.Configuration.get -> string!
+Aspire.Hosting.TestProjectOptions.Configuration.init -> void
+Aspire.Hosting.TestProjectOptions.ResultsDirectory.get -> string!
+Aspire.Hosting.TestProjectOptions.ResultsDirectory.init -> void
+Aspire.Hosting.TestProjectOptions.Runner.get -> Aspire.Hosting.TestProjectRunner
+Aspire.Hosting.TestProjectOptions.Runner.init -> void
+Aspire.Hosting.TestProjectOptions.TestProjectOptions() -> void
+Aspire.Hosting.TestProjectOptions.Timeout.get -> System.TimeSpan
+Aspire.Hosting.TestProjectOptions.Timeout.init -> void
+Aspire.Hosting.TestProjectRunner
+Aspire.Hosting.TestProjectRunner.MicrosoftTestingPlatform = 1 -> Aspire.Hosting.TestProjectRunner
+Aspire.Hosting.TestProjectRunner.VSTest = 0 -> Aspire.Hosting.TestProjectRunner
+static Aspire.Hosting.TestProjectBuilderExtensions.AddTestProject(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name, string! projectPath, Aspire.Hosting.TestProjectOptions? options = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.TestProjectResource!>!
+static Aspire.Hosting.TestProjectBuilderExtensions.AddTestProject<TProject>(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name, Aspire.Hosting.TestProjectOptions? options = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.TestProjectResource!>!
