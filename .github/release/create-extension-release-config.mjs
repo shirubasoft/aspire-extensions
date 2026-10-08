@@ -2,8 +2,8 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const pathScopedCommitsPlugin = fileURLToPath(
-  new URL("./path-scoped-conventional-commits.mjs", import.meta.url),
+const extensionScopedCommitsPlugin = fileURLToPath(
+  new URL("./extension-scoped-conventional-commits.mjs", import.meta.url),
 );
 const execPlugin = require.resolve("@semantic-release/exec");
 const githubPlugin = require.resolve("@semantic-release/github");
@@ -33,19 +33,15 @@ export function createExtensionReleaseConfig({
     .join(";");
   const conventionalConfig = {
     preset: "conventionalcommits",
-    paths: [
-      `${extensionPath}/**`,
-      "Directory.Build.props",
-      "Directory.Packages.props",
-      "global.json",
-    ],
+    extensionPath,
+    sharedPaths: ["Directory.Build.props", "Directory.Packages.props", "global.json"],
   };
 
   return {
     branches: ["main"],
     tagFormat: `${tagPrefix}-v\${version}`,
     plugins: [
-      [pathScopedCommitsPlugin, conventionalConfig],
+      [extensionScopedCommitsPlugin, conventionalConfig],
       [
         execPlugin,
         {
