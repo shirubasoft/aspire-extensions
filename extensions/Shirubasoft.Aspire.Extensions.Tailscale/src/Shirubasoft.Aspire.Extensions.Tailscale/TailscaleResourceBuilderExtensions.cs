@@ -240,7 +240,9 @@ public static class TailscaleResourceBuilderExtensions
                 nameof(tags));
         }
 
-        return [.. tags];
+        // Tags form a set. The canonical order keeps a reordered AppHost from
+        // looking like a different registration.
+        return [.. tags.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
     }
 
     // tailcfg.CheckTag: "tag:", a letter, then letters, digits, or hyphens. Anything

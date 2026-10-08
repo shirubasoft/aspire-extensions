@@ -31,7 +31,7 @@ await builder.Build().RunAsync();
 
 `AddTailnet` adds the secret parameter `{name}-oauth-client-secret` and defines the tags that nodes advertise. The default tag list is `tag:apps`.
 
-`WithTailscale` adds a sidecar container named `{resource}-ts` that joins the tailnet as `hostname` and serves the resource endpoint. Pass `endpointName` when the resource does not use `http`, and `tags` to advertise different tags than the tailnet default. A tag is `tag:` followed by a letter and then letters, digits, or hyphens, which is the grammar Tailscale accepts. The hostname must be a lowercase DNS label of at most 59 characters.
+`WithTailscale` adds a sidecar container named `{resource}-ts` that joins the tailnet as `hostname` and serves the resource endpoint. Pass `endpointName` when the resource does not use `http`, and `tags` to advertise different tags than the tailnet default. A tag is `tag:` followed by a letter and then letters, digits, or hyphens, which is the grammar Tailscale accepts. Tags form a set: the node advertises them sorted and without duplicates. The hostname must be a lowercase DNS label of at most 59 characters.
 
 The sidecar waits for the resource and appears under it in the Aspire dashboard.
 

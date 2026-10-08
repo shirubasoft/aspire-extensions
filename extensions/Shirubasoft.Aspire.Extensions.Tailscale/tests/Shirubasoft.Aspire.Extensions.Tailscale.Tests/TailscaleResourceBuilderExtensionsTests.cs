@@ -24,14 +24,16 @@ public sealed class TailscaleResourceBuilderExtensionsTests
             annotation => ReferenceEquals(annotation, ManifestPublishingCallbackAnnotation.Ignore));
     }
 
+    // Tags are a set: the node advertises them sorted and without duplicates so
+    // that reordering an AppHost never looks like a change of identity.
     [Fact]
-    public void AddTailnetUsesTheProvidedTags()
+    public void AddTailnetCanonicalizesTheProvidedTags()
     {
         var builder = DistributedApplication.CreateBuilder();
 
-        var tailnet = builder.AddTailnet("tailnet", tags: ["tag:web", "tag:apps"]);
+        var tailnet = builder.AddTailnet("tailnet", tags: ["tag:web", "tag:apps", "tag:web"]);
 
-        Assert.Equal(["tag:web", "tag:apps"], tailnet.Resource.Tags);
+        Assert.Equal(["tag:apps", "tag:web"], tailnet.Resource.Tags);
     }
 
     [Theory]
@@ -136,11 +138,11 @@ public sealed class TailscaleResourceBuilderExtensionsTests
             .WithHttpEndpoint(targetPort: 80)
             .WithHttpEndpoint(targetPort: 81, name: "admin");
 
-        web.WithTailscale(tailnet, "quadra-admin", endpointName: "admin", tags: ["tag:admin"]);
+        web.WithTailscale(tailnet, "quadra-admin", endpointName: "admin", tags: ["tag:ops", "tag:admin", "tag:ops"]);
 
         var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
         Assert.Equal("admin", sidecar.TargetEndpoint.EndpointName);
-        Assert.Equal(["tag:admin"], sidecar.Tags);
+        Assert.Equal(["tag:admin", "tag:ops"], sidecar.Tags);
     }
 
     [Fact]
@@ -263,14 +265,14 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         var web = builder
             .AddContainer("web", "nginx")
             .WithHttpEndpoint(targetPort: 8080);
-        web.WithTailscale(tailnet, "quadra-web", tags: ["tag:web", "tag:admin"]);
+        web.WithTailscale(tailnet, "quadra-web", tags: ["tag:web", "tag:admin", "tag:web"]);
         AllocateOnContainerNetwork(web.Resource, "web", 8080);
         var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
 
         var configuration = await BuildRunConfigurationAsync(builder, sidecar);
 
-        Assert.Equal("--advertise-tags=tag:web,tag:admin", configuration.EnvironmentVariables["TS_EXTRA_ARGS"]);
-        Assert.Equal("tag:web,tag:admin", configuration.EnvironmentVariables["TAILSCALE_TAGS"]);
+        Assert.Equal("--advertise-tags=tag:admin,tag:web", configuration.EnvironmentVariables["TS_EXTRA_ARGS"]);
+        Assert.Equal("tag:admin,tag:web", configuration.EnvironmentVariables["TAILSCALE_TAGS"]);
     }
 
     [Fact]
