@@ -58,12 +58,14 @@ internal static class CloudflarePipelineSteps
         IResource resource,
         DeploymentTargetAnnotation? target) =>
         target is null
-            ? new() { Resource = resource, Steps = [] }
+            ? new() { Resource = resource, Steps = GetDeploymentSteps(context, [resource]) }
             : new()
             {
                 Resource = resource,
                 ComputeEnvironment = target.ComputeEnvironment ?? target.DeploymentTarget,
-                Steps = GetDeploymentSteps(context, [target.ComputeEnvironment, target.DeploymentTarget]),
+                Steps = GetDeploymentSteps(
+                    context,
+                    [target.ComputeEnvironment, target.DeploymentTarget, resource]),
             };
 
     private static PipelineStep[] GetDeploymentSteps(
@@ -115,8 +117,9 @@ internal static class CloudflarePipelineSteps
                 $"compute environment '{environment.Key}' deploys " +
                 Quote(environment.Select(deployment => deployment.Resource.Name)))) +
         $". The route step waits for steps tagged one of {Quote(DeploymentTags)} that " +
-        "belong to the compute environment or the deployment target. Tag the step that " +
-        $"deploys the compute environment with '{WellKnownPipelineTags.DeployCompute}'.";
+        "belong to the compute environment, the deployment target, or the resource. Tag " +
+        "the step that deploys the compute environment with " +
+        $"'{WellKnownPipelineTags.DeployCompute}'.";
 
     private static string Quote(IEnumerable<string> values) =>
         string.Join(", ", values.Select(value => $"'{value}'"));

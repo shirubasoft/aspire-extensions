@@ -107,7 +107,7 @@ The route step waits for the deployment steps of the compute environments that h
 | Kubernetes | `helm-deploy` |
 | Azure Container Apps and Azure App Service | `deploy-compute` |
 
-A custom compute environment declares its deployment step by tagging it with `WellKnownPipelineTags.DeployCompute`. The step must belong to the environment or to the deployment target that the environment assigns to each resource. An AppHost declares the deployment step of an environment from another package by tagging that step in a pipeline configuration callback:
+A custom compute environment declares its deployment step by tagging it with `WellKnownPipelineTags.DeployCompute`. The step must belong to the environment, to the deployment target that the environment assigns to each resource, or to the resource itself. An AppHost declares the deployment step of an environment from another package by tagging that step in a pipeline configuration callback:
 
 ```csharp
 #pragma warning disable ASPIREPIPELINES001

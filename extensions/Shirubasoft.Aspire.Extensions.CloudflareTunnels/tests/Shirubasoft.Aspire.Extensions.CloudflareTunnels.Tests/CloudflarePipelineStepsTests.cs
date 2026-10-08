@@ -223,6 +223,61 @@ public sealed class CloudflarePipelineStepsTests
         Assert.Null(api.UpdatedConfiguration);
     }
 
+    // A resource can contribute deployment steps next to its compute environment's. The test
+    // environment names each deployment target after the resource and the environment, as
+    // Azure Container Apps and Azure App Service do, so the target does not own those steps.
+    [Fact]
+    public async Task RouteStepRunsAfterTheTargetsOwnDeploymentStepSucceeds()
+    {
+        var api = CreateApi();
+        var dnsUpsertsDuringDeployment = new List<int>();
+        var pipeline = new TunnelDeploymentPipeline
+        {
+            Api = api,
+            AddEnvironment = builder => builder.AddTestComputeEnvironment(
+                "custom",
+                WellKnownPipelineTags.DeployCompute),
+            ConfigureTarget = web => web.WithPipelineStepFactory(_ => CreateDeploymentStep(
+                "deploy-web-assets",
+                () =>
+                {
+                    dnsUpsertsDuringDeployment.Add(api.DnsUpserts.Count);
+                    return Task.CompletedTask;
+                })),
+        };
+
+        await pipeline.RunAsync("deploy");
+
+        Assert.Null(pipeline.Failure);
+        Assert.Contains("deploy-web-assets", pipeline.RouteStepDependencies);
+        Assert.Equal([0], dnsUpsertsDuringDeployment);
+        Assert.Single(api.DnsUpserts);
+        Assert.NotNull(api.UpdatedConfiguration);
+    }
+
+    [Fact]
+    public async Task FailedDeploymentStepOfTheTargetLeavesTunnelConfigurationAndDnsUntouched()
+    {
+        var api = CreateApi();
+        var pipeline = new TunnelDeploymentPipeline
+        {
+            Api = api,
+            AddEnvironment = builder => builder.AddTestComputeEnvironment(
+                "custom",
+                WellKnownPipelineTags.DeployCompute),
+            ConfigureTarget = web => web.WithPipelineStepFactory(_ => CreateDeploymentStep(
+                "deploy-web-assets",
+                () => Task.FromException(new InvalidOperationException("asset deployment failed")))),
+        };
+
+        await pipeline.RunAsync("deploy");
+
+        Assert.Contains("asset deployment failed", pipeline.Failure?.Message);
+        Assert.Equal(0, pipeline.ClientFactory.CallCount);
+        Assert.Empty(api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
+    }
+
     [Fact]
     public async Task ExecuteSkipsConfigurationWhenNoRoutesExist()
     {
@@ -310,5 +365,14 @@ public sealed class CloudflarePipelineStepsTests
         new()
         {
             ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
+        };
+
+    private static PipelineStep CreateDeploymentStep(string name, Func<Task> deploy) =>
+        new()
+        {
+            Name = name,
+            Action = _ => deploy(),
+            RequiredBySteps = [WellKnownPipelineSteps.Deploy],
+            Tags = [WellKnownPipelineTags.DeployCompute],
         };
 }
