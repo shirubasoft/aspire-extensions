@@ -12,11 +12,12 @@ updates:
       # eng/update-aspire.sh updates the Aspire packages, AppHost SDK, and CLI together.
       - dependency-name: Aspire.*
       - dependency-name: aspire.*
-      # The Multirepo source generator must load in every .NET 10 SDK compiler.
+      # The Multirepo source generator must load in every .NET 10 SDK compiler, so this stays on
+      # the Roslyn line that the oldest .NET 10 SDK ships (5.0 in 10.0.100) and moves by hand with
+      # the supported SDK floor. Roslyn publishes no patch versions, and the NuGet updater applied
+      # a 5.0.0 -> 5.9.0 bump through a semver-minor update-types ignore (#24), so this entry stays
+      # name-only, which the updater skips before it analyzes versions.
       - dependency-name: Microsoft.CodeAnalysis.CSharp
-        update-types:
-          - version-update:semver-minor
-          - version-update:semver-major
       # These packages version with the .NET release that the repository targets.
       - dependency-name: Microsoft.Extensions.*
         update-types:
@@ -26,6 +27,19 @@ updates:
           - version-update:semver-major
     groups:
       nuget:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /.github/release
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      npm:
         patterns:
           - "*"
 
