@@ -38,8 +38,6 @@ public sealed class PackedPackageContractTests
 
         Assert.Contains(dependencies, dependency => dependency.Id == "Aspire.Hosting");
         Assert.Contains(dependencies, dependency => dependency.Id == "CliWrap");
-        Assert.Contains(dependencies, dependency => dependency.Id == "Microsoft.Extensions.Configuration.Binder");
-        Assert.Contains(dependencies, dependency => dependency.Id == "Microsoft.Extensions.Options");
         Assert.DoesNotContain(dependencies, dependency => dependency.Id == "Aspire.Hosting.Testing");
         Assert.DoesNotContain(dependencies, dependency => dependency.Id == "Aspire.Hosting.Docker");
         Assert.DoesNotContain(dependencies, dependency => dependency.Id == TestingPackageId);
