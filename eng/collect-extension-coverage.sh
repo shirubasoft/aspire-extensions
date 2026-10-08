@@ -71,7 +71,7 @@ for coverage_project in "${coverage_projects[@]}"; do
   fi
   dotnet coverlet "$test_assembly" \
     --target dotnet \
-    --targetargs "test --project $project --configuration Release --no-build --no-restore" \
+    --targetargs "test --project \"$project\" --configuration Release --no-build --no-restore" \
     --format opencover \
     --output "$report_path" \
     --include "[$assembly_filter]*" \
