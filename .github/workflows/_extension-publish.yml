@@ -44,8 +44,32 @@ jobs:
       contents: write
 
     steps:
+      - name: Verify the caller's CI run
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+          INPUT_RUN_ID: ${{ inputs.workflow_run_id }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$EVENT_NAME" == "workflow_run" ]] || fail "This workflow publishes only from a workflow_run event, not '$EVENT_NAME'."
+          [[ "$RUN_EVENT" == "push" ]] || fail "The CI run was triggered by '$RUN_EVENT', not push."
+          [[ "$RUN_HEAD_BRANCH" == "main" ]] || fail "The CI run was for branch '$RUN_HEAD_BRANCH', not main."
+          [[ "$RUN_HEAD_REPOSITORY" == "$REPOSITORY" ]] || fail "The CI run came from '$RUN_HEAD_REPOSITORY', not $REPOSITORY."
+          [[ "$RUN_CONCLUSION" == "success" ]] || fail "The CI run concluded with '$RUN_CONCLUSION', not success."
+          [[ "$INPUT_HEAD_SHA" == "$RUN_HEAD_SHA" ]] || fail "head_sha '$INPUT_HEAD_SHA' is not the CI run's head SHA '$RUN_HEAD_SHA'."
+          [[ "$INPUT_RUN_ID" == "$RUN_ID" ]] || fail "workflow_run_id '$INPUT_RUN_ID' is not the CI run's id '$RUN_ID'."
+
       - name: Check out main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -67,12 +91,12 @@ jobs:
           git checkout --detach "$HEAD_SHA"
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
 
       - name: Download packages from CI
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.artifact_name }}
           path: artifacts/${{ inputs.package_id }}
@@ -80,7 +104,7 @@ jobs:
           run-id: ${{ inputs.workflow_run_id }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
