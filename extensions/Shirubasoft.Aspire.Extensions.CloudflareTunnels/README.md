@@ -86,6 +86,15 @@ var tunnel = builder.AddCloudflareTunnel(
     metricsPort: 60123);
 ```
 
+Each published hostname appears as a route resource named `{tunnel}-route-{hostname}`, with dots in the hostname replaced by hyphens. Aspire resource names have at most 64 characters. Pass `routeName` when the generated name is too long:
+
+```csharp
+web.WithCloudflareTunnel(
+    tunnel,
+    "my-application.staging.example.com",
+    routeName: "web-route");
+```
+
 ## Deployment pipeline
 
 The named tunnel contributes a Cloudflare route step between Aspire's publish and deploy steps. Before deployment:

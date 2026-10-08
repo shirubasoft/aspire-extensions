@@ -106,7 +106,7 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
                 .WithReference(web);
 
             var tunnel = builder.AddCloudflareTunnel("public");
-            web.WithCloudflareTunnel(tunnel, "app.example.com");
+            web.WithCloudflareTunnel(tunnel, "app.example.com", routeName: "web-route");
             """,
             TestContext.Current.CancellationToken);
 
