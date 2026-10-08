@@ -141,6 +141,18 @@ export async function removeIncompleteReleaseTag({
 
   await requireNoRelease({ tag, repository, request });
 
+  // Fetch without tags so this guard leaves even the local release tag untouched.
+  await git(["fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
+  const currentMain = (await git(["rev-parse", "refs/remotes/origin/main"])).trim();
+  if (currentMain !== headSha) {
+    return {
+      removed: false,
+      reason: `Current remote main is ${currentMain}, not release commit ${headSha}; tag ${tag} stays. `
+        + "Verify releases, drafts and NuGet packages before any manual orphan-tag repair, then use a "
+        + "fresh main push build that includes this extension. Keep main at that commit until publishing finishes.",
+    };
+  }
+
   await requireNoRelease({ tag, repository, request });
   await git(["push", `--force-with-lease=refs/tags/${tag}:${object.sha}`, "origin", `:refs/tags/${tag}`]);
 

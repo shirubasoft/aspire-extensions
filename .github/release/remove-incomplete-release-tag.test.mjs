@@ -37,10 +37,13 @@ function fakeGitHub({
   return { calls, request };
 }
 
-function fakeGit({ localTags = [tag] } = {}) {
+function fakeGit({ localTags = [tag], remoteMainSha = headSha } = {}) {
   const calls = [];
   const git = async (args) => {
     calls.push(args.join(" "));
+    if (args[0] === "rev-parse") {
+      return `${remoteMainSha}\n`;
+    }
     if (args[0] === "tag" && args[1] === "--list") {
       return localTags.includes(args[2]) ? `${args[2]}\n` : "";
     }
@@ -62,6 +65,8 @@ test("removes a tag that an earlier attempt pushed without publishing its releas
     `GET /repos/${repository}/releases?per_page=100&page=1`,
   ]);
   assert.deepEqual(git.calls, [
+    "fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main",
+    "rev-parse refs/remotes/origin/main",
     `push --force-with-lease=refs/tags/${tag}:${headSha} origin :refs/tags/${tag}`,
     `tag --list ${tag}`,
     `tag --delete ${tag}`,
@@ -76,6 +81,8 @@ test("keeps the remote clone consistent when the tag was never fetched locally",
 
   assert.equal(result.removed, true);
   assert.deepEqual(git.calls, [
+    "fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main",
+    "rev-parse refs/remotes/origin/main",
     `push --force-with-lease=refs/tags/${tag}:${headSha} origin :refs/tags/${tag}`,
     `tag --list ${tag}`,
   ]);
@@ -164,6 +171,9 @@ test("a tag retargeted after the identity check survives the deletion lease", as
   };
   const git = async (args) => {
     gitCalls.push(args);
+    if (args[0] === "rev-parse") {
+      return headSha;
+    }
     if (args[0] === "push") {
       assert.ok(args.includes(`--force-with-lease=refs/tags/${tag}:${headSha}`));
       if (remoteSha !== headSha) {
@@ -200,7 +210,10 @@ test("rechecks releases before deleting and preserves a draft created after the 
   );
   assert.equal(scans, 2);
   assert.ok(!github.calls.some((call) => call.startsWith("DELETE")));
-  assert.deepEqual(git.calls, []);
+  assert.deepEqual(git.calls, [
+    "fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main",
+    "rev-parse refs/remotes/origin/main",
+  ]);
 });
 
 test("authenticates Git with process-only configuration without exposing credentials on failure", async () => {
@@ -242,6 +255,55 @@ test("authenticates Git with process-only configuration without exposing credent
   assert.ok(JSON.stringify({ ...process.env }) === JSON.stringify(envBefore), "Git must not mutate the parent environment");
 });
 
+test("preserves remote and local tags when a fresh fetch finds main has advanced", async () => {
+  const github = fakeGitHub();
+  const currentMain = "2".repeat(40);
+  const git = fakeGit({ remoteMainSha: currentMain });
+
+  const result = await removeIncompleteReleaseTag({ tag, headSha, repository, request: github.request, git: git.git });
+
+  assert.equal(result.removed, false);
+  assert.match(result.reason, /main.*advanced|current remote main/iu);
+  assert.ok(result.reason.includes(currentMain));
+  assert.match(result.reason, /tag .*stays.*verify.*fresh.*push/iu);
+  assert.deepEqual(git.calls, [
+    "fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main",
+    "rev-parse refs/remotes/origin/main",
+  ]);
+  assert.ok(!github.calls.some((call) => call.startsWith("DELETE")));
+});
+
+test("fetches main before deletion rather than trusting the checkout's cached tip", async () => {
+  const github = fakeGitHub();
+  const git = fakeGit();
+
+  const result = await removeIncompleteReleaseTag({ tag, headSha, repository, request: github.request, git: git.git });
+
+  assert.equal(result.removed, true);
+  const fetchIndex = git.calls.indexOf("fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main");
+  const mainIndex = git.calls.indexOf("rev-parse refs/remotes/origin/main");
+  const deletionIndex = git.calls.findIndex((call) => call.startsWith("push "));
+  assert.ok(fetchIndex >= 0 && mainIndex > fetchIndex && deletionIndex > mainIndex);
+});
+
+test("a failed main fetch prevents remote and local deletion", async () => {
+  const github = fakeGitHub();
+  const git = fakeGit();
+
+  await assert.rejects(
+    removeIncompleteReleaseTag({ tag, headSha, repository, request: github.request, git: async (args) => {
+      if (args[0] === "fetch") {
+        throw new Error("fetch failed");
+      }
+      return git.git(args);
+    } }),
+    /fetch failed/u,
+  );
+
+  assert.deepEqual(git.calls, []);
+  assert.ok(!github.calls.some((call) => call.startsWith("DELETE")));
+});
+
 test("leaves a tag that points at another commit or at an annotated tag object", async () => {
   for (const options of [{ tagSha: "0".repeat(40) }, { tagType: "tag" }]) {
     const github = fakeGitHub(options);
@@ -276,7 +338,10 @@ test("fails loudly on unexpected GitHub responses", async () => {
     } }),
     /push rejected/u,
   );
-  assert.deepEqual(git.calls, []);
+  assert.deepEqual(git.calls, [
+    "fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main",
+    "rev-parse refs/remotes/origin/main",
+  ]);
 });
 
 test("reads the CI-selected release version and tolerates a missing version file", async () => {
