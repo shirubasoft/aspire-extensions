@@ -36,7 +36,9 @@ Each extension versions independently from Conventional Commits that touch its o
 
 CI runs on Linux and Windows. Linux also measures method-level CRAP scores from OpenCover data and fails unless every method scores strictly below 5. After a successful `main` build, semantic-release publishes the package and symbols to NuGet.org with the `NUGET_API_KEY` organization secret, creates the package tag, and attaches both files to a GitHub release.
 
-semantic-release pushes the package tag before it publishes. If the publish job fails after that point, re-run it while the release commit is still the tip of `main`. The shared workflow removes a tag that points at the release commit without a GitHub release, so semantic-release selects the same version again, and NuGet pushes skip packages that already exist. If `main` has advanced, verify the incomplete release and remove its orphan tag before starting a fresh push build.
+semantic-release pushes the package tag before it publishes. If the publish job fails after that point, re-run it while the release commit is still the tip of `main`. The shared workflow removes a lightweight tag that points at the release commit only after checking every page of GitHub releases, including drafts, with its write-capable token. A matching release stops recovery and preserves the tag. Publish or delete a draft manually after checking its assets and NuGet packages, then rerun. NuGet pushes skip packages that already exist. If `main` has advanced, verify the incomplete release and remove its orphan tag before starting a fresh push build.
+
+Tags in each extension's automatic-release namespace are owned by the pipeline. Recovery rechecks releases immediately before deleting through an authenticated Git push with an explicit lease on the verified tag SHA. A changed tag rejects the deletion and preserves the local tag. GitHub release creation and Git ref deletion are separate operations, so a release created after the final check can still race with deletion. Coordinate manual release operations with the package's publish job; the per-package concurrency group serializes pipeline runs.
 
 ## Add an extension
 

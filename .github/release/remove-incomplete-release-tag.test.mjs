@@ -59,9 +59,13 @@ test("removes a tag that an earlier attempt pushed without publishing its releas
   assert.deepEqual(github.calls, [
     `GET /repos/${repository}/git/ref/tags/${tag}`,
     `GET /repos/${repository}/releases?per_page=100&page=1`,
-    `DELETE /repos/${repository}/git/refs/tags/${tag}`,
+    `GET /repos/${repository}/releases?per_page=100&page=1`,
   ]);
-  assert.deepEqual(git.calls, [`tag --list ${tag}`, `tag --delete ${tag}`]);
+  assert.deepEqual(git.calls, [
+    `push --force-with-lease=refs/tags/${tag}:${headSha} origin :refs/tags/${tag}`,
+    `tag --list ${tag}`,
+    `tag --delete ${tag}`,
+  ]);
 });
 
 test("keeps the remote clone consistent when the tag was never fetched locally", async () => {
@@ -71,7 +75,10 @@ test("keeps the remote clone consistent when the tag was never fetched locally",
   const result = await removeIncompleteReleaseTag({ tag, headSha, repository, request: github.request, git: git.git });
 
   assert.equal(result.removed, true);
-  assert.deepEqual(git.calls, [`tag --list ${tag}`]);
+  assert.deepEqual(git.calls, [
+    `push --force-with-lease=refs/tags/${tag}:${headSha} origin :refs/tags/${tag}`,
+    `tag --list ${tag}`,
+  ]);
 });
 
 test("does nothing when the tag does not exist", async () => {
@@ -140,6 +147,101 @@ test("checks the empty page after a full page before removing an orphan", async 
   assert.ok(github.calls.includes(`GET /repos/${repository}/releases?per_page=100&page=2`));
 });
 
+test("a tag retargeted after the identity check survives the deletion lease", async () => {
+  let remoteSha = headSha;
+  const changedSha = "1".repeat(40);
+  const github = fakeGitHub();
+  const gitCalls = [];
+  const request = async (method, requestPath) => {
+    const response = await github.request(method, requestPath);
+    if (requestPath.includes("/releases?")) {
+      remoteSha = changedSha;
+    }
+    if (method === "DELETE") {
+      remoteSha = null;
+    }
+    return response;
+  };
+  const git = async (args) => {
+    gitCalls.push(args);
+    if (args[0] === "push") {
+      assert.ok(args.includes(`--force-with-lease=refs/tags/${tag}:${headSha}`));
+      if (remoteSha !== headSha) {
+        throw new Error("stale info");
+      }
+      remoteSha = null;
+    }
+    return "";
+  };
+
+  await assert.rejects(removeIncompleteReleaseTag({ tag, headSha, repository, request, git }), /stale info/u);
+
+  assert.equal(remoteSha, changedSha);
+  assert.ok(!gitCalls.some((args) => args[0] === "tag"));
+});
+
+test("rechecks releases before deleting and preserves a draft created after the first scan", async () => {
+  let scans = 0;
+  const github = fakeGitHub();
+  const git = fakeGit();
+  const request = async (method, requestPath) => {
+    if (requestPath.includes("/releases?")) {
+      scans += 1;
+      if (scans === 2) {
+        return { status: 200, body: [{ tag_name: tag, draft: true }] };
+      }
+    }
+    return github.request(method, requestPath);
+  };
+
+  await assert.rejects(
+    removeIncompleteReleaseTag({ tag, headSha, repository, request, git: git.git }),
+    /draft.*tag stays/iu,
+  );
+  assert.equal(scans, 2);
+  assert.ok(!github.calls.some((call) => call.startsWith("DELETE")));
+  assert.deepEqual(git.calls, []);
+});
+
+test("authenticates Git with process-only configuration without exposing credentials on failure", async () => {
+  const { createAuthenticatedGit } = await import("./remove-incomplete-release-tag.mjs");
+  const token = "test-only-token";
+  const authorization = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+  const args = ["push", `--force-with-lease=refs/tags/${tag}:${headSha}`, "origin", `:refs/tags/${tag}`];
+  const envBefore = { ...process.env };
+  let calls = 0;
+  const git = createAuthenticatedGit({
+    token,
+    serverUrl: "https://github.example.test",
+    git: async (actualArgs, options) => {
+      calls += 1;
+      assert.deepEqual(actualArgs, args);
+      assert.equal(options.env.GIT_CONFIG_COUNT, "3");
+      assert.equal(options.env.GIT_CONFIG_KEY_0, "credential.helper");
+      assert.equal(options.env.GIT_CONFIG_VALUE_0, "");
+      assert.equal(options.env.GIT_CONFIG_KEY_1, "http.https://github.example.test/.extraheader");
+      assert.equal(options.env.GIT_CONFIG_VALUE_1, "");
+      assert.equal(options.env.GIT_CONFIG_KEY_2, "http.https://github.example.test/.extraheader");
+      assert.equal(options.env.GIT_CONFIG_VALUE_2, authorization);
+      assert.ok(!actualArgs.join(" ").includes(token));
+      if (calls === 2) {
+        throw new Error(`git error containing ${token} and ${authorization}`);
+      }
+      return "success";
+    },
+  });
+
+  assert.equal(await git(args), "success");
+  await assert.rejects(git(args), (error) => {
+    assert.match(error.message, /authenticated git.*failed/iu);
+    assert.ok(!error.message.includes(token));
+    assert.ok(!error.message.includes(authorization));
+    assert.equal(error.cause, undefined);
+    return true;
+  });
+  assert.ok(JSON.stringify({ ...process.env }) === JSON.stringify(envBefore), "Git must not mutate the parent environment");
+});
+
 test("leaves a tag that points at another commit or at an annotated tag object", async () => {
   for (const options of [{ tagSha: "0".repeat(40) }, { tagType: "tag" }]) {
     const github = fakeGitHub(options);
@@ -163,11 +265,18 @@ test("fails loudly on unexpected GitHub responses", async () => {
     removeIncompleteReleaseTag({ tag, headSha, repository, request: fakeGitHub({ listStatus: 500 }).request, git: fakeGit().git }),
     /Listing releases for resource-groups-v1\.2\.1 returned HTTP 500/u,
   );
-  const github = fakeGitHub({ deleteStatus: 403 });
+  const github = fakeGitHub();
+  const git = fakeGit();
   await assert.rejects(
-    removeIncompleteReleaseTag({ tag, headSha, repository, request: github.request, git: fakeGit().git }),
-    /Deleting tag resource-groups-v1\.2\.1 returned HTTP 403/u,
+    removeIncompleteReleaseTag({ tag, headSha, repository, request: github.request, git: async (args) => {
+      if (args[0] === "push") {
+        throw new Error("push rejected");
+      }
+      return git.git(args);
+    } }),
+    /push rejected/u,
   );
+  assert.deepEqual(git.calls, []);
 });
 
 test("reads the CI-selected release version and tolerates a missing version file", async () => {

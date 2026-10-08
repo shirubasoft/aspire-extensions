@@ -7,9 +7,44 @@ import { makeExtensionTag } from "./create-extension-release-config.mjs";
 
 const execFileAsync = promisify(execFile);
 
-async function runGit(args) {
-  const { stdout } = await execFileAsync("git", args);
+async function runGit(args, options = {}) {
+  const { stdout } = await execFileAsync("git", args, options);
   return stdout;
+}
+
+export function createAuthenticatedGit({ token, serverUrl = "https://github.com", git = runGit }) {
+  if (!token) {
+    throw new Error("A write-capable GITHUB_TOKEN is required for authenticated Git recovery.");
+  }
+  const headerKey = `http.${serverUrl.replace(/\/+$/u, "")}/.extraheader`;
+  const authorization = Buffer.from(`x-access-token:${token}`).toString("base64");
+  return async (args) => {
+    try {
+      return await git(args, {
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_TRACE: "0",
+          GIT_TRACE_CURL: "0",
+          GIT_CURL_VERBOSE: "0",
+          GIT_TRACE2: "0",
+          GIT_TRACE2_EVENT: "0",
+          GIT_TRACE2_PERF: "0",
+          GIT_CONFIG_COUNT: "3",
+          GIT_CONFIG_KEY_0: "credential.helper",
+          GIT_CONFIG_VALUE_0: "",
+          GIT_CONFIG_KEY_1: headerKey,
+          GIT_CONFIG_VALUE_1: "",
+          GIT_CONFIG_KEY_2: headerKey,
+          GIT_CONFIG_VALUE_2: `AUTHORIZATION: basic ${authorization}`,
+        },
+      });
+    } catch {
+      // Child-process errors can include credentials. Keep their output out of job logs.
+      throw new Error("Authenticated Git recovery failed. Check token permissions, origin connectivity, "
+        + "and whether the tag changed since verification before rerunning.");
+    }
+  };
 }
 
 async function githubRequest(method, path, { apiUrl, token }) {
@@ -106,8 +141,8 @@ export async function removeIncompleteReleaseTag({
 
   await requireNoRelease({ tag, repository, request });
 
-  const deletion = await request("DELETE", `/repos/${repository}/git/refs/tags/${encodedTag}`);
-  expectStatus(deletion, 204, `Deleting tag ${tag}`);
+  await requireNoRelease({ tag, repository, request });
+  await git(["push", `--force-with-lease=refs/tags/${tag}:${object.sha}`, "origin", `:refs/tags/${tag}`]);
 
   if ((await git(["tag", "--list", tag])).trim() === tag) {
     await git(["tag", "--delete", tag]);
@@ -122,7 +157,12 @@ export async function removeIncompleteReleaseTag({
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [tagPrefix, artifactDirectoryName, headSha] = process.argv.slice(2);
-  const { GITHUB_API_URL = "https://api.github.com", GITHUB_REPOSITORY, GITHUB_TOKEN } = process.env;
+  const {
+    GITHUB_API_URL = "https://api.github.com",
+    GITHUB_SERVER_URL = "https://github.com",
+    GITHUB_REPOSITORY,
+    GITHUB_TOKEN,
+  } = process.env;
   if (!tagPrefix || !artifactDirectoryName || !/^[0-9a-f]{40}$/u.test(headSha ?? "")) {
     console.error("Usage: remove-incomplete-release-tag.mjs <tag-prefix> <artifact-directory-name> <head-sha>");
     process.exitCode = 2;
@@ -139,6 +179,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         headSha,
         repository: GITHUB_REPOSITORY,
         request: (method, path) => githubRequest(method, path, { apiUrl: GITHUB_API_URL, token: GITHUB_TOKEN }),
+        git: createAuthenticatedGit({ token: GITHUB_TOKEN, serverUrl: GITHUB_SERVER_URL }),
       });
       console.log(result.reason);
     }
