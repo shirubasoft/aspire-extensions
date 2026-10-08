@@ -15,4 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Shirubasoft.Aspire.Extensions.Tailscale/Shirubasoft.Aspire.Extensions.Tailscale.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

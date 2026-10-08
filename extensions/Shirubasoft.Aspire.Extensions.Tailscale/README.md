@@ -55,10 +55,12 @@ A project resource runs on the host, so its sidecar proxies to the host address 
 - `TS_AUTHKEY` is the OAuth client secret from the `.env` file with `?ephemeral=false&preauthorized=true`, so the node persists and needs no manual approval.
 - `TS_HOSTNAME` is the requested hostname without a suffix.
 - `TS_STATE_DIR` points to the named volume `{resource}-ts-state`, so the node identity survives container recreation. Keep the volume to keep the identity.
-- `TAILSCALE_TAGS` lists the tag set. At start the sidecar reads the node profile in `tailscaled.state` on the state volume and refuses to start when that profile registered with a different tag set, so a changed `tags` value never runs under the old identity. A state volume without a profile belongs to a node that never registered, and the sidecar registers it.
+- `TAILSCALE_TAGS` lists the tag set. At start the sidecar reads the node profile in `tailscaled.state` on the state volume and refuses to start when that profile registered with a different tag set, so a changed `tags` value never runs under the old identity. A state volume without a profile belongs to a node that never registered, and the sidecar registers it. A state file whose profile cannot be decoded or validated also stops the sidecar, with an error that names the reason, rather than starting with an unknown identity.
+- `TAILSCALE_START_SCRIPT` carries the start script and the entrypoint evaluates it. Compose doubles every `$` in the value, so the script reaches the shell unchanged.
 - The serve configuration proxies HTTPS on port 443 to `http://{resource}:{target port}` on the Compose network. The sidecar writes it from an environment variable at start, so the generated Compose file needs no bind mounts and works with a remote `DOCKER_HOST`.
 - The serve configuration names the node certificate domain with the Tailscale placeholder `${TS_CERT_DOMAIN}`, written as `$${TS_CERT_DOMAIN}` so Compose passes it through unchanged.
 - The sidecar `depends_on` the resource service.
+- One sidecar owns one state volume. The start script only reads the volume, but two daemons sharing one identity are unsupported.
 
 The target port comes from the endpoint declaration. A container endpoint needs `targetPort`, or `port` when the container listens on the published port. A project resource uses the default container port `8080`. Publishing fails with an error that names the resource and endpoint when the endpoint has no fixed target port, and with an error that names the resource and compute environment when the resource publishes to anything other than Docker Compose.
 

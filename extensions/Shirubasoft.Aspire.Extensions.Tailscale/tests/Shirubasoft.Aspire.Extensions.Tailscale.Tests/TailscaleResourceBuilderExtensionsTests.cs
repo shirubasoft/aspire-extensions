@@ -254,7 +254,8 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         Assert.Equal(TailscaleSidecarDefaults.StartScript, script);
         Assert.Contains("\"$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
         Assert.Contains("\"$TS_SERVE_CONFIG\"", script, StringComparison.Ordinal);
-        Assert.Contains("\"$TS_STATE_DIR/tailscaled.state\"", script, StringComparison.Ordinal);
+        Assert.Contains("\"${TS_STATE_DIR:-}\"", script, StringComparison.Ordinal);
+        Assert.Contains("/tailscaled.state\"", script, StringComparison.Ordinal);
         Assert.EndsWith("exec containerboot", script, StringComparison.Ordinal);
     }
 

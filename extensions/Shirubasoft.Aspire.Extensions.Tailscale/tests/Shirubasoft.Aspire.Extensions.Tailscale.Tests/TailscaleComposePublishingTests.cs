@@ -50,7 +50,7 @@ public sealed class TailscaleComposePublishingTests
         // doubled and reaches the shell as a single "$".
         var script = environment.Scalar("TAILSCALE_START_SCRIPT");
         Assert.Equal(TailscaleSidecarDefaults.StartScript.Replace("$", "$$", StringComparison.Ordinal), script);
-        Assert.Contains("\"$$TS_STATE_DIR/tailscaled.state\"", script, StringComparison.Ordinal);
+        Assert.Contains("\"$${TS_STATE_DIR:-}\"", script, StringComparison.Ordinal);
         Assert.DoesNotContain("$", script.Replace("$$", "", StringComparison.Ordinal), StringComparison.Ordinal);
 
         Assert.Contains("web", service.Mapping("depends_on").Children.Keys.Select(key => key.ToString()));
