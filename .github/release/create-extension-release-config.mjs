@@ -7,6 +7,16 @@ const extensionScopedCommitsPlugin = fileURLToPath(
 );
 const execPlugin = require.resolve("@semantic-release/exec");
 const githubPlugin = require.resolve("@semantic-release/github");
+const verifyReleaseAssetsScript = shellQuote(fileURLToPath(
+  new URL("./verify-release-assets.sh", import.meta.url),
+));
+const publishReleaseAssetsScript = shellQuote(fileURLToPath(
+  new URL("./publish-release-assets.sh", import.meta.url),
+));
+
+function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
 
 export function makeExtensionTag(tagPrefix, version) {
   return `${tagPrefix}-v${version}`;
@@ -54,10 +64,10 @@ export function createExtensionReleaseConfig({
             + "then echo \"NUGET_API_KEY is required.\"; exit 1; fi",
           verifyReleaseCmd:
             `if [ -n "$NEXT_RELEASE_VERSION_FILE" ]; then printf '%s\\n' '\${nextRelease.version}' `
-            + `> "$NEXT_RELEASE_VERSION_FILE"; else bash .github/release/verify-release-assets.sh `
+            + `> "$NEXT_RELEASE_VERSION_FILE"; else bash ${verifyReleaseAssetsScript} `
             + `'\${nextRelease.version}' '${packageId}' '${packageSpecs}'; fi`,
           publishCmd:
-            `bash .github/release/publish-release-assets.sh `
+            `bash ${publishReleaseAssetsScript} `
             + `'\${nextRelease.version}' '${packageId}' '${packageSpecs}'`,
         },
       ],
