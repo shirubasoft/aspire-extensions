@@ -36,7 +36,7 @@ Each extension versions independently from Conventional Commits that touch its o
 
 CI runs on Linux and Windows. Linux also measures method-level CRAP scores from OpenCover data and fails unless every method scores strictly below 5. After a successful `main` build, semantic-release publishes the package and symbols to NuGet.org with the `NUGET_API_KEY` organization secret, creates the package tag, and attaches both files to a GitHub release.
 
-semantic-release pushes the package tag before it publishes. If the publish job fails after that point, re-run it: the shared workflow removes a tag that points at the release commit without a GitHub release, so semantic-release selects the same version again, and NuGet pushes skip packages that already exist.
+semantic-release pushes the package tag before it publishes. If the publish job fails after that point, re-run it while the release commit is still the tip of `main`. The shared workflow removes a tag that points at the release commit without a GitHub release, so semantic-release selects the same version again, and NuGet pushes skip packages that already exist. If `main` has advanced, verify the incomplete release and remove its orphan tag before starting a fresh push build.
 
 ## Add an extension
 
