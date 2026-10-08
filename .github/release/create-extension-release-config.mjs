@@ -8,6 +8,10 @@ const pathScopedCommitsPlugin = fileURLToPath(
 const execPlugin = require.resolve("@semantic-release/exec");
 const githubPlugin = require.resolve("@semantic-release/github");
 
+export function makeExtensionTag(tagPrefix, version) {
+  return `${tagPrefix}-v${version}`;
+}
+
 export function createExtensionReleaseConfig({
   extensionPath,
   packageId,
@@ -43,7 +47,7 @@ export function createExtensionReleaseConfig({
 
   return {
     branches: ["main"],
-    tagFormat: `${tagPrefix}-v\${version}`,
+    tagFormat: makeExtensionTag(tagPrefix, "${version}"),
     plugins: [
       [pathScopedCommitsPlugin, conventionalConfig],
       [

@@ -122,6 +122,16 @@ jobs:
             git tag "$TAG_PREFIX-v$INITIAL_VERSION" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
           fi
 
+      - name: Remove the tag left by an earlier unpublished attempt of this release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+        run: >-
+          node .github/release/remove-incomplete-release-tag.mjs
+          "$TAG_PREFIX" "$PACKAGE_ID" "$HEAD_SHA"
+
       - name: Version and publish
         env:
           GITHUB_TOKEN: ${{ github.token }}

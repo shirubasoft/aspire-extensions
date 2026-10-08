@@ -36,6 +36,8 @@ Each extension versions independently from Conventional Commits that touch its o
 
 CI runs on Linux and Windows. Linux also measures method-level CRAP scores from OpenCover data and fails unless every method scores strictly below 5. After a successful `main` build, semantic-release publishes the package and symbols to NuGet.org with the `NUGET_API_KEY` organization secret, creates the package tag, and attaches both files to a GitHub release.
 
+semantic-release pushes the package tag before it publishes. If the publish job fails after that point, re-run it: the shared workflow removes a tag that points at the release commit without a GitHub release, so semantic-release selects the same version again, and NuGet pushes skip packages that already exist.
+
 ## Add an extension
 
 Use the repository skill in `.agents/skills/add-aspire-extension/`. It treats an existing local extension as the template, keeps package-specific files together, and reuses the root build, quality, and release tooling.
