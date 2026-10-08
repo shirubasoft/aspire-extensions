@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { readReleaseVersion, removeIncompleteReleaseTag } from "./remove-incomplete-release-tag.mjs";
 
 const headSha = "edd808d19e24692a2ee163afbc0a07cc6d286954";
@@ -253,6 +256,33 @@ test("authenticates Git with process-only configuration without exposing credent
     return true;
   });
   assert.ok(JSON.stringify({ ...process.env }) === JSON.stringify(envBefore), "Git must not mutate the parent environment");
+});
+
+test("actual authenticated HTTP Git sends the header without enabling HTTP tracing", async (t) => {
+  const { createAuthenticatedGit } = await import("./remove-incomplete-release-tag.mjs");
+  const token = "local-http-test-token";
+  let authorization;
+  const server = createServer((request, response) => {
+    authorization = request.headers.authorization;
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const serverUrl = `http://127.0.0.1:${server.address().port}`;
+  let stderr = "";
+  const git = createAuthenticatedGit({ token, serverUrl, git: async (args, options) => {
+    try {
+      return (await promisify(execFile)("git", args, options)).stdout;
+    } catch (error) {
+      stderr = error.stderr;
+      throw error;
+    }
+  } });
+
+  await assert.rejects(git(["ls-remote", `${serverUrl}/local.git`]), /Authenticated Git recovery failed/u);
+  assert.equal(authorization, `basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`);
+  assert.ok(!stderr.includes("Send header"), "Authenticated Git must not enable HTTP tracing");
 });
 
 test("preserves remote and local tags when a fresh fetch finds main has advanced", async () => {

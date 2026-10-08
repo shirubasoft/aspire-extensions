@@ -26,7 +26,8 @@ export function createAuthenticatedGit({ token, serverUrl = "https://github.com"
           GIT_TERMINAL_PROMPT: "0",
           GIT_TRACE: "0",
           GIT_TRACE_CURL: "0",
-          GIT_CURL_VERBOSE: "0",
+          // Git enables this legacy trace whenever it is present, even with value "0".
+          GIT_CURL_VERBOSE: undefined,
           GIT_TRACE2: "0",
           GIT_TRACE2_EVENT: "0",
           GIT_TRACE2_PERF: "0",
