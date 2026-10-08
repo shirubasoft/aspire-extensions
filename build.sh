@@ -32,7 +32,7 @@ dotnet tool restore
 dotnet restore Aspire.Extensions.Tools.slnx
 dotnet format Aspire.Extensions.Tools.slnx --verify-no-changes --no-restore
 dotnet build Aspire.Extensions.Tools.slnx --configuration Release --no-restore
-dotnet test Aspire.Extensions.Tools.slnx --configuration Release --no-build --no-restore
+dotnet test --solution Aspire.Extensions.Tools.slnx --configuration Release --no-build --no-restore
 
 if [[ -n "$extension_path" ]]; then
   extension_paths=("$extension_path")

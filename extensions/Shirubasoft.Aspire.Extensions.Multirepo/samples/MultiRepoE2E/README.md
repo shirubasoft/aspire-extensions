@@ -56,7 +56,7 @@ dotnet run \
   --file artifacts/manual-module-image-workflow.json \
   -- \
   dotnet test \
-  extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj \
+  --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj \
   --configuration Release
 ```
 

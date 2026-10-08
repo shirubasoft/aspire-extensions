@@ -8,6 +8,13 @@
         "aspire"
       ],
       "rollForward": false
+    },
+    "coverlet.console": {
+      "version": "10.1.0",
+      "commands": [
+        "coverlet"
+      ],
+      "rollForward": false
     }
   }
 }

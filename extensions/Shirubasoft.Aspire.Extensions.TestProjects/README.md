@@ -108,4 +108,4 @@ The sample starts an HTTP API and leaves `api-tests` waiting for an explicit sta
 
 Set the AppHost configuration value `TestDemo:Fail` to `true` for a deliberate assertion failure, or `TestDemo:Slow` to `true` for a test that waits on the API for 30 seconds and can be stopped. Use standard .NET configuration providers, such as an `appsettings.Development.json` file in the sample AppHost.
 
-The repository's build tooling uses VSTest for its own library and package tests. The MTP sample is built through its AppHost project reference and executed explicitly by the integration fixture. Running the sample executable directly without injected endpoints skips the API checks.
+The repository's own library and package tests also run on Microsoft.Testing.Platform through `dotnet test`. The MTP sample is built through its AppHost project reference and executed explicitly by the integration fixture. Running the sample executable directly without injected endpoints skips the API checks.

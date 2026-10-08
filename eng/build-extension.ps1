@@ -72,7 +72,7 @@ if (Test-Path $packProjectsFile) {
 Invoke-DotNet restore $solution
 Invoke-DotNet format $solution --verify-no-changes --no-restore
 Invoke-DotNet build $solution --configuration Release --no-restore @versionArguments
-Invoke-DotNet test $solution --configuration Release --no-build --no-restore @versionArguments
+Invoke-DotNet test --solution $solution --configuration Release --no-build --no-restore @versionArguments
 foreach ($project in $packageProjects) {
     Invoke-DotNet pack $project `
         --configuration Release --no-build --no-restore `
