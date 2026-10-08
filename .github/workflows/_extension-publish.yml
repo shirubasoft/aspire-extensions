@@ -44,11 +44,27 @@ jobs:
       contents: write
 
     steps:
-      - name: Check out repository
+      - name: Check out main
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ inputs.head_sha }}
+          persist-credentials: false
+
+      - name: Switch to the release commit after verifying it is on main
+        shell: bash
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::head_sha must be a full commit SHA, got '$HEAD_SHA'."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$HEAD_SHA" refs/remotes/origin/main; then
+            echo "::error::Commit $HEAD_SHA is not on main. Refusing to run release tooling from it."
+            exit 1
+          fi
+          git checkout --detach "$HEAD_SHA"
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
