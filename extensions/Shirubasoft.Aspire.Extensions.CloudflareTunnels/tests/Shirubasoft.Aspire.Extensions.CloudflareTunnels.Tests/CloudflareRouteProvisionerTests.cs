@@ -96,6 +96,37 @@ public sealed class CloudflareRouteProvisionerTests
         Assert.Null(api.UpdatedConfiguration);
     }
 
+    // Route configuration is not transactional.
+    [Fact]
+    public async Task FailedRouteKeepsEarlierDnsRecordsAndSkipsTheIngressUpdate()
+    {
+        var api = new TestCloudflareApiClient
+        {
+            ZoneResolver = name => name == "example.com"
+                ? new("zone-id", name, "active")
+                : null,
+        };
+        var (tunnel, route) = CreateRoute();
+        var unknownZoneRoute = new PublishedRouteResource(
+            "public-route-app-example-org",
+            "app.example.org",
+            route.TargetEndpoint,
+            route.TargetResource,
+            tunnel);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new CloudflareRouteProvisioner(new TestCloudflareApiClientFactory(api))
+                .ConfigureRoutesAsync(
+                    tunnel,
+                    [route, unknownZoneRoute],
+                    _ => Task.FromResult("http://web:80"),
+                    _ => NullLogger.Instance,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal([("zone-id", "app.example.com", "tunnel-id")], api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
+    }
+
     [Fact]
     public async Task ConfigurePipelineRoutesFindsTheExistingTunnel()
     {

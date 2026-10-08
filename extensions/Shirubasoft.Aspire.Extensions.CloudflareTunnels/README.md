@@ -97,7 +97,7 @@ web.WithCloudflareTunnel(
 
 ## Deployment pipeline
 
-The named tunnel contributes a Cloudflare route step to Aspire's deploy pipeline. The step runs after the tunnel and its targets finish deploying. If a deployment step fails, the route step does not run, and the existing DNS records and ingress rules stay unchanged.
+The named tunnel contributes a Cloudflare route step, `configure-{name}-cloudflare-routes`, to Aspire's deploy pipeline. The step runs after the tunnel and its targets finish deploying. If a deployment step fails, the route step does not run, and the existing DNS records and ingress rules stay unchanged. Running the route step by name, with `aspire do configure-{name}-cloudflare-routes` or the AppHost's `--step` argument, also runs the deployment steps that it waits for.
 
 The route step waits for the deployment steps of the compute environments that host the tunnel and its targets:
 
@@ -133,6 +133,8 @@ Before deployment:
 4. Assign every published target resource to an Aspire compute environment.
 
 The pipeline resolves each target's deployed endpoint, upserts its DNS record, and updates the tunnel ingress configuration. It fails when the tunnel, Cloudflare zone, deployment target, or deployed endpoint cannot be resolved.
+
+Route configuration is not transactional. The step upserts the DNS record of each route in turn and then writes the ingress configuration once. If a route or the ingress update fails, the DNS records that the step already upserted stay in place.
 
 In a Docker Compose environment, `cloudflared` reaches each target on the Compose network, so the ingress rule uses the container port, such as `http://web:8080`. Give each published endpoint a fixed container port, for example `WithHttpEndpoint(targetPort: 8080)`. If an endpoint has no fixed port, Compose assigns one that the route step cannot discover. The ingress rule then uses the endpoint's default port, and the pipeline completes with a warning that names the endpoint.
 
