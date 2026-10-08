@@ -3,6 +3,20 @@ set -euo pipefail
 
 script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(git -C "$script_path" rev-parse --show-toplevel)"
+global_json="$repository_root/global.json"
+packages_props="$repository_root/Directory.Packages.props"
+sdk_pin_pattern='("Aspire\.AppHost\.Sdk"[[:space:]]*:[[:space:]]*")([^"]+)(")'
+
+if [[ -n "$(git -C "$repository_root" status --porcelain --untracked-files=all)" ]]; then
+  echo "Commit or stash local changes first. The update restores files that aspire update rewrites." >&2
+  exit 1
+fi
+
+previous_sdk_version="$(sed -nE "s/.*${sdk_pin_pattern}.*/\2/p" "$global_json")"
+if [[ -z "$previous_sdk_version" ]]; then
+  echo "global.json must pin Aspire.AppHost.Sdk under msbuild-sdks." >&2
+  exit 1
+fi
 
 if [[ -n "${RUNNER_TEMP:-}" ]]; then
   scratch_path="$RUNNER_TEMP/aspire-update"
@@ -42,6 +56,21 @@ contains_apphost_sdk() {
   else
     grep -q 'Aspire\.AppHost\.Sdk' "$project_path"
   fi
+}
+
+rewrite_file() {
+  local file="$1"
+  local expression="$2"
+
+  sed -E "$expression" "$file" > "$file.tmp"
+  mv "$file.tmp" "$file"
+}
+
+semantic_content() {
+  sed -E \
+    -e $'1s/^\xEF\xBB\xBF//' \
+    -e 's|Aspire\.AppHost\.Sdk/[^"]+|Aspire.AppHost.Sdk|g' \
+    "$1" | tr -d '[:space:]'
 }
 
 apphosts=()
@@ -112,3 +141,65 @@ for index in "${!apphosts[@]}"; do
     printf '</details>\n'
   } >> "$report_path"
 done
+
+# aspire update pins the AppHost SDK in each project and reformats every file it
+# rewrites. Keep only its version decisions, in the files that own those pins.
+mapfile -t cli_changes < <(
+  git -C "$repository_root" diff --name-only -- . ':(exclude).config/dotnet-tools.json'
+)
+untracked_files="$(git -C "$repository_root" ls-files --others --exclude-standard)"
+if [[ -n "$untracked_files" ]]; then
+  printf 'aspire update created files that this script does not keep:\n%s\n' "$untracked_files" >&2
+  exit 1
+fi
+
+if [[ ${#cli_changes[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+cli_output_path="$scratch_path/cli-output"
+rm -rf "$cli_output_path"
+for file in "${cli_changes[@]}"; do
+  mkdir -p "$cli_output_path/$(dirname "$file")"
+  cp "$repository_root/$file" "$cli_output_path/$file"
+done
+
+mapfile -t sdk_versions < <(
+  grep -rhoE 'Aspire\.AppHost\.Sdk/[^"]+' "$cli_output_path" | sed 's|.*/||' | sort -u
+)
+case ${#sdk_versions[@]} in
+  0) sdk_version="$previous_sdk_version" ;;
+  1) sdk_version="${sdk_versions[0]}" ;;
+  *)
+    printf 'aspire update selected different AppHost SDK versions: %s\n' "${sdk_versions[*]}" >&2
+    exit 1
+    ;;
+esac
+
+mapfile -t package_pins < <(
+  grep -oE '<PackageVersion Include="Aspire\.[^"]+" Version="[^"]+"' \
+    "$cli_output_path/Directory.Packages.props" 2>/dev/null
+)
+
+git -C "$repository_root" checkout -- "${cli_changes[@]}"
+
+for pin in "${package_pins[@]}"; do
+  pin_prefix="${pin%Version=*}"
+  rewrite_file "$packages_props" "s|${pin_prefix//./\\.}Version=\"[^\"]*\"|${pin}|"
+done
+
+for file in "${cli_changes[@]}"; do
+  if [[ "$(semantic_content "$repository_root/$file")" != "$(semantic_content "$cli_output_path/$file")" ]]; then
+    printf 'aspire update changed %s beyond package and SDK versions:\n' "$file" >&2
+    diff -u "$repository_root/$file" "$cli_output_path/$file" >&2 || true
+    exit 1
+  fi
+done
+
+if [[ "$sdk_version" != "$previous_sdk_version" ]]; then
+  rewrite_file "$global_json" "s/${sdk_pin_pattern}/\\1${sdk_version}\\3/"
+  # Aspire packages that no AppHost references, such as Aspire.Hosting.Testing,
+  # move with the SDK when they were pinned to its previous version.
+  rewrite_file "$packages_props" \
+    "s|(<PackageVersion Include=\"Aspire\\.[^\"]+\" Version=\")${previous_sdk_version//./\\.}\"|\\1${sdk_version}\"|"
+fi
