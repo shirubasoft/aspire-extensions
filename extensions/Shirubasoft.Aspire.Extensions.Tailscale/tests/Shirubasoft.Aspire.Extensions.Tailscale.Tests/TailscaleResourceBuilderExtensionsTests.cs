@@ -273,6 +273,49 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         Assert.Equal("tag:web,tag:admin", configuration.EnvironmentVariables["TAILSCALE_TAGS"]);
     }
 
+    [Fact]
+    public async Task PublishModeWithoutADockerComposeEnvironmentFailsWithAClearError()
+    {
+        var builder = DistributedApplication.CreateBuilder(["--operation", "publish"]);
+        builder.Configuration["Parameters:tailnet-oauth-client-secret"] = "tskey-client-test";
+        var tailnet = builder.AddTailnet("tailnet");
+        builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithTailscale(tailnet, hostname: "quadra-web");
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => BuildRunConfigurationAsync(builder, sidecar));
+
+        Assert.Contains("'web'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Docker Compose", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PublishModeToAnotherComputeEnvironmentNamesItInTheError()
+    {
+        var builder = DistributedApplication.CreateBuilder(["--operation", "publish"]);
+        builder.Configuration["Parameters:tailnet-oauth-client-secret"] = "tskey-client-test";
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithTailscale(tailnet, hostname: "quadra-web");
+        web.Resource.Annotations.Add(new DeploymentTargetAnnotation(new TestComputeEnvironmentResource("cluster-service"))
+        {
+            ComputeEnvironment = new TestComputeEnvironmentResource("cluster"),
+        });
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => BuildRunConfigurationAsync(builder, sidecar));
+
+        Assert.Contains("'web'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'cluster'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Docker Compose", exception.Message, StringComparison.Ordinal);
+    }
+
     // Parameter values resolve through the application services, so the
     // execution context must come from a built application.
     private static async Task<RunConfiguration> BuildRunConfigurationAsync(
@@ -295,6 +338,15 @@ public sealed class TailscaleResourceBuilderExtensionsTests
     private sealed record RunConfiguration(
         Dictionary<string, string> EnvironmentVariables,
         string[] Arguments);
+
+#pragma warning disable ASPIRECOMPUTE002
+    private sealed class TestComputeEnvironmentResource(string name)
+        : Resource(name), IComputeEnvironmentResource
+    {
+        public ReferenceExpression GetHostAddressExpression(EndpointReference endpointReference) =>
+            ReferenceExpression.Create($"{endpointReference.Resource.Name}.internal");
+    }
+#pragma warning restore ASPIRECOMPUTE002
 
     private static void AllocateOnContainerNetwork(IResource resource, string host, int port)
     {

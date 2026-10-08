@@ -1,5 +1,6 @@
 using System.Buffers;
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Docker;
 
 namespace Aspire.Hosting;
 
@@ -144,15 +145,42 @@ public static class TailscaleResourceBuilderExtensions
     {
         var proxyUrl = executionContext.IsRunMode
             ? await sidecar.TargetEndpoint.GetValueAsync(cancellationToken).ConfigureAwait(false)
-            : await TailscaleProxyTarget
-                .GetComposeUrl(sidecar.Target, sidecar.TargetEndpoint.EndpointName)
-                .GetValueAsync(cancellationToken)
-                .ConfigureAwait(false);
+            : await GetComposeProxyUrlAsync(sidecar, cancellationToken).ConfigureAwait(false);
 
         return proxyUrl ?? throw new InvalidOperationException(
             $"Endpoint '{sidecar.TargetEndpoint.EndpointName}' for resource " +
             $"'{sidecar.Target.Name}' could not be resolved.");
     }
+
+    private static ValueTask<string?> GetComposeProxyUrlAsync(
+        TailscaleSidecarResource sidecar,
+        CancellationToken cancellationToken)
+    {
+        RequireDockerCompose(sidecar.Target);
+
+        return TailscaleProxyTarget
+            .GetComposeUrl(sidecar.Target, sidecar.TargetEndpoint.EndpointName)
+            .GetValueAsync(cancellationToken);
+    }
+
+#pragma warning disable ASPIRECOMPUTE002
+    // The service address and the escaped certificate placeholder are Compose
+    // conventions, so another compute environment must not receive them.
+    private static void RequireDockerCompose(IResource target)
+    {
+        var environment = target.GetDeploymentTargetAnnotation()?.ComputeEnvironment;
+
+        if (environment is not DockerComposeEnvironmentResource)
+        {
+            throw new InvalidOperationException(
+                $"Resource '{target.Name}' publishes to {DescribeEnvironment(environment)}, " +
+                "but Tailscale sidecars support Docker Compose only.");
+        }
+    }
+
+    private static string DescribeEnvironment(IComputeEnvironmentResource? environment) =>
+        environment is null ? "no compute environment" : $"'{environment.Name}'";
+#pragma warning restore ASPIRECOMPUTE002
 
     private static string GetCertDomain(DistributedApplicationExecutionContext executionContext) =>
         executionContext.IsPublishMode

@@ -68,7 +68,7 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
             .Select(element => element.Attribute("id")?.Value)
             .OfType<string>()
             .ToArray();
-        Assert.Equal(["Aspire.Hosting"], dependencies);
+        Assert.Equal(["Aspire.Hosting", "Aspire.Hosting.Docker"], dependencies);
     }
 
     [Fact]
