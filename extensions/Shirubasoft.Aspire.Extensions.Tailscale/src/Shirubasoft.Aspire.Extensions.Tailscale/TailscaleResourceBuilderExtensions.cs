@@ -184,7 +184,8 @@ public static class TailscaleResourceBuilderExtensions
         }
     }
 
-    // A Tailscale machine name is a DNS label. Run mode appends four characters.
+    // A Tailscale machine name is a DNS label of at most 63 characters. The limit
+    // leaves room for the run-mode suffix.
     private static bool IsDnsLabel(string hostname) =>
         hostname.Length <= 59
         && !HasHyphenEdge(hostname)

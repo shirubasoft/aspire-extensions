@@ -56,6 +56,7 @@ A project resource runs on the host, so its sidecar proxies to the host address 
 - `TS_HOSTNAME` is the requested hostname without a suffix.
 - `TS_STATE_DIR` points to the named volume `{resource}-ts-state`, so the node identity survives container recreation.
 - The serve configuration proxies HTTPS on port 443 to `http://{resource}:{target port}` on the Compose network. The sidecar writes it from an environment variable at start, so the generated Compose file needs no bind mounts and works with a remote `DOCKER_HOST`.
+- The serve configuration names the node certificate domain with the Tailscale placeholder `${TS_CERT_DOMAIN}`, written as `$${TS_CERT_DOMAIN}` so Compose passes it through unchanged.
 - The sidecar `depends_on` the resource service.
 
 The target port comes from the endpoint declaration. A container endpoint needs `targetPort`, or `port` when the container listens on the published port. A project resource uses the default container port `8080`. Publishing fails with an error that names the resource and endpoint when the endpoint has no fixed target port.
@@ -81,8 +82,7 @@ The target port comes from the endpoint declaration. A container endpoint needs 
 - The sidecar uses userspace networking (`TS_USERSPACE=true`), so it runs without `/dev/net/tun` or extra capabilities, including inside unprivileged LXC containers. Only the configured endpoint is reachable; the sidecar is not a subnet router or exit node.
 - A deployed node stays in the tailnet until it is removed from the admin console or its state volume is deleted. Run-mode nodes are ephemeral and disappear shortly after the container stops.
 - Tailscale certificates and MagicDNS names are issued per node. Two nodes cannot share a hostname; Tailscale appends a numeric suffix to the second one.
-- Compose generation requires the serve configuration to escape `${TS_CERT_DOMAIN}` as `$${TS_CERT_DOMAIN}`. The sidecar receives the literal placeholder and Tailscale replaces it with the node's MagicDNS name.
-- Publishing targets Docker Compose. Other compute environments receive the same configuration and are not supported.
+- Publishing targets Docker Compose. Other Aspire compute environments are not supported.
 
 ## Run the sample
 
