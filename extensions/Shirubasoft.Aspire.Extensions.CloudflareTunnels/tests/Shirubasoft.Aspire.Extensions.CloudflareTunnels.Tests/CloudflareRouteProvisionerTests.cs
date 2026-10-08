@@ -142,11 +142,9 @@ public sealed class CloudflareRouteProvisionerTests
             ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
         };
 
-        var pipeline = new ComposeDeploymentPipeline
+        var pipeline = new TunnelDeploymentPipeline
         {
             Api = api,
-            TunnelName = "public",
-            Hostname = "app.example.com",
             TargetPort = targetPort,
         };
 

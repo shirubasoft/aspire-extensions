@@ -1,6 +1,5 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -24,47 +23,36 @@ public sealed class CloudflarePipelineStepsTests
     [Fact]
     public async Task RouteStepDependsOnTheComposeDeployment()
     {
-        string[] dependencies = [];
-        var pipeline = new ComposeDeploymentPipeline
-        {
-            Api = CreateApi(),
-            TunnelName = "public",
-            Hostname = "app.example.com",
-            Configure = builder => builder
-                .AddResource(new PipelineProbeResource("probe"))
-                .WithPipelineConfiguration(context => dependencies =
-                [
-                    .. context.Steps
-                        .Single(step => step.Name == "configure-public-cloudflare-routes")
-                        .DependsOnSteps,
-                ]),
-        };
+        var pipeline = new TunnelDeploymentPipeline { Api = CreateApi() };
 
         await pipeline.RunAsync("publish");
 
-        Assert.Contains("docker-compose-up-env", dependencies);
+        Assert.Contains("docker-compose-up-env", pipeline.RouteStepDependencies);
     }
 
-    [Fact]
-    public async Task RouteStepRunsAfterComposeUpSucceeds()
+    // Running the route step by name, as `aspire do` does, also runs compose up.
+    [Theory]
+    [InlineData("deploy")]
+    [InlineData("configure-public-cloudflare-routes")]
+    public async Task RouteStepRunsAfterComposeUpSucceeds(string step)
     {
         var api = CreateApi();
-        var dnsUpsertsDuringComposeUp = new List<int>();
-        var pipeline = new ComposeDeploymentPipeline
+        var cloudflareWritesDuringComposeUp = new List<(int DnsUpserts, bool IngressUpdated)>();
+        var pipeline = new TunnelDeploymentPipeline
         {
             Api = api,
-            TunnelName = "public",
-            Hostname = "app.example.com",
             ComposeUp = () =>
             {
-                dnsUpsertsDuringComposeUp.Add(api.DnsUpserts.Count);
+                cloudflareWritesDuringComposeUp.Add(
+                    (api.DnsUpserts.Count, api.UpdatedConfiguration is not null));
                 return Task.CompletedTask;
             },
         };
 
-        await pipeline.RunAsync(pipeline.RouteStepName);
+        await pipeline.RunAsync(step);
 
-        Assert.Equal([0], dnsUpsertsDuringComposeUp);
+        Assert.Null(pipeline.Failure);
+        Assert.Equal([(0, false)], cloudflareWritesDuringComposeUp);
         Assert.Single(api.DnsUpserts);
         Assert.NotNull(api.UpdatedConfiguration);
     }
@@ -74,11 +62,9 @@ public sealed class CloudflarePipelineStepsTests
     {
         var api = CreateApi();
         var composeUpCalls = 0;
-        var pipeline = new ComposeDeploymentPipeline
+        var pipeline = new TunnelDeploymentPipeline
         {
             Api = api,
-            TunnelName = "public",
-            Hostname = "app.example.com",
             ComposeUp = () =>
             {
                 composeUpCalls++;
@@ -89,39 +75,69 @@ public sealed class CloudflarePipelineStepsTests
         await pipeline.RunAsync("deploy");
 
         Assert.Equal(1, composeUpCalls);
+        Assert.Contains("compose up failed", pipeline.Failure?.Message);
         Assert.Equal(0, pipeline.ClientFactory.CallCount);
         Assert.Empty(api.DnsUpserts);
         Assert.Null(api.UpdatedConfiguration);
     }
 
-    [Fact]
-    public void DeploymentStepsIncludeComputeDeploymentsOfDeployedResources()
+    // A compute environment declares its deployment step with the deploy-compute tag,
+    // on the environment or, like Azure Container Apps, on each deployment target.
+    [Theory]
+    [InlineData(DeploymentStepOwner.Environment, "deploy-custom")]
+    [InlineData(DeploymentStepOwner.DeploymentTarget, "deploy-web-custom")]
+    public async Task RouteStepRunsAfterADeclaredDeploymentStepSucceeds(
+        DeploymentStepOwner owner,
+        string deploymentStep)
     {
-        var environment = new TestComputeEnvironmentResource("aca");
-        var deploymentTarget = new PipelineProbeResource("web-app");
-        var web = new ContainerResource("web");
-        web.Annotations.Add(new DeploymentTargetAnnotation(deploymentTarget)
+        var api = CreateApi();
+        var dnsUpsertsDuringDeployment = new List<int>();
+        var pipeline = new TunnelDeploymentPipeline
         {
-            ComputeEnvironment = environment,
-        });
-        var deployWeb = CreateStep("deploy-web", deploymentTarget, WellKnownPipelineTags.DeployCompute);
-        var context = new PipelineConfigurationContext
-        {
-            Services = new ServiceCollection().BuildServiceProvider(),
-            Steps =
-            [
-                deployWeb,
-                CreateStep("provision-aca", environment, WellKnownPipelineTags.ProvisionInfrastructure),
-                CreateStep("build-web", web, WellKnownPipelineTags.BuildCompute),
-            ],
-            Model = new DistributedApplicationModel([environment, deploymentTarget, web]),
+            Api = api,
+            AddEnvironment = builder => builder.AddTestComputeEnvironment(
+                "custom",
+                WellKnownPipelineTags.DeployCompute,
+                owner,
+                () =>
+                {
+                    dnsUpsertsDuringDeployment.Add(api.DnsUpserts.Count);
+                    return Task.CompletedTask;
+                }),
         };
 
-        var steps = CloudflarePipelineSteps.GetDeploymentSteps(
-            context,
-            [web, new PipelineProbeResource("not-deployed")]);
+        await pipeline.RunAsync("deploy");
 
-        Assert.Equal([deployWeb], steps);
+        Assert.Null(pipeline.Failure);
+        Assert.Contains(deploymentStep, pipeline.RouteStepDependencies);
+        Assert.All(dnsUpsertsDuringDeployment, count => Assert.Equal(0, count));
+        Assert.Single(api.DnsUpserts);
+        Assert.NotNull(api.UpdatedConfiguration);
+    }
+
+    [Theory]
+    [InlineData(DeploymentStepOwner.Environment)]
+    [InlineData(DeploymentStepOwner.DeploymentTarget)]
+    public async Task FailedDeclaredDeploymentStepLeavesTunnelConfigurationAndDnsUntouched(
+        DeploymentStepOwner owner)
+    {
+        var api = CreateApi();
+        var pipeline = new TunnelDeploymentPipeline
+        {
+            Api = api,
+            AddEnvironment = builder => builder.AddTestComputeEnvironment(
+                "custom",
+                WellKnownPipelineTags.DeployCompute,
+                owner,
+                () => Task.FromException(new InvalidOperationException("deployment failed"))),
+        };
+
+        await pipeline.RunAsync("deploy");
+
+        Assert.Contains("deployment failed", pipeline.Failure?.Message);
+        Assert.Equal(0, pipeline.ClientFactory.CallCount);
+        Assert.Empty(api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
     }
 
     [Fact]
@@ -212,16 +228,4 @@ public sealed class CloudflarePipelineStepsTests
         {
             ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
         };
-
-    private static PipelineStep CreateStep(string name, IResource resource, string tag) =>
-        new()
-        {
-            Name = name,
-            Action = _ => Task.CompletedTask,
-            Tags = [tag],
-            Resource = resource,
-        };
-
-    private sealed class TestComputeEnvironmentResource(string name)
-        : Resource(name), IComputeEnvironmentResource;
 }
