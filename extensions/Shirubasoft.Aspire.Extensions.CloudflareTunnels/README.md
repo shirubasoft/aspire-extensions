@@ -66,7 +66,7 @@ In run mode, Aspire prompts for these parameters:
 | `development-account-id` | No | Selects the Cloudflare account. |
 | `development-api-token` | Yes | Creates the tunnel, writes DNS records, and updates ingress rules. |
 
-The integration reuses a tunnel with the requested name. It creates the tunnel when none exists, retrieves its connector token, upserts each CNAME record, and replaces the AppHost-managed ingress rules. Ingress rules that use other hostnames remain unchanged.
+The integration reuses a tunnel with the requested name. It creates the tunnel when none exists, retrieves its connector token, and reconciles the tunnel's routes as described in [Route ownership](#route-ownership).
 
 Aspire keeps the connector token inside the tunnel resource and passes it directly to `cloudflared` through the secret `TUNNEL_TOKEN` environment variable. Application code uses the resource builder without handling the token.
 
@@ -86,6 +86,17 @@ var tunnel = builder.AddCloudflareTunnel(
     metricsPort: 60123);
 ```
 
+## Route ownership
+
+The AppHost owns the routes of each named tunnel, in run mode and during deployment. Each time the integration configures the routes, Cloudflare ends up matching the AppHost:
+
+- The tunnel's ingress rules are the AppHost's routes, followed by a catch-all rule that returns HTTP 404. Ingress rules for other hostnames are removed.
+- Each route has a proxied CNAME record with the comment `managed-by=aspire:{name}`, where `{name}` is the tunnel name. The comment marks the record as owned by the tunnel.
+- An owned record whose hostname no longer has a route is deleted. The integration searches the zones of the AppHost's hostnames and of the hostnames in the tunnel's current ingress rules.
+- A record without the tunnel's comment stays unchanged. When such a record uses a route's hostname, the integration logs a warning, and a deployment completes with a warning that names the record. A CNAME record without a comment that already points to the tunnel is adopted: the integration adds the comment.
+
+Configuring unchanged routes again makes no changes in Cloudflare. Records are written before the ingress rules, so if a run stops partway, the next run completes the cleanup.
+
 ## Deployment pipeline
 
 The named tunnel contributes a Cloudflare route step to Aspire's deploy pipeline. The step runs after the compute environments that host the tunnel and its targets finish deploying, such as Docker Compose's `docker-compose-up-{environment}` step. If a deployment step fails, the route step does not run, and the existing DNS records and ingress rules stay unchanged.
@@ -97,7 +108,7 @@ Before deployment:
 3. Supply `{name}-tunnel-token` for the deployed `cloudflared` connector.
 4. Assign every published target resource to an Aspire compute environment.
 
-The pipeline resolves each target's deployed endpoint, upserts its DNS record, and updates the tunnel ingress configuration. It fails when the tunnel, Cloudflare zone, deployment target, or deployed endpoint cannot be resolved.
+The pipeline resolves each target's deployed endpoint and reconciles the tunnel's routes. It fails when the tunnel, Cloudflare zone, deployment target, or deployed endpoint cannot be resolved.
 
 In a Docker Compose environment, `cloudflared` reaches each target on the Compose network, so the ingress rule uses the container port, such as `http://web:8080`. Give each published endpoint a fixed container port, for example `WithHttpEndpoint(targetPort: 8080)`. If an endpoint has no fixed port, Compose assigns one that the route step cannot discover. The ingress rule then uses the endpoint's default port, and the pipeline completes with a warning that names the endpoint.
 

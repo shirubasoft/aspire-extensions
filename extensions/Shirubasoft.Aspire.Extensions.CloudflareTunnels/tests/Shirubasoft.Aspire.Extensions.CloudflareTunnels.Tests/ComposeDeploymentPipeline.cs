@@ -19,7 +19,8 @@ internal sealed class ComposeDeploymentPipeline
 
     public required string TunnelName { get; init; }
 
-    public required string Hostname { get; init; }
+    // Null declares the tunnel without routes.
+    public string? Hostname { get; init; }
 
     public int? TargetPort { get; init; } = 8080;
 
@@ -50,7 +51,11 @@ internal sealed class ComposeDeploymentPipeline
                 .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
                 .WithHttpEndpoint(targetPort: TargetPort, name: "http");
             var tunnel = builder.AddCloudflareTunnel(TunnelName);
-            web.WithCloudflareTunnel(tunnel, Hostname);
+            if (Hostname is not null)
+            {
+                web.WithCloudflareTunnel(tunnel, Hostname);
+            }
+
             Configure(builder);
 
             ClientFactory = new TestCloudflareApiClientFactory(Api);

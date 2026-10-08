@@ -8,7 +8,7 @@ namespace Aspire.Hosting.Tests;
 public sealed class CloudflareRouteProvisionerTests
 {
     [Fact]
-    public async Task ConfigureRoutesUpsertsDnsAndPreservesUnmanagedIngress()
+    public async Task ConfigureRoutesReplacesTheIngressWithTheDeclaredRoutes()
     {
         var api = new TestCloudflareApiClient
         {
@@ -51,15 +51,12 @@ public sealed class CloudflareRouteProvisionerTests
         Assert.Equal(
             [("zone-id", "app.example.com", "tunnel-id")],
             api.DnsUpserts);
-        Assert.Equal(["app.example.com", "example.com"], api.ZoneLookups);
+        Assert.Equal(
+            ["app.example.com", "example.com", "legacy.example.net", "example.net"],
+            api.ZoneLookups);
         var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
         Assert.Collection(
             configuration.Ingress,
-            rule =>
-            {
-                Assert.Equal("legacy.example.net", rule.Hostname);
-                Assert.Equal("http://legacy:80", rule.Service);
-            },
             rule =>
             {
                 Assert.Equal("app.example.com", rule.Hostname);
@@ -116,6 +113,7 @@ public sealed class CloudflareRouteProvisionerTests
             tunnel,
             [route],
             (_, _) => Task.FromResult("https://deployed.example.net"),
+            (_, _, _) => Task.CompletedTask,
             NullLogger.Instance,
             TestContext.Current.CancellationToken);
 
@@ -259,7 +257,7 @@ public sealed class CloudflareRouteProvisionerTests
     public async Task ReportUnknownTargetPortWarnsAboutTheRoute()
     {
         var (_, route) = CreateRoute();
-        var warnings = new List<(PublishedRouteResource Route, string Warning)>();
+        var warnings = new List<(PublishedRouteResource Route, RouteWarning Warning)>();
 
         await CloudflareRouteProvisioner.ReportUnknownTargetPortAsync(
             new(ReferenceExpression.Empty, HasUnknownTargetPort: true),
@@ -274,10 +272,11 @@ public sealed class CloudflareRouteProvisionerTests
 
         var (warnedRoute, warning) = Assert.Single(warnings);
         Assert.Same(route, warnedRoute);
-        Assert.Contains("'http'", warning, StringComparison.Ordinal);
-        Assert.Contains("'web'", warning, StringComparison.Ordinal);
-        Assert.Contains("app.example.com routes to http://web", warning, StringComparison.Ordinal);
-        Assert.Contains("target port", warning, StringComparison.Ordinal);
+        Assert.Equal("Resolve the service URL for app.example.com", warning.Activity);
+        Assert.Contains("'http'", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("'web'", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("app.example.com routes to http://web", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("target port", warning.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -328,37 +327,6 @@ public sealed class CloudflareRouteProvisionerTests
             CloudflareRouteProvisioner.RequireServiceUrl(null, route));
 
         Assert.Contains("web", exception.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void RemoveManagedIngressRulesRemovesDeclaredRoutesAndCatchAll()
-    {
-        var (_, route) = CreateRoute();
-        var configuration = new TunnelConfiguration
-        {
-            Ingress =
-            [
-                new IngressRule
-                {
-                    Hostname = "APP.EXAMPLE.COM",
-                    Service = "http://old",
-                },
-                new IngressRule
-                {
-                    Hostname = "other.example.com",
-                    Service = "http://other",
-                },
-                new IngressRule
-                {
-                    Service = "http_status:404",
-                },
-            ],
-        };
-
-        CloudflareRouteProvisioner.RemoveManagedIngressRules(configuration, [route]);
-
-        var remaining = Assert.Single(configuration.Ingress);
-        Assert.Equal("other.example.com", remaining.Hostname);
     }
 
     [Fact]

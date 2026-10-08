@@ -86,22 +86,46 @@ internal sealed class TestCloudflareApiClient : ICloudflareApiClient
         return Task.FromResult(ZoneResolver(domainName));
     }
 
-    public Task<CloudflareDnsRecord> UpsertTunnelDnsRecordAsync(
+    public Task<IReadOnlyList<CloudflareDnsRecord>> FindDnsRecordsAsync(
         string zoneId,
         string hostname,
-        string tunnelId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<CloudflareDnsRecord>>([]);
+
+    public Task<IReadOnlyList<CloudflareDnsRecord>> FindDnsRecordsByCommentAsync(
+        string zoneId,
+        string comment,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<CloudflareDnsRecord>>([]);
+
+    public Task<CloudflareDnsRecord> CreateDnsRecordAsync(
+        string zoneId,
+        CloudflareDnsRecordRequest record,
         CancellationToken cancellationToken)
     {
-        DnsUpserts.Add((zoneId, hostname, tunnelId));
-        return Task.FromResult(
-            new CloudflareDnsRecord(
-                "record-id",
-                "CNAME",
-                hostname,
-                $"{tunnelId}.cfargotunnel.com",
-                true,
-                1));
+        DnsUpserts.Add((zoneId, record.Name, record.Content.Split('.')[0]));
+        return Task.FromResult(new CloudflareDnsRecord(
+            "record-id",
+            record.Type,
+            record.Name,
+            record.Content,
+            record.Proxied,
+            record.Ttl,
+            record.Comment));
     }
+
+    public Task<CloudflareDnsRecord> UpdateDnsRecordAsync(
+        string zoneId,
+        string recordId,
+        CloudflareDnsRecordRequest record,
+        CancellationToken cancellationToken) =>
+        CreateDnsRecordAsync(zoneId, record, cancellationToken);
+
+    public Task DeleteDnsRecordAsync(
+        string zoneId,
+        string recordId,
+        CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 
     public void Dispose() => IsDisposed = true;
 }

@@ -56,25 +56,4 @@ public sealed class CloudflareResourceLifecycleTests
             [KnownResourceStates.Starting, KnownResourceStates.FailedToStart],
             states);
     }
-
-    [Fact]
-    public async Task RunIfAnySkipsAnEmptyCollection()
-    {
-        var called = false;
-
-        await CloudflareResourceLifecycle.RunIfAnyAsync(
-            Array.Empty<string>(),
-            _ =>
-            {
-                called = true;
-                return Task.CompletedTask;
-            },
-            _ => Task.CompletedTask,
-            KnownResourceStates.Running,
-            NullLogger.Instance,
-            "failed",
-            TestContext.Current.CancellationToken);
-
-        Assert.False(called);
-    }
 }

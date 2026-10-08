@@ -26,22 +26,4 @@ internal static class CloudflareResourceLifecycle
             throw;
         }
     }
-
-    public static Task RunIfAnyAsync<T>(
-        IReadOnlyCollection<T> items,
-        Func<CancellationToken, Task> operation,
-        Func<string, Task> publishState,
-        string successState,
-        ILogger logger,
-        string failureMessage,
-        CancellationToken cancellationToken) =>
-        items.Count == 0
-            ? Task.CompletedTask
-            : RunAsync(
-                operation,
-                publishState,
-                successState,
-                logger,
-                failureMessage,
-                cancellationToken);
 }

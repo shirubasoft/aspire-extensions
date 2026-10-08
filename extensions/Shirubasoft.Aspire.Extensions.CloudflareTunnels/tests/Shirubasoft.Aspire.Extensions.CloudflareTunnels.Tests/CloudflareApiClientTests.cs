@@ -30,10 +30,9 @@ public sealed class CloudflareApiClientTests
                 """
                 {"success":true,"result":[{"id":"zone-id","name":"example.com","status":"active"}]}
                 """),
-            JsonResponse("""{"success":true,"result":[]}"""),
             JsonResponse(
                 """
-                {"success":true,"result":{"id":"record-id","type":"CNAME","name":"app.example.com","content":"tunnel-id.cfargotunnel.com","proxied":true,"ttl":1}}
+                {"success":true,"result":{"id":"record-id","type":"CNAME","name":"app.example.com","content":"tunnel-id.cfargotunnel.com","proxied":true,"ttl":1,"comment":"managed-by=aspire:public"}}
                 """));
         using var client = CreateClient(handler);
 
@@ -59,10 +58,15 @@ public sealed class CloudflareApiClientTests
         var zone = await client.FindZoneByNameAsync(
             "example.com",
             TestContext.Current.CancellationToken);
-        var record = await client.UpsertTunnelDnsRecordAsync(
+        var record = await client.CreateDnsRecordAsync(
             "zone-id",
-            "app.example.com",
-            "tunnel-id",
+            new CloudflareDnsRecordRequest(
+                "CNAME",
+                "app.example.com",
+                "tunnel-id.cfargotunnel.com",
+                Proxied: true,
+                Ttl: 1,
+                "managed-by=aspire:public"),
             TestContext.Current.CancellationToken);
 
         Assert.Equal("tunnel-id", tunnel?.Id);
@@ -72,6 +76,7 @@ public sealed class CloudflareApiClientTests
         Assert.Equal("http://web:80", Assert.Single(configuration!.Ingress).Service);
         Assert.Equal("zone-id", zone?.Id);
         Assert.Equal("record-id", record.Id);
+        Assert.Equal("managed-by=aspire:public", record.Comment);
         Assert.All(
             handler.Requests,
             request => Assert.Equal("Bearer test-token", request.Authorization));
@@ -90,35 +95,91 @@ public sealed class CloudflareApiClientTests
             request => request.Method == HttpMethod.Post
                 && request.Uri.EndsWith("/cfd_tunnel", StringComparison.Ordinal));
         Assert.Contains("tunnel_secret", createTunnel.Body, StringComparison.Ordinal);
-        Assert.Contains(
+        var createRecord = Assert.Single(
             handler.Requests,
             request => request.Method == HttpMethod.Post
                 && request.Uri.EndsWith("/dns_records", StringComparison.Ordinal));
+        Assert.Contains(
+            "\"comment\":\"managed-by=aspire:public\"",
+            createRecord.Body,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task UpsertUpdatesAnExistingDnsRecord()
+    public async Task DnsRecordWritesAddressTheRecord()
     {
         var handler = new RecordingHttpMessageHandler(
             JsonResponse(
                 """
-                {"success":true,"result":[{"id":"record/id","type":"CNAME","name":"app.example.com","content":"old.example.com","proxied":true,"ttl":1}]}
+                {"success":true,"result":{"id":"record/id","type":"CNAME","name":"app.example.com","content":"tunnel-id.cfargotunnel.com","proxied":true,"ttl":1,"comment":null}}
                 """),
-            JsonResponse(
-                """
-                {"success":true,"result":{"id":"record/id","type":"CNAME","name":"app.example.com","content":"tunnel-id.cfargotunnel.com","proxied":true,"ttl":1}}
-                """));
+            JsonResponse("""{"success":true,"result":{"id":"record/id"}}"""));
         using var client = CreateClient(handler);
 
-        var record = await client.UpsertTunnelDnsRecordAsync(
+        var record = await client.UpdateDnsRecordAsync(
             "zone-id",
-            "app.example.com",
-            "tunnel-id",
+            "record/id",
+            new CloudflareDnsRecordRequest(
+                "CNAME",
+                "app.example.com",
+                "tunnel-id.cfargotunnel.com",
+                Proxied: true,
+                Ttl: 1,
+                Comment: null),
+            TestContext.Current.CancellationToken);
+        await client.DeleteDnsRecordAsync(
+            "zone-id",
+            "record/id",
             TestContext.Current.CancellationToken);
 
         Assert.Equal("tunnel-id.cfargotunnel.com", record.Content);
-        var update = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Put);
-        Assert.EndsWith("/dns_records/record%2Fid", update.Uri, StringComparison.Ordinal);
+        Assert.Collection(
+            handler.Requests,
+            request =>
+            {
+                Assert.Equal(HttpMethod.Put, request.Method);
+                Assert.EndsWith("/dns_records/record%2Fid", request.Uri, StringComparison.Ordinal);
+            },
+            request =>
+            {
+                Assert.Equal(HttpMethod.Delete, request.Method);
+                Assert.EndsWith("/dns_records/record%2Fid", request.Uri, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
+    public async Task DnsRecordListsReadEveryPage()
+    {
+        var handler = new RecordingHttpMessageHandler(
+            JsonResponse(
+                """
+                {"success":true,"result":[{"id":"one","type":"CNAME","name":"one.example.com","content":"t.cfargotunnel.com","proxied":true,"ttl":1,"comment":"managed-by=aspire:public"}],"result_info":{"page":1,"total_pages":2}}
+                """),
+            JsonResponse(
+                """
+                {"success":true,"result":[{"id":"two","type":"CNAME","name":"two.example.com","content":"t.cfargotunnel.com","proxied":true,"ttl":1,"comment":"managed-by=aspire:public"}],"result_info":{"page":2,"total_pages":2}}
+                """),
+            JsonResponse("""{"success":true,"result":[]}"""));
+        using var client = CreateClient(handler);
+
+        var owned = await client.FindDnsRecordsByCommentAsync(
+            "zone-id",
+            "managed-by=aspire:public",
+            TestContext.Current.CancellationToken);
+        var named = await client.FindDnsRecordsAsync(
+            "zone-id",
+            "app.example.com",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(["one", "two"], owned.Select(record => record.Id));
+        Assert.Empty(named);
+        Assert.Equal(
+        [
+            "https://api.cloudflare.com/client/v4/zones/zone-id/dns_records?comment.exact=managed-by%3Daspire%3Apublic&per_page=100&page=1",
+            "https://api.cloudflare.com/client/v4/zones/zone-id/dns_records?comment.exact=managed-by%3Daspire%3Apublic&per_page=100&page=2",
+            "https://api.cloudflare.com/client/v4/zones/zone-id/dns_records?name.exact=app.example.com&per_page=100&page=1",
+        ],
+            handler.Requests.Select(request => request.Uri));
     }
 
     [Theory]

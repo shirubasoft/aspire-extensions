@@ -1,7 +1,6 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Aspire.Hosting;
 
@@ -71,7 +70,6 @@ internal static class CloudflarePipelineSteps
         var routes = GetRoutes(context.Model, tunnel);
 
         return ExecuteAsync(
-            tunnel,
             routes,
             token => context.Services
                 .GetRequiredService<CloudflareRouteProvisioner>()
@@ -79,53 +77,44 @@ internal static class CloudflarePipelineSteps
                     tunnel,
                     routes,
                     context.ExecutionContext,
-                    (route, warning, warningToken) => ReportWarningAsync(
+                    (_, warning, warningToken) => ReportWarningAsync(
                         context.ReportingStep,
-                        route,
                         warning,
                         warningToken),
                     context.Logger,
                     token),
-            context.Logger,
             summary => context.Summary.Add(
                 $"Cloudflare tunnel '{tunnel.Name}'",
                 summary),
             context.CancellationToken);
     }
 
+    // The declared routes are the tunnel's complete set, so a tunnel without routes
+    // still runs to remove the routes of earlier deployments.
     internal static async Task ExecuteAsync(
-        CloudflareTunnelResource tunnel,
         IReadOnlyList<PublishedRouteResource> routes,
         Func<CancellationToken, Task> configure,
-        ILogger logger,
         Action<string> addSummary,
         CancellationToken cancellationToken)
     {
-        if (routes.Count == 0)
-        {
-            logger.LogInformation(
-                "Tunnel '{TunnelName}' has no published routes to configure.",
-                tunnel.Name);
-            return;
-        }
-
         await configure(cancellationToken).ConfigureAwait(false);
 
-        addSummary(string.Join(", ", routes.Select(route => route.Hostname)));
+        addSummary(routes.Count == 0
+            ? "No routes"
+            : string.Join(", ", routes.Select(route => route.Hostname)));
     }
 
     // A warning task marks the step, and the pipeline, as completed with warnings.
     internal static async Task ReportWarningAsync(
         IReportingStep step,
-        PublishedRouteResource route,
-        string warning,
+        RouteWarning warning,
         CancellationToken cancellationToken)
     {
         var task = await step.CreateTaskAsync(
-            $"Resolve the service URL for {route.Hostname}",
+            warning.Activity,
             cancellationToken).ConfigureAwait(false);
         await using var configuredTask = task.ConfigureAwait(false);
-        await task.WarnAsync(warning, cancellationToken).ConfigureAwait(false);
+        await task.WarnAsync(warning.Message, cancellationToken).ConfigureAwait(false);
     }
 }
 

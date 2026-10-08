@@ -12,7 +12,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
     public Task ConfigureRoutesAsync(
         CloudflareTunnelResource tunnel,
         IReadOnlyList<PublishedRouteResource> routes,
-        Func<PublishedRouteResource, ILogger> loggerFactory,
+        Func<IResource, ILogger> loggerFactory,
         CancellationToken cancellationToken) =>
         ConfigureRoutesAsync(
             tunnel,
@@ -25,7 +25,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         CloudflareTunnelResource tunnel,
         IReadOnlyList<PublishedRouteResource> routes,
         DistributedApplicationExecutionContext executionContext,
-        Func<PublishedRouteResource, string, CancellationToken, Task> reportWarning,
+        Func<PublishedRouteResource, RouteWarning, CancellationToken, Task> reportWarning,
         ILogger logger,
         CancellationToken cancellationToken) =>
         ConfigureRoutesForPipelineAsync(
@@ -37,6 +37,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
                 executionContext,
                 reportWarning,
                 token),
+            reportWarning,
             logger,
             cancellationToken);
 
@@ -44,6 +45,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         CloudflareTunnelResource tunnel,
         IReadOnlyList<PublishedRouteResource> routes,
         Func<PublishedRouteResource, CancellationToken, Task<string>> serviceUrlResolver,
+        Func<PublishedRouteResource, RouteWarning, CancellationToken, Task> reportWarning,
         ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -58,12 +60,17 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
                 .ConfigureAwait(false), tunnel.Name);
 
             tunnel.TunnelId = tunnelInfo.Id;
-            await ConfigureRoutesAsync(
-                client,
-                tunnelInfo.Id,
-                routes,
-                route => serviceUrlResolver(route, cancellationToken),
-                _ => logger,
+            await ReconcileAsync(
+                new RouteReconciliationContext
+                {
+                    Client = client,
+                    Tunnel = tunnel,
+                    TunnelId = tunnelInfo.Id,
+                    Routes = routes,
+                    ResolveServiceUrl = route => serviceUrlResolver(route, cancellationToken),
+                    Logger = _ => logger,
+                    ReportWarning = reportWarning,
+                },
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -88,7 +95,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         CloudflareTunnelResource tunnel,
         IReadOnlyList<PublishedRouteResource> routes,
         Func<PublishedRouteResource, Task<string>> serviceUrlResolver,
-        Func<PublishedRouteResource, ILogger> loggerFactory,
+        Func<IResource, ILogger> loggerFactory,
         CancellationToken cancellationToken)
     {
         var tunnelId = RequireTunnelId(tunnel);
@@ -98,18 +105,29 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
             using var client = await clientFactory
                 .CreateAsync(tunnel, cancellationToken)
                 .ConfigureAwait(false);
-            await ConfigureRoutesAsync(
-                client,
-                tunnelId,
-                routes,
-                serviceUrlResolver,
-                loggerFactory,
+            await ReconcileAsync(
+                new RouteReconciliationContext
+                {
+                    Client = client,
+                    Tunnel = tunnel,
+                    TunnelId = tunnelId,
+                    Routes = routes,
+                    ResolveServiceUrl = serviceUrlResolver,
+                    Logger = loggerFactory,
+                    ReportWarning = (route, warning, _) => LogWarningAsync(loggerFactory(route), warning),
+                },
                 cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _configurationLock.Release();
         }
+    }
+
+    internal static Task LogWarningAsync(ILogger logger, RouteWarning warning)
+    {
+        logger.LogWarning("{Warning}", warning.Message);
+        return Task.CompletedTask;
     }
 
     internal static async Task<CloudflareZoneInfo?> FindZoneAsync(
@@ -137,77 +155,97 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         return null;
     }
 
-    private static async Task ConfigureRoutesAsync(
-        ICloudflareApiClient client,
-        string tunnelId,
-        IReadOnlyList<PublishedRouteResource> routes,
-        Func<PublishedRouteResource, Task<string>> serviceUrlResolver,
-        Func<PublishedRouteResource, ILogger> loggerFactory,
+    // Writes DNS records first, deletes stale owned records next, and replaces the
+    // ingress last. Until the ingress update succeeds, it still lists every hostname
+    // removed from the AppHost, so the next run finds the zones to clean up.
+    private static async Task ReconcileAsync(
+        RouteReconciliationContext context,
         CancellationToken cancellationToken)
     {
-        var configuration = await client
-            .GetTunnelConfigurationAsync(tunnelId, cancellationToken)
+        var current = await context.Client
+            .GetTunnelConfigurationAsync(context.TunnelId, cancellationToken)
             .ConfigureAwait(false)
             ?? new TunnelConfiguration();
+        var zones = await FindZonesAsync(
+            context.Client,
+            GetCandidateHostnames(context.Routes, current),
+            cancellationToken).ConfigureAwait(false);
 
-        RemoveManagedIngressRules(configuration, routes);
-
-        foreach (var route in routes)
-        {
-            var ingressRule = await ConfigureRouteAsync(
-                client,
-                tunnelId,
-                route,
-                await serviceUrlResolver(route).ConfigureAwait(false),
-                loggerFactory(route),
-                cancellationToken).ConfigureAwait(false);
-            configuration.Ingress.Add(ingressRule);
-        }
-
-        configuration.Ingress.Add(new IngressRule
-        {
-            Service = "http_status:404",
-        });
-
-        await client
-            .UpdateTunnelConfigurationAsync(tunnelId, configuration, cancellationToken)
-            .ConfigureAwait(false);
+        var rules = await ConfigureDnsRecordsAsync(context, zones, cancellationToken).ConfigureAwait(false);
+        await DeleteStaleRecordsAsync(context, zones, cancellationToken).ConfigureAwait(false);
+        await UpdateIngressAsync(context, current, rules, cancellationToken).ConfigureAwait(false);
     }
 
-    internal static void RemoveManagedIngressRules(
-        TunnelConfiguration configuration,
-        IReadOnlyList<PublishedRouteResource> routes)
-    {
-        var managedHostnames = routes
+    internal static IEnumerable<string> GetCandidateHostnames(
+        IEnumerable<PublishedRouteResource> routes,
+        TunnelConfiguration current) =>
+        routes
             .Select(route => route.Hostname)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .Concat(current.Ingress.Select(rule => rule.Hostname).OfType<string>())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
 
-        configuration.Ingress.RemoveAll(rule =>
-            rule.Hostname is null || managedHostnames.Contains(rule.Hostname));
-    }
-
-    private static async Task<IngressRule> ConfigureRouteAsync(
+    private static async Task<Dictionary<string, CloudflareZoneInfo?>> FindZonesAsync(
         ICloudflareApiClient client,
-        string tunnelId,
-        PublishedRouteResource route,
-        string serviceUrl,
-        ILogger logger,
+        IEnumerable<string> hostnames,
         CancellationToken cancellationToken)
     {
-        var zone = await FindZoneAsync(client, route.Hostname, cancellationToken).ConfigureAwait(false)
+        var zones = new Dictionary<string, CloudflareZoneInfo?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var hostname in hostnames)
+        {
+            zones[hostname] = await FindZoneAsync(client, hostname, cancellationToken).ConfigureAwait(false);
+        }
+
+        return zones;
+    }
+
+    internal static CloudflareZoneInfo RequireZone(
+        IReadOnlyDictionary<string, CloudflareZoneInfo?> zones,
+        PublishedRouteResource route) =>
+        zones[route.Hostname]
             ?? throw new InvalidOperationException(
                 $"Cloudflare zone for '{route.Hostname}' was not found.");
 
-        await client
-            .UpsertTunnelDnsRecordAsync(
-                zone.Id,
-                route.Hostname,
-                tunnelId,
-                cancellationToken)
+    private static async Task<List<IngressRule>> ConfigureDnsRecordsAsync(
+        RouteReconciliationContext context,
+        IReadOnlyDictionary<string, CloudflareZoneInfo?> zones,
+        CancellationToken cancellationToken)
+    {
+        var targets = context.Routes
+            .Select(route => (Route: route, Zone: RequireZone(zones, route)))
+            .ToArray();
+        var rules = new List<IngressRule>(targets.Length);
+        foreach (var (route, zone) in targets)
+        {
+            rules.Add(await ConfigureRouteAsync(context, route, zone, cancellationToken).ConfigureAwait(false));
+        }
+
+        return rules;
+    }
+
+    private static async Task<IngressRule> ConfigureRouteAsync(
+        RouteReconciliationContext context,
+        PublishedRouteResource route,
+        CloudflareZoneInfo zone,
+        CancellationToken cancellationToken)
+    {
+        var serviceUrl = await context.ResolveServiceUrl(route).ConfigureAwait(false);
+        var desired = CloudflareRouteOwnership.DesiredRecord(context.Tunnel, context.TunnelId, route.Hostname);
+        var existing = await context.Client
+            .FindDnsRecordsAsync(zone.Id, desired.Name, cancellationToken)
             .ConfigureAwait(false);
 
-        route.DnsRecordCreated = true;
-        logger.LogInformation(
+        await CloudflareRouteOwnership.Plan(desired, existing).ApplyAsync(
+            new DnsRecordChangeContext
+            {
+                Client = context.Client,
+                ZoneId = zone.Id,
+                Route = route,
+                Desired = desired,
+                ReportWarning = context.ReportWarning,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        context.Logger(route).LogInformation(
             "Configured {Hostname} to route to {ServiceUrl}.",
             route.Hostname,
             serviceUrl);
@@ -217,6 +255,61 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
             Hostname = route.Hostname,
             Service = serviceUrl,
         };
+    }
+
+    private static async Task DeleteStaleRecordsAsync(
+        RouteReconciliationContext context,
+        IReadOnlyDictionary<string, CloudflareZoneInfo?> zones,
+        CancellationToken cancellationToken)
+    {
+        var zoneIds = zones.Values
+            .OfType<CloudflareZoneInfo>()
+            .Select(zone => zone.Id)
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (var zoneId in zoneIds)
+        {
+            await DeleteStaleRecordsAsync(context, zoneId, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task DeleteStaleRecordsAsync(
+        RouteReconciliationContext context,
+        string zoneId,
+        CancellationToken cancellationToken)
+    {
+        var ownedRecords = await context.Client
+            .FindDnsRecordsByCommentAsync(
+                zoneId,
+                CloudflareRouteOwnership.OwnerComment(context.Tunnel),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var record in CloudflareRouteOwnership.FindStaleRecords(ownedRecords, context.Routes))
+        {
+            await context.Client
+                .DeleteDnsRecordAsync(zoneId, record.Id, cancellationToken)
+                .ConfigureAwait(false);
+            context.Logger(context.Tunnel).LogInformation(
+                "Deleted the DNS record for {Hostname} because no route declares it.",
+                record.Name);
+        }
+    }
+
+    private static Task UpdateIngressAsync(
+        RouteReconciliationContext context,
+        TunnelConfiguration current,
+        IEnumerable<IngressRule> rules,
+        CancellationToken cancellationToken)
+    {
+        var desired = CloudflareRouteOwnership.DesiredConfiguration(rules);
+
+        return CloudflareRouteOwnership.IsUnchanged(current, desired)
+            ? Task.CompletedTask
+            : context.Client.UpdateTunnelConfigurationAsync(
+                context.TunnelId,
+                desired,
+                cancellationToken);
     }
 
     private static async Task<string> BuildRunModeServiceUrlAsync(
@@ -243,7 +336,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         CloudflareTunnelResource tunnel,
         PublishedRouteResource route,
         DistributedApplicationExecutionContext executionContext,
-        Func<PublishedRouteResource, string, CancellationToken, Task> reportWarning,
+        Func<PublishedRouteResource, RouteWarning, CancellationToken, Task> reportWarning,
         CancellationToken cancellationToken)
     {
         var deploymentTarget = route.TargetResource.GetDeploymentTargetAnnotation();
@@ -277,16 +370,18 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         ServiceUrlExpression expression,
         PublishedRouteResource route,
         string serviceUrl,
-        Func<PublishedRouteResource, string, CancellationToken, Task> reportWarning,
+        Func<PublishedRouteResource, RouteWarning, CancellationToken, Task> reportWarning,
         CancellationToken cancellationToken) =>
         expression.HasUnknownTargetPort
             ? reportWarning(
                 route,
-                "Docker Compose assigns the container port of endpoint " +
-                $"'{route.TargetEndpoint.EndpointName}' on resource " +
-                $"'{route.TargetResource.Name}', and the route step cannot discover it. " +
-                $"{route.Hostname} routes to {serviceUrl} instead. Set the endpoint's " +
-                "target port if the service listens on another port.",
+                new RouteWarning(
+                    $"Resolve the service URL for {route.Hostname}",
+                    "Docker Compose assigns the container port of endpoint " +
+                    $"'{route.TargetEndpoint.EndpointName}' on resource " +
+                    $"'{route.TargetResource.Name}', and the route step cannot discover it. " +
+                    $"{route.Hostname} routes to {serviceUrl} instead. Set the endpoint's " +
+                    "target port if the service listens on another port."),
                 cancellationToken)
             : Task.CompletedTask;
 
@@ -336,6 +431,23 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
             $"{route.TargetEndpoint.Scheme}://{host}:{port}"));
     }
 #pragma warning restore ASPIRECOMPUTE002
+}
+
+internal sealed record RouteReconciliationContext
+{
+    public required ICloudflareApiClient Client { get; init; }
+
+    public required CloudflareTunnelResource Tunnel { get; init; }
+
+    public required string TunnelId { get; init; }
+
+    public required IReadOnlyList<PublishedRouteResource> Routes { get; init; }
+
+    public required Func<PublishedRouteResource, Task<string>> ResolveServiceUrl { get; init; }
+
+    public required Func<IResource, ILogger> Logger { get; init; }
+
+    public required Func<PublishedRouteResource, RouteWarning, CancellationToken, Task> ReportWarning { get; init; }
 }
 
 internal readonly record struct ServiceUrlExpression(

@@ -1,7 +1,6 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Aspire.Hosting.Tests;
@@ -95,6 +94,32 @@ public sealed class CloudflarePipelineStepsTests
     }
 
     [Fact]
+    public async Task RouteStepUpdatesATunnelWithoutRoutes()
+    {
+        var api = CreateApi();
+        api.Configuration = new TunnelConfiguration
+        {
+            Ingress =
+            [
+                new IngressRule { Hostname = "app.example.com", Service = "http://web:8080" },
+                new IngressRule { Service = "http_status:404" },
+            ],
+        };
+        var pipeline = new ComposeDeploymentPipeline
+        {
+            Api = api,
+            TunnelName = "public",
+        };
+
+        await pipeline.RunAsync(pipeline.RouteStepName);
+
+        var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
+        var rule = Assert.Single(configuration.Ingress);
+        Assert.Null(rule.Hostname);
+        Assert.Equal("http_status:404", rule.Service);
+    }
+
+    [Fact]
     public void DeploymentStepsIncludeComputeDeploymentsOfDeployedResources()
     {
         var environment = new TestComputeEnvironmentResource("aca");
@@ -125,25 +150,23 @@ public sealed class CloudflarePipelineStepsTests
     }
 
     [Fact]
-    public async Task ExecuteSkipsConfigurationWhenNoRoutesExist()
+    public async Task ExecuteConfiguresATunnelWithoutRoutes()
     {
         var configured = false;
-        var summary = false;
+        string? summary = null;
 
         await CloudflarePipelineSteps.ExecuteAsync(
-            new CloudflareTunnelResource("public"),
             Array.Empty<PublishedRouteResource>(),
             _ =>
             {
                 configured = true;
                 return Task.CompletedTask;
             },
-            NullLogger.Instance,
-            _ => summary = true,
+            value => summary = value,
             TestContext.Current.CancellationToken);
 
-        Assert.False(configured);
-        Assert.False(summary);
+        Assert.True(configured);
+        Assert.Equal("No routes", summary);
     }
 
     [Fact]
@@ -153,25 +176,22 @@ public sealed class CloudflarePipelineStepsTests
         var target = builder
             .AddContainer("web", "nginx")
             .WithHttpEndpoint(targetPort: 80);
-        var tunnel = new CloudflareTunnelResource("public");
         var route = new PublishedRouteResource(
             "route",
             "app.example.com",
             target.GetEndpoint("http"),
             target.Resource,
-            tunnel);
+            new CloudflareTunnelResource("public"));
         var configured = false;
         string? summary = null;
 
         await CloudflarePipelineSteps.ExecuteAsync(
-            tunnel,
             [route],
             _ =>
             {
                 configured = true;
                 return Task.CompletedTask;
             },
-            NullLogger.Instance,
             value => summary = value,
             TestContext.Current.CancellationToken);
 
@@ -180,30 +200,21 @@ public sealed class CloudflarePipelineStepsTests
     }
 
     [Fact]
-    public async Task ReportWarningCompletesAWarningTaskForTheRoute()
+    public async Task ReportWarningCompletesAWarningTask()
     {
-        var builder = DistributedApplication.CreateBuilder();
-        var target = builder
-            .AddContainer("web", "nginx")
-            .WithHttpEndpoint();
-        var route = new PublishedRouteResource(
-            "route",
-            "app.example.com",
-            target.GetEndpoint("http"),
-            target.Resource,
-            new CloudflareTunnelResource("public"));
         var step = new RecordingReportingStep();
 
         await CloudflarePipelineSteps.ReportWarningAsync(
             step,
-            route,
-            "Set the endpoint's target port.",
+            new RouteWarning(
+                "Resolve the service URL for app.example.com",
+                "Set the endpoint's target port."),
             TestContext.Current.CancellationToken);
 
         var task = Assert.Single(step.Tasks);
         Assert.Equal("Resolve the service URL for app.example.com", task.StatusText);
         Assert.Equal("Set the endpoint's target port.", task.CompletionMessage);
-        Assert.Equal(Pipelines.CompletionState.CompletedWithWarning, task.CompletionState);
+        Assert.Equal(CompletionState.CompletedWithWarning, task.CompletionState);
         Assert.True(task.IsDisposed);
     }
 

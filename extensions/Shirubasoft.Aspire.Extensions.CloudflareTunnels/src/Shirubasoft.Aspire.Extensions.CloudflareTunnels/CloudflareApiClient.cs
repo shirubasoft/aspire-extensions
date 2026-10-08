@@ -92,10 +92,30 @@ internal interface ICloudflareApiClient : IDisposable
         string domainName,
         CancellationToken cancellationToken);
 
-    Task<CloudflareDnsRecord> UpsertTunnelDnsRecordAsync(
+    Task<IReadOnlyList<CloudflareDnsRecord>> FindDnsRecordsAsync(
         string zoneId,
         string hostname,
-        string tunnelId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<CloudflareDnsRecord>> FindDnsRecordsByCommentAsync(
+        string zoneId,
+        string comment,
+        CancellationToken cancellationToken);
+
+    Task<CloudflareDnsRecord> CreateDnsRecordAsync(
+        string zoneId,
+        CloudflareDnsRecordRequest record,
+        CancellationToken cancellationToken);
+
+    Task<CloudflareDnsRecord> UpdateDnsRecordAsync(
+        string zoneId,
+        string recordId,
+        CloudflareDnsRecordRequest record,
+        CancellationToken cancellationToken);
+
+    Task DeleteDnsRecordAsync(
+        string zoneId,
+        string recordId,
         CancellationToken cancellationToken);
 }
 
@@ -106,6 +126,9 @@ internal sealed class CloudflareApiClient : ICloudflareApiClient
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
+
+    // Cloudflare caps the page size per endpoint and reports the page count.
+    private const int PageSize = 100;
 
     private readonly HttpClient _httpClient;
     private readonly string _accountId;
@@ -207,55 +230,97 @@ internal sealed class CloudflareApiClient : ICloudflareApiClient
         return zones.FirstOrDefault();
     }
 
-    public async Task<CloudflareDnsRecord> UpsertTunnelDnsRecordAsync(
+    // Filters match exactly. Lists span pages, so each method reads every page.
+    public Task<IReadOnlyList<CloudflareDnsRecord>> FindDnsRecordsAsync(
         string zoneId,
         string hostname,
-        string tunnelId,
+        CancellationToken cancellationToken) =>
+        GetAllPagesAsync<CloudflareDnsRecord>(
+            $"{DnsRecordsPath(zoneId)}?name.exact={Uri.EscapeDataString(hostname)}",
+            "Find DNS records",
+            cancellationToken);
+
+    public Task<IReadOnlyList<CloudflareDnsRecord>> FindDnsRecordsByCommentAsync(
+        string zoneId,
+        string comment,
+        CancellationToken cancellationToken) =>
+        GetAllPagesAsync<CloudflareDnsRecord>(
+            $"{DnsRecordsPath(zoneId)}?comment.exact={Uri.EscapeDataString(comment)}",
+            "Find DNS records by comment",
+            cancellationToken);
+
+    public Task<CloudflareDnsRecord> CreateDnsRecordAsync(
+        string zoneId,
+        CloudflareDnsRecordRequest record,
+        CancellationToken cancellationToken) =>
+        SendRequiredResultAsync<CloudflareDnsRecord>(
+            HttpMethod.Post,
+            DnsRecordsPath(zoneId),
+            record,
+            "Create DNS record",
+            cancellationToken);
+
+    public Task<CloudflareDnsRecord> UpdateDnsRecordAsync(
+        string zoneId,
+        string recordId,
+        CloudflareDnsRecordRequest record,
+        CancellationToken cancellationToken) =>
+        SendRequiredResultAsync<CloudflareDnsRecord>(
+            HttpMethod.Put,
+            $"{DnsRecordsPath(zoneId)}/{Uri.EscapeDataString(recordId)}",
+            record,
+            "Update DNS record",
+            cancellationToken);
+
+    public async Task DeleteDnsRecordAsync(
+        string zoneId,
+        string recordId,
         CancellationToken cancellationToken)
     {
-        var request = new CreateDnsRecordRequest(
-            "CNAME",
-            hostname,
-            $"{tunnelId}.cfargotunnel.com",
-            Proxied: true,
-            Ttl: 1);
-
-        var existing = await FindDnsRecordAsync(
-            zoneId,
-            hostname,
+        using var response = await _httpClient.DeleteAsync(
+            $"{DnsRecordsPath(zoneId)}/{Uri.EscapeDataString(recordId)}",
             cancellationToken).ConfigureAwait(false);
 
-        return existing is null
-            ? await SendRequiredResultAsync<CloudflareDnsRecord>(
-                HttpMethod.Post,
-                $"/client/v4/zones/{Uri.EscapeDataString(zoneId)}/dns_records",
-                request,
-                "Create DNS record",
-                cancellationToken).ConfigureAwait(false)
-            : await SendRequiredResultAsync<CloudflareDnsRecord>(
-                HttpMethod.Put,
-                $"/client/v4/zones/{Uri.EscapeDataString(zoneId)}/dns_records/{Uri.EscapeDataString(existing.Id)}",
-                request,
-                "Update DNS record",
-                cancellationToken).ConfigureAwait(false);
+        await EnsureSuccessAsync(
+            response,
+            "Delete DNS record",
+            cancellationToken).ConfigureAwait(false);
     }
 
     public void Dispose() => _httpClient.Dispose();
 
-    private async Task<CloudflareDnsRecord?> FindDnsRecordAsync(
-        string zoneId,
-        string hostname,
+    private static string DnsRecordsPath(string zoneId) =>
+        $"/client/v4/zones/{Uri.EscapeDataString(zoneId)}/dns_records";
+
+    private async Task<IReadOnlyList<T>> GetAllPagesAsync<T>(
+        string requestUri,
+        string operation,
         CancellationToken cancellationToken)
     {
-        var records = await GetRequiredResultAsync<CloudflareDnsRecord[]>(
-            $"/client/v4/zones/{Uri.EscapeDataString(zoneId)}/dns_records?name={Uri.EscapeDataString(hostname)}&type=CNAME",
-            "Find DNS record",
-            cancellationToken).ConfigureAwait(false);
+        var results = new List<T>();
+        for (var page = 1; page > 0;)
+        {
+            var response = await GetRequiredResponseAsync<T[]>(
+                $"{requestUri}&per_page={PageSize}&page={page}",
+                operation,
+                cancellationToken).ConfigureAwait(false);
+            results.AddRange(response.Result!);
+            page = response.NextPage;
+        }
 
-        return records.FirstOrDefault();
+        return results;
     }
 
     private async Task<T> GetRequiredResultAsync<T>(
+        string requestUri,
+        string operation,
+        CancellationToken cancellationToken) =>
+        (await GetRequiredResponseAsync<T>(
+            requestUri,
+            operation,
+            cancellationToken).ConfigureAwait(false)).Result!;
+
+    private async Task<CloudflareApiResponse<T>> GetRequiredResponseAsync<T>(
         string requestUri,
         string operation,
         CancellationToken cancellationToken)
@@ -263,7 +328,7 @@ internal sealed class CloudflareApiClient : ICloudflareApiClient
         using var response = await _httpClient.GetAsync(
             requestUri,
             cancellationToken).ConfigureAwait(false);
-        return await ReadRequiredResultAsync<T>(
+        return await ReadRequiredResponseAsync<T>(
             response,
             operation,
             cancellationToken).ConfigureAwait(false);
@@ -293,6 +358,15 @@ internal sealed class CloudflareApiClient : ICloudflareApiClient
     private static async Task<T> ReadRequiredResultAsync<T>(
         HttpResponseMessage response,
         string operation,
+        CancellationToken cancellationToken) =>
+        (await ReadRequiredResponseAsync<T>(
+            response,
+            operation,
+            cancellationToken).ConfigureAwait(false)).Result!;
+
+    private static async Task<CloudflareApiResponse<T>> ReadRequiredResponseAsync<T>(
+        HttpResponseMessage response,
+        string operation,
         CancellationToken cancellationToken)
     {
         var apiResponse = await ReadResponseAsync<T>(
@@ -300,8 +374,9 @@ internal sealed class CloudflareApiClient : ICloudflareApiClient
             cancellationToken).ConfigureAwait(false);
         EnsureCloudflareSuccess(apiResponse, operation);
 
-        return apiResponse.Result
-            ?? throw new CloudflareApiException($"{operation} failed because Cloudflare returned no result.");
+        return apiResponse.Result is not null
+            ? apiResponse
+            : throw new CloudflareApiException($"{operation} failed because Cloudflare returned no result.");
     }
 
     private static async Task EnsureSuccessAsync(
@@ -360,7 +435,17 @@ internal sealed record CloudflareApiResponse<T>(
     bool Success,
     T? Result,
     CloudflareApiError[]? Errors,
-    CloudflareApiMessage[]? Messages);
+    CloudflareApiMessage[]? Messages,
+    CloudflareResultInfo? ResultInfo = null)
+{
+    // Zero means the response is the last page.
+    public int NextPage => ResultInfo?.NextPage ?? 0;
+}
+
+internal sealed record CloudflareResultInfo(int Page, int TotalPages)
+{
+    public int NextPage => Page < TotalPages ? Page + 1 : 0;
+}
 
 internal sealed record CloudflareApiError(int Code, string Message);
 
@@ -370,12 +455,13 @@ internal sealed record CreateTunnelRequest(string Name, string TunnelSecret);
 
 internal sealed record TunnelConfigurationWrapper(TunnelConfiguration Config);
 
-internal sealed record CreateDnsRecordRequest(
+internal sealed record CloudflareDnsRecordRequest(
     string Type,
     string Name,
     string Content,
     bool Proxied,
-    int Ttl);
+    int Ttl,
+    string? Comment);
 
 internal sealed record CloudflareTunnelInfo(
     string Id,
@@ -395,7 +481,8 @@ internal sealed record CloudflareDnsRecord(
     string Name,
     string Content,
     bool Proxied,
-    int Ttl);
+    int Ttl,
+    string? Comment);
 
 internal sealed class TunnelConfiguration
 {
@@ -403,7 +490,7 @@ internal sealed class TunnelConfiguration
     public List<IngressRule> Ingress { get; init; } = [];
 }
 
-internal sealed class IngressRule
+internal sealed record IngressRule
 {
     [JsonPropertyName("hostname")]
     public string? Hostname { get; init; }

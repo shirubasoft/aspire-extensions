@@ -288,8 +288,7 @@ public static class CloudflareTunnelResourceBuilderExtensions
         var provisioner = @event.Services.GetRequiredService<CloudflareRouteProvisioner>();
         var logger = loggerService.GetLogger(tunnel);
 
-        await CloudflareResourceLifecycle.RunIfAnyAsync(
-            routes,
+        await CloudflareResourceLifecycle.RunAsync(
             token => ConfigureRoutesAsync(
                 provisioner,
                 tunnel,
