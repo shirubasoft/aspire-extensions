@@ -14,7 +14,7 @@ Never synchronously block on asynchronous work. Propagate `Task`, `ValueTask`, a
 
 Backward compatibility is not a constraint before the first stable release. Mark later breaking changes with Conventional Commits syntax and a `BREAKING CHANGE:` footer.
 
-Use `fix:` or `perf:` for patch releases, `feat:` for minor releases, and `!` or `BREAKING CHANGE:` for major releases. Release tooling filters commits by extension path, so keep each commit focused.
+Use `fix:` or `perf:` for patch releases, `feat:` for minor releases, and `!` or `BREAKING CHANGE:` for major releases. Release tooling filters commits by extension path and commit scope, so keep each commit focused and scope extension changes with the kebab-case extension name, such as `fix(cloudflare-tunnels):`.
 
 After opening or updating a pull request, monitor its required checks until they pass or a genuine external blocker is identified. Inspect and fix in-scope failures before stopping.
 

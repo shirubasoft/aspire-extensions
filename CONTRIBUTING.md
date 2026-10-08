@@ -8,7 +8,7 @@ Use the repo-scoped `add-aspire-extension` skill when creating a package. Start 
 
 ## Development
 
-Use Conventional Commits. Add `BREAKING CHANGE:` to the commit body when a public API change is incompatible. Do not preserve obsolete APIs unless a compatibility period is an explicit requirement.
+Use Conventional Commits. Scope extension changes with the kebab-case extension name, such as `fix(cloudflare-tunnels):`. Add `BREAKING CHANGE:` to the commit body when a public API change is incompatible. Do not preserve obsolete APIs unless a compatibility period is an explicit requirement.
 
 Keep AppHost APIs declarative. Resource builders should describe resources, references, dependencies, and lifecycle behavior. Put operational logic behind a resource-owned implementation and cover it with unit tests.
 

@@ -32,7 +32,7 @@ The Windows entry point is `./build.ps1`. Both entry points restore tools, verif
 
 The repository uses shared reusable workflows for CI, stable releases, and manually confirmed prereleases. Thin extension workflows supply the extension path, primary package ID, artifact name, release configuration, and tag prefix.
 
-Each extension versions independently from Conventional Commits that touch its own folder or shared package inputs. Related packages from one extension share that version. For example, Kafka releases use tags such as `kafka-v1.2.3`. A `feat` commit produces a minor release, a `fix` commit produces a patch release, and a breaking change produces a major release.
+Each extension versions independently from Conventional Commits that touch its own folder or shared package inputs. A commit's scope names an extension with the kebab-case form of its folder's `<Name>`, such as `cloudflare-tunnels`. A shared package input change scoped to one extension releases only that extension. Any other scope, such as `deps`, or no scope releases every extension. Related packages from one extension share that version. For example, Kafka releases use tags such as `kafka-v1.2.3`. A `feat` commit produces a minor release, a `fix` commit produces a patch release, and a breaking change produces a major release.
 
 CI runs on Linux and Windows. Linux also measures method-level CRAP scores from OpenCover data and fails unless every method scores strictly below 5. After a successful `main` build, semantic-release publishes the package and symbols to NuGet.org with the `NUGET_API_KEY` organization secret, creates the package tag, and attaches both files to a GitHub release.
 
