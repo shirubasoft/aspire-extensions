@@ -12,11 +12,17 @@ async function runGit(args, options = {}) {
   return stdout;
 }
 
-export function createAuthenticatedGit({ token, serverUrl = "https://github.com", git = runGit }) {
+export function createAuthenticatedGit({ token, repository, serverUrl = "https://github.com", git = runGit }) {
   if (!token) {
     throw new Error("A write-capable GITHUB_TOKEN is required for authenticated Git recovery.");
   }
-  const headerKey = `http.${serverUrl.replace(/\/+$/u, "")}/.extraheader`;
+  if (!repository) {
+    throw new Error("GITHUB_REPOSITORY is required for authenticated Git recovery.");
+  }
+  const repositoryUrl = `${serverUrl.replace(/\/+$/u, "")}/${repository}`;
+  // Git matches paths at slash boundaries; checkout omits .git while other origins include it.
+  const headerKey = `http.${repositoryUrl}.extraheader`;
+  const gitHeaderKey = `http.${repositoryUrl}.git.extraheader`;
   const authorization = Buffer.from(`x-access-token:${token}`).toString("base64");
   return async (args) => {
     try {
@@ -31,13 +37,19 @@ export function createAuthenticatedGit({ token, serverUrl = "https://github.com"
           GIT_TRACE2: "0",
           GIT_TRACE2_EVENT: "0",
           GIT_TRACE2_PERF: "0",
-          GIT_CONFIG_COUNT: "3",
+          GIT_CONFIG_COUNT: "6",
           GIT_CONFIG_KEY_0: "credential.helper",
           GIT_CONFIG_VALUE_0: "",
-          GIT_CONFIG_KEY_1: headerKey,
-          GIT_CONFIG_VALUE_1: "",
+          GIT_CONFIG_KEY_1: "http.followRedirects",
+          GIT_CONFIG_VALUE_1: "false",
           GIT_CONFIG_KEY_2: headerKey,
-          GIT_CONFIG_VALUE_2: `AUTHORIZATION: basic ${authorization}`,
+          GIT_CONFIG_VALUE_2: "",
+          GIT_CONFIG_KEY_3: headerKey,
+          GIT_CONFIG_VALUE_3: `AUTHORIZATION: basic ${authorization}`,
+          GIT_CONFIG_KEY_4: gitHeaderKey,
+          GIT_CONFIG_VALUE_4: "",
+          GIT_CONFIG_KEY_5: gitHeaderKey,
+          GIT_CONFIG_VALUE_5: `AUTHORIZATION: basic ${authorization}`,
         },
       });
     } catch {
@@ -192,7 +204,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         headSha,
         repository: GITHUB_REPOSITORY,
         request: (method, path) => githubRequest(method, path, { apiUrl: GITHUB_API_URL, token: GITHUB_TOKEN }),
-        git: createAuthenticatedGit({ token: GITHUB_TOKEN, serverUrl: GITHUB_SERVER_URL }),
+        git: createAuthenticatedGit({ token: GITHUB_TOKEN, repository: GITHUB_REPOSITORY, serverUrl: GITHUB_SERVER_URL }),
       });
       console.log(result.reason);
     }
