@@ -1,6 +1,5 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Docker;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -143,7 +142,15 @@ public sealed class CloudflareRouteProvisionerTests
             ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
         };
 
-        await RunComposeRouteStepAsync(api, "public", "app.example.com", targetPort);
+        var pipeline = new ComposeDeploymentPipeline
+        {
+            Api = api,
+            TunnelName = "public",
+            Hostname = "app.example.com",
+            TargetPort = targetPort,
+        };
+
+        await pipeline.RunAsync(pipeline.RouteStepName);
 
         var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
         Assert.Equal(expectedService, configuration.Ingress[0].Service);
@@ -162,51 +169,18 @@ public sealed class CloudflareRouteProvisionerTests
                 null),
         };
 
-        await RunComposeRouteStepAsync(
-            api,
-            "my-application-public-tunnel",
-            "my-application.staging.example.com",
-            targetPort: 8080);
+        var pipeline = new ComposeDeploymentPipeline
+        {
+            Api = api,
+            TunnelName = "my-application-public-tunnel",
+            Hostname = "my-application.staging.example.com",
+        };
+
+        await pipeline.RunAsync(pipeline.RouteStepName);
 
         Assert.Equal(
             [("zone-id", "my-application.staging.example.com", "deployed-tunnel-id")],
             api.DnsUpserts);
-    }
-
-    private static async Task RunComposeRouteStepAsync(
-        TestCloudflareApiClient api,
-        string tunnelName,
-        string hostname,
-        int? targetPort)
-    {
-        var outputPath = Directory.CreateTempSubdirectory();
-        try
-        {
-            var builder = DistributedApplication.CreateBuilder(
-            [
-                "--operation", "publish",
-                "--step", $"configure-{tunnelName}-cloudflare-routes",
-                "--output-path", outputPath.FullName,
-            ]);
-            builder.Configuration[$"Parameters:{tunnelName}-account-id"] = "account-id";
-            builder.Configuration[$"Parameters:{tunnelName}-api-token"] = "api-token";
-            builder.Configuration[$"Parameters:{tunnelName}-tunnel-token"] = "tunnel-token";
-            builder.AddDockerComposeEnvironment("env");
-            var web = builder
-                .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
-                .WithHttpEndpoint(targetPort: targetPort, name: "http");
-            var tunnel = builder.AddCloudflareTunnel(tunnelName);
-            web.WithCloudflareTunnel(tunnel, hostname);
-            builder.Services.AddSingleton<ICloudflareApiClientFactory>(
-                new TestCloudflareApiClientFactory(api));
-
-            using var app = builder.Build();
-            await app.RunAsync(TestContext.Current.CancellationToken);
-        }
-        finally
-        {
-            outputPath.Delete(recursive: true);
-        }
     }
 
     [Fact]

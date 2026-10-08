@@ -54,9 +54,12 @@ public static class CloudflareTunnelResourceBuilderExtensions
                 accountId.Resource));
 
 #pragma warning disable ASPIREPIPELINES001
-        tunnelBuilder.WithPipelineStepFactory(context =>
-            CloudflarePipelineSteps.CreateConfigureRoutesStep(
-                (CloudflareTunnelResource)context.Resource));
+        tunnelBuilder
+            .WithPipelineStepFactory(context =>
+                CloudflarePipelineSteps.CreateConfigureRoutesStep(
+                    (CloudflareTunnelResource)context.Resource))
+            .WithPipelineConfiguration(context =>
+                CloudflarePipelineSteps.ConfigureDependencies(context, tunnelResource));
 #pragma warning restore ASPIREPIPELINES001
 
         if (builder.ExecutionContext.IsRunMode)
@@ -277,11 +280,9 @@ public static class CloudflareTunnelResourceBuilderExtensions
         ResourceReadyEvent @event,
         CancellationToken cancellationToken)
     {
-        var model = @event.Services.GetRequiredService<DistributedApplicationModel>();
-        var routes = model.Resources
-            .OfType<PublishedRouteResource>()
-            .Where(route => ReferenceEquals(route.Tunnel, tunnel))
-            .ToArray();
+        var routes = CloudflarePipelineSteps.GetRoutes(
+            @event.Services.GetRequiredService<DistributedApplicationModel>(),
+            tunnel);
         var loggerService = @event.Services.GetRequiredService<ResourceLoggerService>();
         var notifications = @event.Services.GetRequiredService<ResourceNotificationService>();
         var provisioner = @event.Services.GetRequiredService<CloudflareRouteProvisioner>();
