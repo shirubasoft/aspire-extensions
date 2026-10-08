@@ -42,7 +42,8 @@ internal static class TailscaleSidecarDefaults
     // literal schema version below forces image updates to refresh this contract.
     // Only the pinned image's BusyBox tools are used, and validation takes one
     // snapshot of the store without scratch files or writes to the state volume.
-    public const string StartScript = $$"""
+    // Raw literals inherit checkout line endings; the container's shell requires LF.
+    public static readonly string StartScript = $$"""
         # State schema: v1.102.5
         set -eu
         export LC_ALL=C
@@ -223,5 +224,5 @@ internal static class TailscaleSidecarDefaults
           fi
         fi
         exec containerboot
-        """;
+        """.ReplaceLineEndings("\n");
 }

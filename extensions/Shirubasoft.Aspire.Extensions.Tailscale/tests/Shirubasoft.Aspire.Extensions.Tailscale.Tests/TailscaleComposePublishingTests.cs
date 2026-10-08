@@ -58,6 +58,23 @@ public sealed class TailscaleComposePublishingTests
     }
 
     [Fact]
+    public async Task ComposeStartScriptUsesLfLineEndings()
+    {
+        var output = await PublishAsync(builder =>
+        {
+            var tailnet = builder.AddTailnet("tailnet");
+            builder
+                .AddContainer("web", "nginx")
+                .WithHttpEndpoint(targetPort: 8080)
+                .WithTailscale(tailnet, "quadra-web");
+        });
+        var script = output.GetService("web-ts").Mapping("environment").Scalar("TAILSCALE_START_SCRIPT");
+
+        Assert.Contains("\n", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ComposeSidecarServesTheDefaultProjectContainerPort()
     {
         var output = await PublishAsync(builder =>

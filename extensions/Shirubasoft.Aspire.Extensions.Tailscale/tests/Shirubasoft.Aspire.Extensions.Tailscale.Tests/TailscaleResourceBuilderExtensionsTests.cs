@@ -260,6 +260,26 @@ public sealed class TailscaleResourceBuilderExtensionsTests
     }
 
     [Fact]
+    public async Task RunModeStartScriptUsesLfLineEndings()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        builder.Configuration["Parameters:tailnet-oauth-client-secret"] = "tskey-client-test";
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 8080);
+        web.WithTailscale(tailnet, "quadra-web");
+        AllocateOnContainerNetwork(web.Resource, "web", 8080);
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+
+        var configuration = await BuildRunConfigurationAsync(builder, sidecar);
+        var script = configuration.EnvironmentVariables["TAILSCALE_START_SCRIPT"];
+
+        Assert.Contains("\n", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunModeAdvertisesTheOverriddenTags()
     {
         var builder = DistributedApplication.CreateBuilder();
