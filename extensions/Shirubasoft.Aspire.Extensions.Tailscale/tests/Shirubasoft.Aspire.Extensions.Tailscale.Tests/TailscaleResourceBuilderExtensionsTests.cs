@@ -251,7 +251,8 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         var script = Assert.Single(arguments.Skip(1));
         Assert.Contains("\"$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
         Assert.Contains("\"$TS_SERVE_CONFIG\"", script, StringComparison.Ordinal);
-        Assert.Contains("\"$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
+        Assert.Contains("\"$TS_STATE_DIR/tailscaled.state\"", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("> \"$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
         Assert.EndsWith("exec containerboot", script, StringComparison.Ordinal);
         Assert.DoesNotContain("$(", script, StringComparison.Ordinal);
     }

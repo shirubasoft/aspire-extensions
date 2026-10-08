@@ -55,7 +55,7 @@ A project resource runs on the host, so its sidecar proxies to the host address 
 - `TS_AUTHKEY` is the OAuth client secret from the `.env` file with `?ephemeral=false&preauthorized=true`, so the node persists and needs no manual approval.
 - `TS_HOSTNAME` is the requested hostname without a suffix.
 - `TS_STATE_DIR` points to the named volume `{resource}-ts-state`, so the node identity survives container recreation. Keep the volume to keep the identity.
-- `TAILSCALE_TAGS` lists the tags, and the sidecar records them on the state volume at `/var/lib/tailscale/aspire-tags` when it registers the node.
+- `TAILSCALE_TAGS` lists the tag set. At start the sidecar reads the node profile in `tailscaled.state` on the state volume and refuses to start when that profile registered with a different tag set, so a changed `tags` value never runs under the old identity. A state volume without a profile belongs to a node that never registered, and the sidecar registers it.
 - The serve configuration proxies HTTPS on port 443 to `http://{resource}:{target port}` on the Compose network. The sidecar writes it from an environment variable at start, so the generated Compose file needs no bind mounts and works with a remote `DOCKER_HOST`.
 - The serve configuration names the node certificate domain with the Tailscale placeholder `${TS_CERT_DOMAIN}`, written as `$${TS_CERT_DOMAIN}` so Compose passes it through unchanged.
 - The sidecar `depends_on` the resource service.
@@ -64,22 +64,29 @@ The target port comes from the endpoint declaration. A container endpoint needs 
 
 ### Changing tags on a deployed node
 
-Tailscale assigns tags when it registers a node. A node that keeps its state keeps those tags, so a changed `tags` value does not reach the running node. The sidecar compares the requested tags with the recorded ones at start and refuses to start, with a message that names both tag sets, instead of running under the old identity.
+Tailscale assigns tags when it registers a node, and the node profile on the state volume keeps that tag set. A changed `tags` value in the AppHost therefore means a new registration. To change the tags of a deployed node:
 
-To change the tags of a deployed node:
-
-1. [Apply the new tags to the device](https://tailscale.com/docs/features/tags#apply-a-tag-to-a-device) in the Tailscale admin console or through the API.
-2. Set the new `tags` in the AppHost and publish again.
-3. Delete the recorded tags on the state volume, then start the sidecar:
+1. Stop the sidecar, so a restart policy does not keep restarting the refused container:
 
    ```bash
-   docker compose run --rm --entrypoint sh web-ts -c 'rm /var/lib/tailscale/aspire-tags'
-   docker compose up -d web-ts
+   docker compose stop web-ts
    ```
+
+2. Remove the node on the Machines page of the Tailscale admin console, or through the API (`DELETE /api/v2/device/{id}`).
+3. Delete the state volume. Compose names it `{project}_web-ts-state`, where the project name defaults to the directory of the Compose file:
+
+   ```bash
+   docker compose rm -f web-ts
+   docker volume rm myapp_web-ts-state
+   ```
+
+4. Set the new `tags` in the AppHost and deploy again. The sidecar registers a new node with the new tags.
+
+[Applying a tag to a device](https://tailscale.com/docs/features/tags#apply-a-tag-to-a-device) in the admin console changes the device without a new registration. The AppHost `tags` then keep describing the registration, because the sidecar compares them with the registered profile, not with the tags the admin console shows.
 
 ### Removing a deployed node
 
-Deleting the state volume does not remove the node from the tailnet. The next deployment registers a new node, Tailscale appends a numeric suffix to its hostname, and the old node remains until it expires or is removed. Remove a node in the Tailscale admin console or through the API, then delete the state volume so the next deployment registers a fresh node. See [`TS_STATE_DIR`](https://tailscale.com/docs/features/containers/docker/docker-params#ts_state_dir) in the Tailscale documentation.
+Deleting the state volume does not remove the node from the tailnet. The next deployment registers a new node, Tailscale appends a numeric suffix to its hostname, and the old node remains until it expires or is removed. Stop the sidecar, remove the node in the Tailscale admin console or through the API, then delete the state volume so the next deployment registers a fresh node. See [`TS_STATE_DIR`](https://tailscale.com/docs/features/containers/docker/docker-params#ts_state_dir) in the Tailscale documentation.
 
 ## Prerequisites
 

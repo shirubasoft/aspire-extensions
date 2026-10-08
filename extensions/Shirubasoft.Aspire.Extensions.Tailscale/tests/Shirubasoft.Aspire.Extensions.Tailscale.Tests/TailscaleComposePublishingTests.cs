@@ -47,8 +47,9 @@ public sealed class TailscaleComposePublishingTests
         Assert.Equal("-c", command[0]);
         var script = Assert.Single(command.Skip(1));
         Assert.Contains("\"$$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
-        Assert.Contains("\"$$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
+        Assert.Contains("\"$$TS_STATE_DIR/tailscaled.state\"", script, StringComparison.Ordinal);
         Assert.Contains("\"$$TAILSCALE_TAGS\"", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("> \"$$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
         Assert.EndsWith("exec containerboot", script, StringComparison.Ordinal);
         Assert.DoesNotContain("$(", script, StringComparison.Ordinal);
 
