@@ -44,6 +44,30 @@ jobs:
       contents: write
 
     steps:
+      - name: Verify the caller's CI run
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+          INPUT_RUN_ID: ${{ inputs.workflow_run_id }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$EVENT_NAME" == "workflow_run" ]] || fail "This workflow publishes only from a workflow_run event, not '$EVENT_NAME'."
+          [[ "$RUN_EVENT" == "push" ]] || fail "The CI run was triggered by '$RUN_EVENT', not push."
+          [[ "$RUN_HEAD_BRANCH" == "main" ]] || fail "The CI run was for branch '$RUN_HEAD_BRANCH', not main."
+          [[ "$RUN_HEAD_REPOSITORY" == "$REPOSITORY" ]] || fail "The CI run came from '$RUN_HEAD_REPOSITORY', not $REPOSITORY."
+          [[ "$RUN_CONCLUSION" == "success" ]] || fail "The CI run concluded with '$RUN_CONCLUSION', not success."
+          [[ "$INPUT_HEAD_SHA" == "$RUN_HEAD_SHA" ]] || fail "head_sha '$INPUT_HEAD_SHA' is not the CI run's head SHA '$RUN_HEAD_SHA'."
+          [[ "$INPUT_RUN_ID" == "$RUN_ID" ]] || fail "workflow_run_id '$INPUT_RUN_ID' is not the CI run's id '$RUN_ID'."
+
       - name: Check out main
         uses: actions/checkout@v7
         with:
