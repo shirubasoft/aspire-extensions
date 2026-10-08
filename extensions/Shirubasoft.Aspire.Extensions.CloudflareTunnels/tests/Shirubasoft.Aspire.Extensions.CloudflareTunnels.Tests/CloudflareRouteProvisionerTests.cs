@@ -1,6 +1,5 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Docker;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -97,6 +96,37 @@ public sealed class CloudflareRouteProvisionerTests
         Assert.Null(api.UpdatedConfiguration);
     }
 
+    // Route configuration is not transactional.
+    [Fact]
+    public async Task FailedRouteKeepsEarlierDnsRecordsAndSkipsTheIngressUpdate()
+    {
+        var api = new TestCloudflareApiClient
+        {
+            ZoneResolver = name => name == "example.com"
+                ? new("zone-id", name, "active")
+                : null,
+        };
+        var (tunnel, route) = CreateRoute();
+        var unknownZoneRoute = new PublishedRouteResource(
+            "public-route-app-example-org",
+            "app.example.org",
+            route.TargetEndpoint,
+            route.TargetResource,
+            tunnel);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new CloudflareRouteProvisioner(new TestCloudflareApiClientFactory(api))
+                .ConfigureRoutesAsync(
+                    tunnel,
+                    [route, unknownZoneRoute],
+                    _ => Task.FromResult("http://web:80"),
+                    _ => NullLogger.Instance,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal([("zone-id", "app.example.com", "tunnel-id")], api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
+    }
+
     [Fact]
     public async Task ConfigurePipelineRoutesFindsTheExistingTunnel()
     {
@@ -142,34 +172,14 @@ public sealed class CloudflareRouteProvisionerTests
         {
             ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
         };
-        var outputPath = Directory.CreateTempSubdirectory();
-        try
-        {
-            var builder = DistributedApplication.CreateBuilder(
-            [
-                "--operation", "publish",
-                "--step", "configure-public-cloudflare-routes",
-                "--output-path", outputPath.FullName,
-            ]);
-            builder.Configuration["Parameters:public-account-id"] = "account-id";
-            builder.Configuration["Parameters:public-api-token"] = "api-token";
-            builder.Configuration["Parameters:public-tunnel-token"] = "tunnel-token";
-            builder.AddDockerComposeEnvironment("env");
-            var web = builder
-                .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
-                .WithHttpEndpoint(targetPort: targetPort, name: "http");
-            var tunnel = builder.AddCloudflareTunnel("public");
-            web.WithCloudflareTunnel(tunnel, "app.example.com");
-            builder.Services.AddSingleton<ICloudflareApiClientFactory>(
-                new TestCloudflareApiClientFactory(api));
 
-            using var app = builder.Build();
-            await app.RunAsync(TestContext.Current.CancellationToken);
-        }
-        finally
+        var pipeline = new TunnelDeploymentPipeline
         {
-            outputPath.Delete(recursive: true);
-        }
+            Api = api,
+            TargetPort = targetPort,
+        };
+
+        await pipeline.RunAsync(pipeline.RouteStepName);
 
         var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
         Assert.Equal(expectedService, configuration.Ingress[0].Service);
@@ -397,14 +407,4 @@ public sealed class CloudflareRouteProvisionerTests
             {
                 TunnelId = "tunnel-id",
             });
-
-#pragma warning disable ASPIRECOMPUTE002
-    private sealed class TestComputeEnvironmentResource(string name)
-        : Resource(name), IComputeEnvironmentResource
-    {
-        public ReferenceExpression GetHostAddressExpression(
-            EndpointReference endpointReference) =>
-            ReferenceExpression.Create($"{endpointReference.Resource.Name}.internal");
-    }
-#pragma warning restore ASPIRECOMPUTE002
 }
