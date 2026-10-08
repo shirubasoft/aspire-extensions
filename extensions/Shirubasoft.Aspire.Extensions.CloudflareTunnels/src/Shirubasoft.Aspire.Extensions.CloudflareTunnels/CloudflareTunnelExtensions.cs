@@ -321,9 +321,8 @@ public static class CloudflareTunnelResourceBuilderExtensions
         string hostname,
         EndpointReference endpoint)
     {
-        var routeName = $"{tunnel.Resource.Name}-route-{MakeResourceName(hostname)}";
         var route = new PublishedRouteResource(
-            routeName,
+            CloudflareResourceNames.ForRoute(tunnel.Resource.Name, hostname),
             hostname,
             endpoint,
             target,
@@ -343,9 +342,6 @@ public static class CloudflareTunnelResourceBuilderExtensions
                 ],
             });
     }
-
-    internal static string MakeResourceName(string hostname) =>
-        hostname.Replace('.', '-').Replace(':', '-');
 
     internal static void AddQuickTunnelArguments(
         CommandLineArgsCallbackContext context,

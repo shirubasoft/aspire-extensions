@@ -142,24 +142,61 @@ public sealed class CloudflareRouteProvisionerTests
         {
             ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
         };
+
+        await RunComposeRouteStepAsync(api, "public", "app.example.com", targetPort);
+
+        var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
+        Assert.Equal(expectedService, configuration.Ingress[0].Service);
+    }
+
+    [Fact]
+    public async Task DeploymentConfiguresARouteWhoseResourceNameWouldExceedTheLimit()
+    {
+        var api = new TestCloudflareApiClient
+        {
+            ExistingTunnel = new(
+                "deployed-tunnel-id",
+                "my-application-public-tunnel",
+                "healthy",
+                null,
+                null),
+        };
+
+        await RunComposeRouteStepAsync(
+            api,
+            "my-application-public-tunnel",
+            "my-application.staging.example.com",
+            targetPort: 8080);
+
+        Assert.Equal(
+            [("zone-id", "my-application.staging.example.com", "deployed-tunnel-id")],
+            api.DnsUpserts);
+    }
+
+    private static async Task RunComposeRouteStepAsync(
+        TestCloudflareApiClient api,
+        string tunnelName,
+        string hostname,
+        int? targetPort)
+    {
         var outputPath = Directory.CreateTempSubdirectory();
         try
         {
             var builder = DistributedApplication.CreateBuilder(
             [
                 "--operation", "publish",
-                "--step", "configure-public-cloudflare-routes",
+                "--step", $"configure-{tunnelName}-cloudflare-routes",
                 "--output-path", outputPath.FullName,
             ]);
-            builder.Configuration["Parameters:public-account-id"] = "account-id";
-            builder.Configuration["Parameters:public-api-token"] = "api-token";
-            builder.Configuration["Parameters:public-tunnel-token"] = "tunnel-token";
+            builder.Configuration[$"Parameters:{tunnelName}-account-id"] = "account-id";
+            builder.Configuration[$"Parameters:{tunnelName}-api-token"] = "api-token";
+            builder.Configuration[$"Parameters:{tunnelName}-tunnel-token"] = "tunnel-token";
             builder.AddDockerComposeEnvironment("env");
             var web = builder
                 .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
                 .WithHttpEndpoint(targetPort: targetPort, name: "http");
-            var tunnel = builder.AddCloudflareTunnel("public");
-            web.WithCloudflareTunnel(tunnel, "app.example.com");
+            var tunnel = builder.AddCloudflareTunnel(tunnelName);
+            web.WithCloudflareTunnel(tunnel, hostname);
             builder.Services.AddSingleton<ICloudflareApiClientFactory>(
                 new TestCloudflareApiClientFactory(api));
 
@@ -170,9 +207,6 @@ public sealed class CloudflareRouteProvisionerTests
         {
             outputPath.Delete(recursive: true);
         }
-
-        var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
-        Assert.Equal(expectedService, configuration.Ingress[0].Service);
     }
 
     [Fact]

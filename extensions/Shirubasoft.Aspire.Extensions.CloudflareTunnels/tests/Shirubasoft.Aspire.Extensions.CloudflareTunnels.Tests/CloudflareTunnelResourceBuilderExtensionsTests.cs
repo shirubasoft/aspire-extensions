@@ -116,6 +116,63 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
             annotation => annotation is ResourceUrlsCallbackAnnotation);
     }
 
+    [Fact]
+    public void WithCloudflareTunnelShortensARouteNameOverTheResourceNameLimit()
+    {
+        var route = AddLongRoute();
+        var rebuiltRoute = AddLongRoute();
+
+        AssertValidResourceName(route.Name);
+        Assert.StartsWith(
+            "my-application-public-tunnel-route-my-application-",
+            route.Name,
+            StringComparison.Ordinal);
+        Assert.Matches("-[0-9a-f]{8}$", route.Name);
+        Assert.Equal(route.Name, rebuiltRoute.Name);
+        Assert.Equal("my-application.staging.example.com", route.Hostname);
+
+        static PublishedRouteResource AddLongRoute()
+        {
+            var builder = DistributedApplication.CreateBuilder();
+            return AddRoute(
+                builder,
+                builder.AddCloudflareTunnel("my-application-public-tunnel"),
+                "my-application.staging.example.com");
+        }
+    }
+
+    [Fact]
+    public void ShortenedRouteNamesStayUniqueWhenTheirPrefixesMatch()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tunnel = builder.AddCloudflareTunnel("my-application-public-tunnel");
+
+        var first = AddRoute(builder, tunnel, "my-application-staging-one.example.com");
+        var second = AddRoute(builder, tunnel, "my-application-staging-two.example.com");
+
+        AssertValidResourceName(first.Name);
+        AssertValidResourceName(second.Name);
+        Assert.NotEqual(first.Name, second.Name);
+    }
+
+    [Theory]
+    [InlineData("*.example.com")]
+    [InlineData("xn--bcher-kva.example.com")]
+    [InlineData("example.com.")]
+    [InlineData("api_v1.example.com")]
+    public void RouteNamesFollowAspireRulesForAnyHostname(string hostname)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tunnel = builder.AddCloudflareTunnel("public");
+
+        var apex = AddRoute(builder, tunnel, "example.com");
+        var route = AddRoute(builder, tunnel, hostname);
+
+        AssertValidResourceName(route.Name);
+        Assert.NotEqual(apex.Name, route.Name);
+        Assert.Equal(hostname, route.Hostname);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
@@ -145,6 +202,28 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
         Assert.DoesNotContain(
             tunnel.Resource.Annotations,
             annotation => annotation is WaitAnnotation);
+    }
+
+    private static PublishedRouteResource AddRoute(
+        IDistributedApplicationBuilder builder,
+        IResourceBuilder<CloudflareTunnelResource> tunnel,
+        string hostname)
+    {
+        builder
+            .AddContainer($"web{builder.Resources.Count}", "nginx")
+            .WithHttpEndpoint(targetPort: 80)
+            .WithCloudflareTunnel(tunnel, hostname);
+
+        return builder.Resources
+            .OfType<PublishedRouteResource>()
+            .Single(route => route.Hostname == hostname);
+    }
+
+    // Mirrors the default Aspire resource name policy.
+    private static void AssertValidResourceName(string name)
+    {
+        Assert.InRange(name.Length, 1, 64);
+        Assert.Matches("^[A-Za-z][A-Za-z0-9]*(-[A-Za-z0-9]+)*$", name);
     }
 
     private static void AssertContainer(ContainerResource resource, int expectedPort)
