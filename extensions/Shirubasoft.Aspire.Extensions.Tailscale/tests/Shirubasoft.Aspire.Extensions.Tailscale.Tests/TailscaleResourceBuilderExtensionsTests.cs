@@ -44,17 +44,51 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         Assert.Throws<ArgumentException>(() => builder.AddTailnet(name));
     }
 
+    // The grammar follows tailcfg.CheckTag: "tag:", a letter, then letters, digits,
+    // or hyphens. Anything else would reach "tailscale up" as extra arguments or
+    // fail registration later.
     [Theory]
     [InlineData]
     [InlineData("apps")]
     [InlineData("tag:apps", "")]
-    public void AddTailnetRejectsTagsWithoutTheTagPrefix(params string[] tags)
+    [InlineData("tag:")]
+    [InlineData("TAG:apps")]
+    [InlineData("tag:123")]
+    [InlineData("tag:apps --accept-dns=true")]
+    [InlineData("tag:apps,tag:web")]
+    [InlineData("tag:ap_ps")]
+    [InlineData("tag:apps ")]
+    [InlineData(" tag:apps")]
+    public void AddTailnetRejectsInvalidTags(params string[] tags)
     {
         var builder = DistributedApplication.CreateBuilder();
 
         var exception = Assert.Throws<ArgumentException>(() => builder.AddTailnet("tailnet", tags));
 
         Assert.Contains("tag:", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddTailnetRejectsANullTag()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        string[] tags = ["tag:apps", null!];
+
+        Assert.Throws<ArgumentException>(() => builder.AddTailnet("tailnet", tags));
+    }
+
+    [Theory]
+    [InlineData("tag:a")]
+    [InlineData("tag:Apps")]
+    [InlineData("tag:apps-2")]
+    [InlineData("tag:a1-b2")]
+    public void AddTailnetAcceptsTagsThatMatchTheTailscaleGrammar(string tag)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var tailnet = builder.AddTailnet("tailnet", tags: [tag]);
+
+        Assert.Equal([tag], tailnet.Resource.Tags);
     }
 
     [Fact]
@@ -164,8 +198,11 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         Assert.Equal($"{hostname}-dev", sidecar.Hostname);
     }
 
-    [Fact]
-    public void WithTailscaleRejectsTagsWithoutTheTagPrefix()
+    [Theory]
+    [InlineData("apps")]
+    [InlineData("tag:apps --accept-dns=true")]
+    [InlineData("tag:123")]
+    public void WithTailscaleRejectsInvalidTags(string tag)
     {
         var builder = DistributedApplication.CreateBuilder();
         var tailnet = builder.AddTailnet("tailnet");
@@ -173,7 +210,7 @@ public sealed class TailscaleResourceBuilderExtensionsTests
             .AddContainer("web", "nginx")
             .WithHttpEndpoint(targetPort: 80);
 
-        Assert.Throws<ArgumentException>(() => web.WithTailscale(tailnet, "web", tags: ["apps"]));
+        Assert.Throws<ArgumentException>(() => web.WithTailscale(tailnet, "web", tags: [tag]));
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Buffers;
 using Aspire.Hosting.ApplicationModel;
 
 namespace Aspire.Hosting;
@@ -201,16 +202,29 @@ public static class TailscaleResourceBuilderExtensions
 
     private static IReadOnlyList<string> ValidateTags(IReadOnlyList<string> tags)
     {
-        if (tags.Count == 0 || tags.Any(IsNotATag))
+        if (tags.Count == 0 || !tags.All(IsTag))
         {
             throw new ArgumentException(
-                "Provide at least one Tailscale tag, and start every tag with 'tag:'.",
+                "Provide at least one Tailscale tag. A tag is 'tag:' followed by a letter " +
+                "and then letters, digits, or hyphens.",
                 nameof(tags));
         }
 
         return [.. tags];
     }
 
-    private static bool IsNotATag(string tag) =>
-        tag.Length <= 4 || !tag.StartsWith("tag:", StringComparison.Ordinal);
+    // tailcfg.CheckTag: "tag:", a letter, then letters, digits, or hyphens. Anything
+    // else would reach "tailscale up" as extra arguments or fail registration.
+    private static bool IsTag(string? tag) =>
+        tag is not null
+        && tag.StartsWith("tag:", StringComparison.Ordinal)
+        && IsTagName(tag.AsSpan(4));
+
+    private static bool IsTagName(ReadOnlySpan<char> name) =>
+        !name.IsEmpty
+        && char.IsAsciiLetter(name[0])
+        && name.IndexOfAnyExcept(TagNameCharacters) < 0;
+
+    private static readonly SearchValues<char> TagNameCharacters = SearchValues.Create(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-");
 }
