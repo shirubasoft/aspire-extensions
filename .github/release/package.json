@@ -12,5 +12,16 @@
     "conventional-changelog-conventionalcommits": "9.3.1",
     "semantic-release": "25.0.9",
     "semver": "7.8.5"
+  },
+  "overrides": {
+    "conventional-changelog-writer@8": {
+      "handlebars": "^4.7.10"
+    },
+    "@semantic-release/github": {
+      "undici": "^7.29.1"
+    },
+    "@actions/http-client@4": {
+      "undici": "^6.28.1"
+    }
   }
 }
