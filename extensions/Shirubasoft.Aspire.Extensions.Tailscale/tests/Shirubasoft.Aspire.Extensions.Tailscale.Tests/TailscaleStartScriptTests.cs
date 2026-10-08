@@ -393,6 +393,20 @@ public sealed class TailscaleStateFixtureTests
         Assert.Contains("\n\t\"AdvertiseTags\": [\n\t\t\"tag:apps\"\n\t],", prefs, StringComparison.Ordinal);
         Assert.StartsWith("{\"" + currentProfile["profile-".Length..] + "\":{", profiles, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void SecondProfileFixtureHasValidProfileMetadata()
+    {
+        var state = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            TailscaleState.PinnedImageFixtureWithSecondProfile("profile-d4e5", ["tag:web"]))!;
+        var profiles = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            Convert.FromBase64String(state["_profiles"]))!;
+        var currentProfile = Encoding.UTF8.GetString(Convert.FromBase64String(state["_current-profile"]));
+
+        Assert.Equal(2, profiles.Count);
+        Assert.Equal(currentProfile, profiles[currentProfile["profile-".Length..]].GetProperty("Key").GetString());
+        Assert.Equal("profile-d4e5", profiles["d4e5"].GetProperty("Key").GetString());
+    }
 }
 
 internal static class TailscaleState
@@ -410,10 +424,11 @@ internal static class TailscaleState
     {
         var state = JsonSerializer.Deserialize<Dictionary<string, string>>(PinnedImageFixture())!;
         var currentProfile = Encoding.UTF8.GetString(Convert.FromBase64String(state["_current-profile"]));
-        var profiles = Encoding.UTF8.GetString(Convert.FromBase64String(state["_profiles"]));
+        var profiles = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            Convert.FromBase64String(state["_profiles"]))!;
         var id = profileKey["profile-".Length..];
-        state["_profiles"] = Base64(profiles.TrimEnd('}')
-            + ",\"" + id + "\":{\"ID\":\"" + id + "\",\"Key\":\"" + profileKey + "\",\"NodeID\":\"nOTHERNODE\"}}");
+        profiles[id] = JsonSerializer.SerializeToElement(new { ID = id, Key = profileKey, NodeID = "nOTHERNODE" });
+        state["_profiles"] = Base64(JsonSerializer.Serialize(profiles));
         state[profileKey] = Base64(Prefs(tags));
         state["_current-profile"] = Base64(currentProfile);
         return Serialize(state);
