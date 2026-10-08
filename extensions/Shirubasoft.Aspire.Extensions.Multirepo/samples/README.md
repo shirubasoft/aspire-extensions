@@ -56,7 +56,7 @@ From the repository root, after confirming the container runtime is available:
 
 ```bash
 MODULAR_SAMPLES_E2E=true \
-  dotnet test extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ModularSamples.Tests/ModularSamples.Tests.csproj
+  dotnet test --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ModularSamples.Tests/ModularSamples.Tests.csproj
 ```
 
 The suite starts both AppHosts through Aspire's testing builder and verifies the project, native container export, declared container, advanced image, and gateway.

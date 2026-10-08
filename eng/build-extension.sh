@@ -78,7 +78,7 @@ fi
 dotnet restore "$solution"
 dotnet format "$solution" --verify-no-changes --no-restore
 dotnet build "$solution" --configuration Release --no-restore "${version_arguments[@]}"
-dotnet test "$solution" --configuration Release --no-build --no-restore "${version_arguments[@]}"
+dotnet test --solution "$solution" --configuration Release --no-build --no-restore "${version_arguments[@]}"
 for project in "${package_projects[@]}"; do
   dotnet pack "$project" \
     --configuration Release --no-build --no-restore \

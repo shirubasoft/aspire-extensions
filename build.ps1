@@ -16,7 +16,7 @@ Invoke-DotNet tool restore
 Invoke-DotNet restore Aspire.Extensions.Tools.slnx
 Invoke-DotNet format Aspire.Extensions.Tools.slnx --verify-no-changes --no-restore
 Invoke-DotNet build Aspire.Extensions.Tools.slnx --configuration Release --no-restore
-Invoke-DotNet test Aspire.Extensions.Tools.slnx --configuration Release --no-build --no-restore
+Invoke-DotNet test --solution Aspire.Extensions.Tools.slnx --configuration Release --no-build --no-restore
 
 $extensionPaths = if ([string]::IsNullOrWhiteSpace($Extension)) {
     Get-ChildItem extensions -Directory -Filter "Shirubasoft.Aspire.Extensions.*" |

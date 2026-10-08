@@ -10,7 +10,7 @@ From the repository root:
 
 ```bash
 ESHOP_E2E_MODE=apphost \
-  dotnet test extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
+  dotnet test --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
 ```
 
 Aspire starts both project resources, waits for health, and provides their HTTP clients.
@@ -21,7 +21,7 @@ Install Aspire CLI 13.5.3 or later, start Docker or Podman, and run:
 
 ```bash
 ESHOP_E2E_MODE=compose \
-  dotnet test extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
+  dotnet test --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
 ```
 
 `DockerComposeDeploymentTestingBuilder.DeployAsync` deploys through Aspire, imports the generated environment file, and returns the same testing-builder contract. Disposing it destroys the deployment; failed cleanup retains the output directory for recovery.

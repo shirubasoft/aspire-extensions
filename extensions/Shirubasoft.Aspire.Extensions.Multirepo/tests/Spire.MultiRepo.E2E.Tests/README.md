@@ -32,7 +32,7 @@ Run the full Docker-backed suite from the repository root:
 ```bash
 dotnet tool restore
 MULTI_REPO_E2E=true ASPIRE_CONTAINER_RUNTIME=docker \
-  dotnet test extensions/Shirubasoft.Aspire.Extensions.Multirepo/tests/Spire.MultiRepo.E2E.Tests/Spire.MultiRepo.E2E.Tests.csproj \
+  dotnet test --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/tests/Spire.MultiRepo.E2E.Tests/Spire.MultiRepo.E2E.Tests.csproj \
   --configuration Release
 ```
 

@@ -10,6 +10,7 @@ extension_path="${1%/}"
 package_id="$2"
 coverage_path_input="$3"
 extension_name="$(basename "$extension_path")"
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 coverage_projects_file="$extension_path/coverage-projects.txt"
 mkdir -p "$coverage_path_input"
 coverage_path="$(cd -- "$coverage_path_input" && pwd -P)"
@@ -55,19 +56,26 @@ for coverage_project in "${coverage_projects[@]}"; do
   fi
   index=$((index + 1))
   report_path="$coverage_path/extension-$index.opencover.xml"
+  test_assembly="$(dotnet msbuild "$project" -getProperty:TargetPath -p:Configuration=Release -nologo)"
+  if [[ ! -f "$test_assembly" ]]; then
+    echo "Coverage project has not been built: $test_assembly" >&2
+    exit 1
+  fi
+  # Deterministic builds record sources under /_/. Map that root back to the repository so Coverlet
+  # finds the sources it instruments and reports real file paths.
+  source_mapping_path="$coverage_path/extension-$index.source-roots.txt"
+  printf '%s|%s=/_/\n' "$project" "$repository_root/" > "$source_mapping_path"
   threshold_arguments=()
   if [[ -n "$line_threshold" ]]; then
-    threshold_arguments+=(
-      "-p:Threshold=$line_threshold"
-      "-p:ThresholdType=line"
-      "-p:ThresholdStat=total")
+    threshold_arguments+=(--threshold "$line_threshold" --threshold-type line --threshold-stat total)
   fi
-  dotnet test "$project" \
-    --configuration Release --no-build --no-restore \
-    -p:CollectCoverage=true \
-    -p:CoverletOutput="$report_path" \
-    -p:CoverletOutputFormat=opencover \
-    "-p:Include=[$assembly_filter]*" \
+  dotnet coverlet "$test_assembly" \
+    --target dotnet \
+    --targetargs "test --project \"$project\" --configuration Release --no-build --no-restore" \
+    --format opencover \
+    --output "$report_path" \
+    --include "[$assembly_filter]*" \
+    --source-mapping-file "$source_mapping_path" \
     "${threshold_arguments[@]}"
   if [[ ! -s "$report_path" ]]; then
     echo "Coverage project did not create $report_path" >&2

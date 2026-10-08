@@ -106,7 +106,7 @@ jobs:
           ESHOP_E2E_MODE: compose
         run: >-
           dotnet test
-          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
+          --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/E2ETesting/EShop.E2E.Tests/EShop.E2E.Tests.csproj
           --configuration Release
           --no-build
           --no-restore
@@ -148,7 +148,7 @@ jobs:
       - name: Start and validate both modular AppHosts
         run: >-
           dotnet test
-          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ModularSamples.Tests/ModularSamples.Tests.csproj
+          --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ModularSamples.Tests/ModularSamples.Tests.csproj
           --configuration Release
           --no-restore
 
@@ -244,9 +244,9 @@ jobs:
           MODULAR_PUBLISHER_FALLBACK_IMAGE: localhost:5000/multi-repo-e2e-resource:workflow-e2e
         run: >-
           dotnet test
-          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj
+          --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj
           --configuration Release
-          --filter FullyQualifiedName~PublisherFallbackTests
+          -- --filter-query '/*/*/PublisherFallbackTests'
 
       - name: Run Repo A E2E tests against the overridden image
         run: >-
@@ -254,7 +254,7 @@ jobs:
           --file artifacts/module-image-workflow.json
           --
           dotnet test
-          extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj
+          --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/MultiRepoE2E/Spire.Consumer.Tests/Spire.Consumer.Tests.csproj
           --configuration Release
 
   e2e-multi-repo:
@@ -279,7 +279,7 @@ jobs:
           MULTI_REPO_E2E: true
         run: >-
           dotnet test
-          extensions/Shirubasoft.Aspire.Extensions.Multirepo/tests/Spire.MultiRepo.E2E.Tests/Spire.MultiRepo.E2E.Tests.csproj
+          --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/tests/Spire.MultiRepo.E2E.Tests/Spire.MultiRepo.E2E.Tests.csproj
           --configuration Release
 
       - name: Upload multi-repository failure diagnostics
