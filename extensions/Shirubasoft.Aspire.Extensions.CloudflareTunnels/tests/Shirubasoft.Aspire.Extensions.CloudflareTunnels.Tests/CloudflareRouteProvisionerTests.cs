@@ -1,4 +1,6 @@
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Docker;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -129,6 +131,167 @@ public sealed class CloudflareRouteProvisionerTests
             configuration.Ingress[0].Service);
     }
 
+    [Theory]
+    [InlineData(8080, "http://web:8080")]
+    [InlineData(null, "http://web")]
+    public async Task ComposeDeploymentRoutesToTheContainerTargetPort(
+        int? targetPort,
+        string expectedService)
+    {
+        var api = new TestCloudflareApiClient
+        {
+            ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
+        };
+        var outputPath = Directory.CreateTempSubdirectory();
+        try
+        {
+            var builder = DistributedApplication.CreateBuilder(
+            [
+                "--operation", "publish",
+                "--step", "configure-public-cloudflare-routes",
+                "--output-path", outputPath.FullName,
+            ]);
+            builder.Configuration["Parameters:public-account-id"] = "account-id";
+            builder.Configuration["Parameters:public-api-token"] = "api-token";
+            builder.Configuration["Parameters:public-tunnel-token"] = "tunnel-token";
+            builder.AddDockerComposeEnvironment("env");
+            var web = builder
+                .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
+                .WithHttpEndpoint(targetPort: targetPort, name: "http");
+            var tunnel = builder.AddCloudflareTunnel("public");
+            web.WithCloudflareTunnel(tunnel, "app.example.com");
+            builder.Services.AddSingleton<ICloudflareApiClientFactory>(
+                new TestCloudflareApiClientFactory(api));
+
+            using var app = builder.Build();
+            await app.RunAsync(TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            outputPath.Delete(recursive: true);
+        }
+
+        var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
+        Assert.Equal(expectedService, configuration.Ingress[0].Service);
+    }
+
+    [Fact]
+    public async Task ServiceUrlKeepsTheComputeEnvironmentUrlOutsideCompose()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var route = CreateRoute(builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 8080, name: "http"));
+
+        var expression = CloudflareRouteProvisioner.GetServiceUrlExpression(
+            new TestComputeEnvironmentResource("env"),
+            route);
+
+        Assert.False(expression.HasUnknownTargetPort);
+        Assert.Equal(
+            "http://web.internal",
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ComposeServiceUrlFallsBackToTheContainerPort()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var route = CreateRoute(builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(port: 5000, name: "http"));
+
+        var expression = CloudflareRouteProvisioner.GetServiceUrlExpression(
+            new DockerComposeEnvironmentResource("env"),
+            route);
+
+        Assert.False(expression.HasUnknownTargetPort);
+        Assert.Equal(
+            "http://web:5000",
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ComposeServiceUrlUsesTheDefaultProjectContainerPort()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var route = CreateRoute(builder
+            .AddResource(new ProjectResource("api"))
+            .WithHttpEndpoint(name: "http"));
+
+        var expression = CloudflareRouteProvisioner.GetServiceUrlExpression(
+            new DockerComposeEnvironmentResource("env"),
+            route);
+
+        Assert.False(expression.HasUnknownTargetPort);
+        Assert.Equal(
+            "http://api:8080",
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ComposeServiceUrlKeepsTheDefaultUrlForAnAllocatedPort()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var route = CreateRoute(builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(name: "http"));
+
+        var expression = CloudflareRouteProvisioner.GetServiceUrlExpression(
+            new DockerComposeEnvironmentResource("env"),
+            route);
+
+        Assert.True(expression.HasUnknownTargetPort);
+        Assert.Equal(
+            "http://web",
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ReportUnknownTargetPortWarnsAboutTheRoute()
+    {
+        var (_, route) = CreateRoute();
+        var warnings = new List<(PublishedRouteResource Route, string Warning)>();
+
+        await CloudflareRouteProvisioner.ReportUnknownTargetPortAsync(
+            new(ReferenceExpression.Empty, HasUnknownTargetPort: true),
+            route,
+            "http://web",
+            (warnedRoute, warning, _) =>
+            {
+                warnings.Add((warnedRoute, warning));
+                return Task.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
+
+        var (warnedRoute, warning) = Assert.Single(warnings);
+        Assert.Same(route, warnedRoute);
+        Assert.Contains("'http'", warning, StringComparison.Ordinal);
+        Assert.Contains("'web'", warning, StringComparison.Ordinal);
+        Assert.Contains("app.example.com routes to http://web", warning, StringComparison.Ordinal);
+        Assert.Contains("target port", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReportUnknownTargetPortSkipsAKnownPort()
+    {
+        var (_, route) = CreateRoute();
+        var warned = false;
+
+        await CloudflareRouteProvisioner.ReportUnknownTargetPortAsync(
+            new(ReferenceExpression.Empty),
+            route,
+            "http://web:80",
+            (_, _, _) =>
+            {
+                warned = true;
+                return Task.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.False(warned);
+    }
+
     [Fact]
     public void RequireTunnelIdRejectsAnUnprovisionedTunnel()
     {
@@ -214,22 +377,34 @@ public sealed class CloudflareRouteProvisionerTests
     private static (CloudflareTunnelResource Tunnel, PublishedRouteResource Route) CreateRoute()
     {
         var builder = DistributedApplication.CreateBuilder();
-        var target = builder
+        var route = CreateRoute(builder
             .AddContainer("web", "nginx")
-            .WithHttpEndpoint(targetPort: 80, name: "http");
-        var tunnel = new CloudflareTunnelResource("public")
-        {
-            TunnelId = "tunnel-id",
-        };
-        var route = new PublishedRouteResource(
+            .WithHttpEndpoint(targetPort: 80, name: "http"));
+
+        return (route.Tunnel, route);
+    }
+
+    private static PublishedRouteResource CreateRoute<T>(IResourceBuilder<T> target)
+        where T : IResourceWithEndpoints =>
+        new(
             "public-route-app-example-com",
             "app.example.com",
             target.GetEndpoint(
                 "http",
                 KnownNetworkIdentifiers.DefaultAspireContainerNetwork),
             target.Resource,
-            tunnel);
+            new CloudflareTunnelResource("public")
+            {
+                TunnelId = "tunnel-id",
+            });
 
-        return (tunnel, route);
+#pragma warning disable ASPIRECOMPUTE002
+    private sealed class TestComputeEnvironmentResource(string name)
+        : Resource(name), IComputeEnvironmentResource
+    {
+        public ReferenceExpression GetHostAddressExpression(
+            EndpointReference endpointReference) =>
+            ReferenceExpression.Create($"{endpointReference.Resource.Name}.internal");
     }
+#pragma warning restore ASPIRECOMPUTE002
 }

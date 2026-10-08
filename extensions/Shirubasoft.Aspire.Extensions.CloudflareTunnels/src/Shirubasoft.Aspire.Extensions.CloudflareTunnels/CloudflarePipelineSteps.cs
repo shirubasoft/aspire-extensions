@@ -43,6 +43,11 @@ internal static class CloudflarePipelineSteps
                     tunnel,
                     routes,
                     context.ExecutionContext,
+                    (route, warning, warningToken) => ReportWarningAsync(
+                        context.ReportingStep,
+                        route,
+                        warning,
+                        warningToken),
                     context.Logger,
                     token),
             context.Logger,
@@ -71,6 +76,20 @@ internal static class CloudflarePipelineSteps
         await configure(cancellationToken).ConfigureAwait(false);
 
         addSummary(string.Join(", ", routes.Select(route => route.Hostname)));
+    }
+
+    // A warning task marks the step, and the pipeline, as completed with warnings.
+    internal static async Task ReportWarningAsync(
+        IReportingStep step,
+        PublishedRouteResource route,
+        string warning,
+        CancellationToken cancellationToken)
+    {
+        var task = await step.CreateTaskAsync(
+            $"Resolve the service URL for {route.Hostname}",
+            cancellationToken).ConfigureAwait(false);
+        await using var configuredTask = task.ConfigureAwait(false);
+        await task.WarnAsync(warning, cancellationToken).ConfigureAwait(false);
     }
 }
 
