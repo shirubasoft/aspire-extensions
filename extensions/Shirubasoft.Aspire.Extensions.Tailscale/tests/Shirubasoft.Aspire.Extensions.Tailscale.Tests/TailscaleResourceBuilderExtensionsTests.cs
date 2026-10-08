@@ -237,7 +237,8 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         Assert.Equal("true", environment["TS_AUTH_ONCE"]);
         Assert.Equal("true", environment["TS_USERSPACE"]);
         Assert.Equal("--advertise-tags=tag:apps", environment["TS_EXTRA_ARGS"]);
-        Assert.Equal("/etc/tailscale/serve.json", environment["TS_SERVE_CONFIG"]);
+        Assert.Equal("tag:apps", environment["TAILSCALE_TAGS"]);
+        Assert.Equal("/etc/tailscale-serve.json", environment["TS_SERVE_CONFIG"]);
         Assert.DoesNotContain("TS_STATE_DIR", environment.Keys);
         Assert.Equal(
             TailscaleServeConfig.Create("http://web:8080", "${TS_CERT_DOMAIN}"),
@@ -247,8 +248,10 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         Assert.Equal("-c", arguments[0]);
         var script = Assert.Single(arguments.Skip(1));
         Assert.Contains("\"$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
-        Assert.Contains("/etc/tailscale/serve.json", script, StringComparison.Ordinal);
-        Assert.EndsWith("exec /usr/local/bin/containerboot", script, StringComparison.Ordinal);
+        Assert.Contains("\"$TS_SERVE_CONFIG\"", script, StringComparison.Ordinal);
+        Assert.Contains("\"$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
+        Assert.EndsWith("exec containerboot", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("$(", script, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -267,6 +270,7 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         var configuration = await BuildRunConfigurationAsync(builder, sidecar);
 
         Assert.Equal("--advertise-tags=tag:web,tag:admin", configuration.EnvironmentVariables["TS_EXTRA_ARGS"]);
+        Assert.Equal("tag:web,tag:admin", configuration.EnvironmentVariables["TAILSCALE_TAGS"]);
     }
 
     // Parameter values resolve through the application services, so the

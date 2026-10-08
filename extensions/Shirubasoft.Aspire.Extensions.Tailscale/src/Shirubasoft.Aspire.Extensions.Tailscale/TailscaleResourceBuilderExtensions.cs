@@ -88,6 +88,7 @@ public static class TailscaleResourceBuilderExtensions
         TailscaleSidecarResource sidecar,
         bool isRunMode)
     {
+        var tags = string.Join(',', sidecar.Tags);
         var node = builder.AddResource(sidecar)
             .WithImage(TailscaleContainerImageTags.Image, TailscaleContainerImageTags.Tag)
             .WithImageRegistry(TailscaleContainerImageTags.Registry)
@@ -99,7 +100,8 @@ public static class TailscaleResourceBuilderExtensions
             .WithEnvironment("TS_HOSTNAME", sidecar.Hostname)
             .WithEnvironment("TS_AUTH_ONCE", "true")
             .WithEnvironment("TS_USERSPACE", "true")
-            .WithEnvironment("TS_EXTRA_ARGS", $"--advertise-tags={string.Join(',', sidecar.Tags)}")
+            .WithEnvironment("TS_EXTRA_ARGS", $"--advertise-tags={tags}")
+            .WithEnvironment(TailscaleSidecarDefaults.TagsVariable, tags)
             .WithEnvironment("TS_SERVE_CONFIG", TailscaleSidecarDefaults.ServeConfigPath)
             .WithEnvironment("TS_AUTHKEY", GetAuthKey(sidecar.Tailnet.OAuthClientSecret, isRunMode))
             .WithEnvironment(context => ConfigureServeAsync(context, sidecar));

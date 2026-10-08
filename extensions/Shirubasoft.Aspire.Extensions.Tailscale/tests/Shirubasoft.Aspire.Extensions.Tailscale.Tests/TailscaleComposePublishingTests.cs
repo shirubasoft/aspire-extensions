@@ -27,10 +27,11 @@ public sealed class TailscaleComposePublishingTests
         Assert.Equal("true", environment.Scalar("TS_USERSPACE"));
         Assert.Equal("/var/lib/tailscale", environment.Scalar("TS_STATE_DIR"));
         Assert.Equal("--advertise-tags=tag:apps", environment.Scalar("TS_EXTRA_ARGS"));
+        Assert.Equal("tag:apps", environment.Scalar("TAILSCALE_TAGS"));
         Assert.Equal(
             "${TAILNET_OAUTH_CLIENT_SECRET}?ephemeral=false&preauthorized=true",
             environment.Scalar("TS_AUTHKEY"));
-        Assert.Equal("/etc/tailscale/serve.json", environment.Scalar("TS_SERVE_CONFIG"));
+        Assert.Equal("/etc/tailscale-serve.json", environment.Scalar("TS_SERVE_CONFIG"));
         Assert.Equal(
             TailscaleServeConfig.Create("http://web:8080", "$${TS_CERT_DOMAIN}"),
             environment.Scalar("TAILSCALE_SERVE_CONFIG_JSON"));
@@ -46,7 +47,10 @@ public sealed class TailscaleComposePublishingTests
         Assert.Equal("-c", command[0]);
         var script = Assert.Single(command.Skip(1));
         Assert.Contains("\"$$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
-        Assert.EndsWith("exec /usr/local/bin/containerboot", script, StringComparison.Ordinal);
+        Assert.Contains("\"$$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
+        Assert.Contains("\"$$TAILSCALE_TAGS\"", script, StringComparison.Ordinal);
+        Assert.EndsWith("exec containerboot", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("$(", script, StringComparison.Ordinal);
 
         Assert.Contains("web", service.Mapping("depends_on").Children.Keys.Select(key => key.ToString()));
         Assert.Contains("TAILNET_OAUTH_CLIENT_SECRET", output.EnvFile, StringComparison.Ordinal);
