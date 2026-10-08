@@ -299,6 +299,18 @@ public abstract class TailscaleStartScriptScenarios
     }
 
     [Fact]
+    public async Task RegisteredNodeWithCrLfPrefsAndTheSameTagsStarts()
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var prefs = TailscaleState.Prefs(["tag:apps"]).Replace("\n", "\r\n", StringComparison.Ordinal);
+        await workspace.WriteStateAsync(TailscaleState.Create("profile-5f3a", prefs));
+
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(ContainerbootExitCode, result.ExitCode);
+    }
+
+    [Fact]
     public async Task PinnedImageStateWithTheRegisteredTagsStarts()
     {
         using var workspace = new ScriptWorkspace(CreateRunner());

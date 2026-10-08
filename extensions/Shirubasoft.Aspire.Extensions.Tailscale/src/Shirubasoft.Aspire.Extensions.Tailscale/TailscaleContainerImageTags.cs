@@ -118,6 +118,8 @@ internal static class TailscaleSidecarDefaults
                 function scalar(value) {
                   return json_string(value) || value ~ /^(null|true|false|\[\]|\{\}|-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)$/
                 }
+                # Normalise CRLF outside strings; indentation and string contents remain intact.
+                { sub(/\r$/, "") }
                 NR == 1 {
                   if ($0 != "{") fail()
                   depth = 1; kind[depth] = "object"; node[depth] = ++serial
