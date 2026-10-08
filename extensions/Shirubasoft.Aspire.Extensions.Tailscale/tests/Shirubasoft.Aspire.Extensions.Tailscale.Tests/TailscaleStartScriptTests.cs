@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace Aspire.Hosting.Tests;
@@ -298,6 +299,108 @@ public abstract class TailscaleStartScriptScenarios
         Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("advertisetags")]
+    [InlineData("ADVERTISETAGS")]
+    [InlineData("advertiseTags")]
+    public async Task CaseVariantAdvertiseTagsRefusesToStart(string key)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var prefs = TailscaleState.Prefs(["tag:apps"]);
+        prefs = prefs[..^2] + ",\n\t\"" + key + "\": [\n\t\t\"tag:web\"\n\t]\n}";
+        await workspace.WriteStateAsync(TailscaleState.Create("profile-5f3a", prefs));
+
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Prefs", "Unknown", false)]
+    [InlineData("Prefs", "routeall", false)]
+    [InlineData("Prefs", "routeall", true)]
+    [InlineData("AutoUpdate", "Unknown", false)]
+    [InlineData("AutoUpdate", "check", false)]
+    [InlineData("AutoUpdate", "check", true)]
+    [InlineData("AppConnector", "Unknown", false)]
+    [InlineData("AppConnector", "advertise", false)]
+    [InlineData("AppConnector", "advertise", true)]
+    [InlineData("Config", "Unknown", false)]
+    [InlineData("Config", "nodeid", false)]
+    [InlineData("Config", "nodeid", true)]
+    [InlineData("UserProfile", "Unknown", false)]
+    [InlineData("UserProfile", "loginname", false)]
+    [InlineData("UserProfile", "loginname", true)]
+    [InlineData("AttestationKey", "Unknown", false)]
+    [InlineData("AttestationKey", "TpmPrivate", false)]
+    [InlineData("AttestationKey", "TpmPrivate", true)]
+    [InlineData("DriveShare", "Unknown", false)]
+    [InlineData("DriveShare", "Name", false)]
+    [InlineData("DriveShare", "Name", true)]
+    public async Task NoncanonicalPrefsKeyRefusesToStart(string scope, string key, bool duplicate)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var prefs = JsonNode.Parse(TailscaleState.Prefs(["tag:apps"]))!.AsObject();
+        prefs["AutoUpdate"] = new JsonObject { ["Check"] = true, ["Apply"] = null };
+        prefs["AppConnector"] = new JsonObject { ["Advertise"] = false };
+        prefs["Config"]!["NodeID"] = "nTESTNODE";
+        prefs["Config"]!["AttestationKey"] = new JsonObject { ["tpmPrivate"] = "", ["tpmPublic"] = "" };
+        prefs["DriveShares"] = new JsonArray(new JsonObject { ["name"] = "fixture-share" });
+        var target = scope switch
+        {
+            "Prefs" => prefs,
+            "AutoUpdate" => prefs["AutoUpdate"]!.AsObject(),
+            "AppConnector" => prefs["AppConnector"]!.AsObject(),
+            "Config" => prefs["Config"]!.AsObject(),
+            "UserProfile" => prefs["Config"]!["UserProfile"]!.AsObject(),
+            "AttestationKey" => prefs["Config"]!["AttestationKey"]!.AsObject(),
+            "DriveShare" => prefs["DriveShares"]![0]!.AsObject(),
+            _ => throw new ArgumentOutOfRangeException(nameof(scope)),
+        };
+        var canonical = target.FirstOrDefault(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (canonical.Key is not null && !duplicate)
+        {
+            target.Remove(canonical.Key);
+        }
+
+        target[key] = canonical.Value?.DeepClone() ?? JsonValue.Create(true);
+        await workspace.WriteStateAsync(TailscaleState.Create("profile-5f3a", prefs.ToJsonString(
+            new JsonSerializerOptions { WriteIndented = true, IndentCharacter = '\t', IndentSize = 1 })));
+
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("unknown-key")]
+    [InlineData("case-current-profile")]
+    [InlineData("duplicate-current-profile")]
+    [InlineData("duplicate-machine-key")]
+    [InlineData("case-profile-key")]
+    public async Task NoncanonicalStoreKeyRefusesToStart(string corruption)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var state = TailscaleState.Create("profile-5f3a", TailscaleState.Prefs(["tag:apps"]));
+        state = corruption switch
+        {
+            "unknown-key" => state.Replace("{\n", "{\n  \"unknown\": \"\",\n", StringComparison.Ordinal),
+            "case-current-profile" => state.Replace("_current-profile", "_CURRENT-PROFILE", StringComparison.Ordinal),
+            "duplicate-current-profile" => state.Replace("{\n", "{\n  \"_CURRENT-PROFILE\": \"\",\n", StringComparison.Ordinal),
+            "duplicate-machine-key" => state.Replace("{\n", "{\n  \"_MACHINEKEY\": \"\",\n", StringComparison.Ordinal),
+            "case-profile-key" => state.Replace("{\n", "{\n  \"PROFILE-5F3A\": \"\",\n", StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(corruption)),
+        };
+        await workspace.WriteStateTextAsync(state);
+
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("state format", result.StandardError, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task RegisteredNodeWithCrLfPrefsAndTheSameTagsStarts()
     {
@@ -337,7 +440,7 @@ public abstract class TailscaleStartScriptScenarios
     public async Task PinnedImageStateWithASecondProfileUsesTheCurrentOne()
     {
         using var workspace = new ScriptWorkspace(CreateRunner());
-        await workspace.WriteStateTextAsync(TailscaleState.PinnedImageFixtureWithSecondProfile("profile-d4e5", ["tag:web"]));
+        await workspace.WriteStateTextAsync(TailscaleState.PinnedImageMultiProfileFixture());
 
         var starts = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
         var refuses = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
@@ -372,12 +475,20 @@ public sealed class TailscaleStartScriptBusyBoxTests : TailscaleStartScriptScena
 
 public sealed class TailscaleStateFixtureTests
 {
+    [Fact]
+    public void StateKeyAllowlistMatchesTheImageTag()
+    {
+        Assert.Contains("# State schema: " + TailscaleContainerImageTags.Tag + "\n",
+            TailscaleSidecarDefaults.StartScript, StringComparison.Ordinal);
+    }
+
     // An image bump must refresh the captured state fixture.
     [Fact]
     public void PinnedImageStateFixtureMatchesTheImageTag()
     {
         Assert.Equal(TailscaleContainerImageTags.Tag, TailscaleState.FixtureImageTag);
         Assert.True(File.Exists(TailscaleState.FixturePath), TailscaleState.FixturePath);
+        Assert.True(File.Exists(TailscaleState.MultiProfileFixturePath), TailscaleState.MultiProfileFixturePath);
     }
 
     [Fact]
@@ -419,6 +530,13 @@ internal static class TailscaleState
         $"tailscaled.state.{FixtureImageTag}.json");
 
     public static string PinnedImageFixture() => File.ReadAllText(FixturePath);
+
+    public static string MultiProfileFixturePath { get; } = Path.Combine(
+        AppContext.BaseDirectory,
+        "Fixtures",
+        $"tailscaled.multi-profile.state.{FixtureImageTag}.json");
+
+    public static string PinnedImageMultiProfileFixture() => File.ReadAllText(MultiProfileFixturePath);
 
     public static string PinnedImageFixtureWithSecondProfile(string profileKey, string[] tags)
     {

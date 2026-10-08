@@ -38,9 +38,12 @@ internal static class TailscaleSidecarDefaults
     // before treating an absent or empty "_current-profile" as fresh registration. Empty files are corrupt. Prefs
     // use tab-indented JSON; validate their nesting, keys, values and tag grammar
     // before comparing the sets. Unrecognised serialization stops the sidecar.
+    // State and prefs key allowlists follow the pinned upstream types. The
+    // literal schema version below forces image updates to refresh this contract.
     // Only the pinned image's BusyBox tools are used, and validation takes one
     // snapshot of the store without scratch files or writes to the state volume.
     public const string StartScript = $$"""
+        # State schema: v1.102.5
         set -eu
         export LC_ALL=C
         printf '%s' "${{ServeConfigVariable}}" > "$TS_SERVE_CONFIG"
@@ -67,6 +70,12 @@ internal static class TailscaleSidecarDefaults
             encoded_store=$(printf '%s' "$encoded_store" | tr -d '\n')
             store=$(printf '%s' "$encoded_store" | base64 -d | awk '
               function fail() { bad = 1; exit 1 }
+              # ipn/store.go:24-86, ipn/serve.go:28-30, ipn/ipnlocal/profiles.go:494-503,
+              # and ipn/ipnlocal/local.go:839-884,8584-8588.
+              function state_key(key) {
+                return key ~ /^(_machinekey|_daemon|server-mode-start-key|_profiles|_current-profile|_taildrop-received|_debug_(magicsock|sockstats|syspolicy)_until)$/ ||
+                  key ~ /^(profile-[0-9a-f]+|_serve\057[0-9a-f]+|_current\057S-1-[0-9-]+|profile-[0-9a-f]+[|][|]_routeInfo)$/
+              }
               NR == 1 {
                 if ($0 == "{}") { closed = 1; next }
                 if ($0 != "{") fail()
@@ -81,9 +90,9 @@ internal static class TailscaleSidecarDefaults
                 }
                 if (count && !comma) fail()
                 # Octal slash keeps BusyBox awk from admitting backslashes into the key alphabet.
-                if ($0 !~ /^  "[A-Za-z0-9_\057-]+": "[A-Za-z0-9+\057=]*",?$/) fail()
+                if ($0 !~ /^  "[A-Za-z0-9_\057\174-]+": "[A-Za-z0-9+\057=]*",?$/) fail()
                 split($0, fields, "\"")
-                if (seen[fields[2]]++) fail()
+                if (!state_key(fields[2]) || seen[tolower(fields[2])]++) fail()
                 if (fields[4] !~ /^([A-Za-z0-9+\057]{4})*([A-Za-z0-9+\057][AQgw]==|[A-Za-z0-9+\057]{2}[AEIMQUYcgkosw048]=)?$/) fail()
                 comma = ($0 ~ /,$/)
                 lines[++count] = $0
@@ -112,6 +121,27 @@ internal static class TailscaleSidecarDefaults
               decode "$encoded" "profile '$profile'"
               registered=$(printf '%s' "$decoded" | awk '
                 function fail() { bad = 1; exit 1 }
+                function allow_keys(scope, keys, fields, n, i) {
+                  n = split(keys, fields, " ")
+                  for (i = 1; i <= n; i++) allowed[scope, fields[i]] = 1
+                }
+                BEGIN {
+                  # v1.102.5: ipn/prefs.go:59-349, types/persist/persist.go:21-36,
+                  # tailcfg/tailcfg.go:289-302, drive/remote.go:29-49,
+                  # and feature/tpm/attestation.go:144-147. Use JSON names, including Config and who.
+                  allow_keys("Prefs", "ControlURL RouteAll ExitNodeID ExitNodeIP AutoExitNode InternalExitNodePrior ExitNodeAllowLANAccess CorpDNS RunSSH RunWebClient WantRunning LoggedOut ShieldsUp AdvertiseTags Hostname NotepadURLs ForceDaemon Egg AdvertiseRoutes AdvertiseServices Sync NoSNAT NoStatefulFiltering NetfilterMode OperatorUser ProfileName AutoUpdate AppConnector PostureChecking NetfilterKind RemoteConfig DriveShares RelayServerPort RelayServerStaticEndpoints Config")
+                  allow_keys("AutoUpdate", "Check Apply")
+                  allow_keys("AppConnector", "Advertise")
+                  allow_keys("Config", "PrivateNodeKey OldPrivateNodeKey UserProfile NetworkLockKey NodeID AttestationKey DisallowedTKAStateIDs")
+                  allow_keys("UserProfile", "ID LoginName DisplayName ProfilePicURL Groups")
+                  allow_keys("AttestationKey", "tpmPrivate tpmPublic")
+                  allow_keys("DriveShare", "name path who bookmarkData")
+                  objects["Prefs", "AutoUpdate"] = "AutoUpdate"
+                  objects["Prefs", "AppConnector"] = "AppConnector"
+                  objects["Prefs", "Config"] = "Config"
+                  objects["Config", "UserProfile"] = "UserProfile"
+                  objects["Config", "AttestationKey"] = "AttestationKey"
+                }
                 function json_string(value) {
                   return value ~ /^"([^"\\[:cntrl:]]|\\(["\\\057bfnrt]|u[0-9a-fA-F]{4}))*"$/
                 }
@@ -122,7 +152,7 @@ internal static class TailscaleSidecarDefaults
                 { sub(/\r$/, "") }
                 NR == 1 {
                   if ($0 != "{") fail()
-                  depth = 1; kind[depth] = "object"; node[depth] = ++serial
+                  depth = 1; kind[depth] = "object"; scope[depth] = "Prefs"; node[depth] = ++serial
                   next
                 }
                 {
@@ -146,7 +176,7 @@ internal static class TailscaleSidecarDefaults
                     if (line !~ /^"[A-Za-z0-9_\057-]+": /) fail()
                     split(line, fields, "\"")
                     key = fields[2]
-                    if (seen[node[depth], key]++) fail()
+                    if (!allowed[scope[depth], key] || seen[node[depth], tolower(key)]++) fail()
                     line = substr(line, length(key) + 5)
                   }
                   count[depth]++
@@ -166,8 +196,14 @@ internal static class TailscaleSidecarDefaults
                   }
                   if (line == "{" || line == "[") {
                     if (comma) fail()
+                    child_scope = ""
+                    if (line == "{") {
+                      child_scope = (kind[depth] == "array" && scope[depth] == "DriveShares" ? "DriveShare" : objects[scope[depth], key])
+                      if (!child_scope) fail()
+                    } else if (scope[depth] == "Prefs" && key == "DriveShares") child_scope = "DriveShares"
                     depth++
                     kind[depth] = (line == "{" ? "object" : "array")
+                    scope[depth] = child_scope
                     node[depth] = ++serial; count[depth] = 0; after[depth] = 0
                     tags[depth] = is_tags
                   } else if (!scalar(line)) fail()
