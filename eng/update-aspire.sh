@@ -81,6 +81,7 @@ for index in "${!apphosts[@]}"; do
   command_log="$logs_path/$index.log"
 
   printf 'Updating %s\n' "$relative_apphost"
+  update_exit_code=0
   (
     cd "$config_path"
     NO_COLOR=1 "$aspire" update \
@@ -89,7 +90,18 @@ for index in "${!apphosts[@]}"; do
       --yes \
       --non-interactive \
       --nologo
-  ) 2>&1 | tee "$command_log"
+  ) 2>&1 | tee "$command_log" || update_exit_code=$?
+
+  if [[ "$update_exit_code" -ne 0 ]]; then
+    # aspire update reports a failed restore without NuGet's diagnostics.
+    case "$apphost" in
+      *.csproj | *.cs)
+        printf 'Restoring %s to show the NuGet errors behind the failed update.\n' "$relative_apphost" >&2
+        dotnet restore "$apphost" || true
+        ;;
+    esac
+    exit "$update_exit_code"
+  fi
 
   {
     printf '\n<details>\n'
