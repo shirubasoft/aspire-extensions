@@ -43,15 +43,15 @@ public sealed class TailscaleComposePublishingTests
         Assert.Contains("web-ts-state", output.Root.Mapping("volumes").Children.Keys.Select(key => key.ToString()));
 
         Assert.Equal(["/bin/sh"], service.Sequence("entrypoint").Children.Select(node => node.ToString()));
-        var command = service.Sequence("command").Children.Select(node => node.ToString()).ToArray();
-        Assert.Equal("-c", command[0]);
-        var script = Assert.Single(command.Skip(1));
-        Assert.Contains("\"$$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
+        Assert.Equal(
+            ["-c", "eval \"$$TAILSCALE_START_SCRIPT\""],
+            service.Sequence("command").Children.Select(node => node.ToString()));
+        // Compose interpolates environment values, so every "$" in the script is
+        // doubled and reaches the shell as a single "$".
+        var script = environment.Scalar("TAILSCALE_START_SCRIPT");
+        Assert.Equal(TailscaleSidecarDefaults.StartScript.Replace("$", "$$", StringComparison.Ordinal), script);
         Assert.Contains("\"$$TS_STATE_DIR/tailscaled.state\"", script, StringComparison.Ordinal);
-        Assert.Contains("\"$$TAILSCALE_TAGS\"", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("> \"$$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
-        Assert.EndsWith("exec containerboot", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("$(", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("$", script.Replace("$$", "", StringComparison.Ordinal), StringComparison.Ordinal);
 
         Assert.Contains("web", service.Mapping("depends_on").Children.Keys.Select(key => key.ToString()));
         Assert.Contains("TAILNET_OAUTH_CLIENT_SECRET", output.EnvFile, StringComparison.Ordinal);

@@ -17,7 +17,14 @@ internal static class TailscaleSidecarDefaults
     public const string ServeConfigPath = "/etc/tailscale-serve.json";
     public const string ServeConfigVariable = "TAILSCALE_SERVE_CONFIG_JSON";
     public const string TagsVariable = "TAILSCALE_TAGS";
+    public const string StartScriptVariable = "TAILSCALE_START_SCRIPT";
     public const string Entrypoint = "/bin/sh";
+
+    // The script travels in an environment variable so that it can use every
+    // shell expansion: Docker Compose escapes only $NAME forms in shell
+    // arguments, but a doubled "$" in an environment value reaches the shell as
+    // one "$".
+    public const string EntrypointCommand = $"eval \"${StartScriptVariable}\"";
 
     // containerboot reads the serve configuration from a file and applies
     // --advertise-tags only while it registers the node, so a node that keeps its

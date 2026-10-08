@@ -97,7 +97,7 @@ public static class TailscaleResourceBuilderExtensions
             .WithReferenceRelationship(sidecar.Tailnet)
             .WaitFor(builder.CreateResourceBuilder((IResource)sidecar.Target))
             .WithEntrypoint(TailscaleSidecarDefaults.Entrypoint)
-            .WithArgs("-c", TailscaleSidecarDefaults.StartScript)
+            .WithArgs("-c", TailscaleSidecarDefaults.EntrypointCommand)
             .WithEnvironment("TS_HOSTNAME", sidecar.Hostname)
             .WithEnvironment("TS_AUTH_ONCE", "true")
             .WithEnvironment("TS_USERSPACE", "true")
@@ -105,6 +105,7 @@ public static class TailscaleResourceBuilderExtensions
             .WithEnvironment(TailscaleSidecarDefaults.TagsVariable, tags)
             .WithEnvironment("TS_SERVE_CONFIG", TailscaleSidecarDefaults.ServeConfigPath)
             .WithEnvironment("TS_AUTHKEY", GetAuthKey(sidecar.Tailnet.OAuthClientSecret, isRunMode))
+            .WithEnvironment(ConfigureStartScript)
             .WithEnvironment(context => ConfigureServeAsync(context, sidecar));
 
         if (!isRunMode)
@@ -124,6 +125,17 @@ public static class TailscaleResourceBuilderExtensions
         var ephemeral = isRunMode ? "true" : "false";
         return ReferenceExpression.Create($"{secret}?ephemeral={ephemeral}&preauthorized=true");
     }
+
+    private static void ConfigureStartScript(EnvironmentCallbackContext context) =>
+        context.EnvironmentVariables[TailscaleSidecarDefaults.StartScriptVariable] =
+            context.ExecutionContext.IsPublishMode
+                ? EscapeForCompose(TailscaleSidecarDefaults.StartScript)
+                : TailscaleSidecarDefaults.StartScript;
+
+    // Docker Compose interpolates "${...}" in environment values and reads "$$"
+    // as a literal "$".
+    private static string EscapeForCompose(string value) =>
+        value.Replace("$", "$$", StringComparison.Ordinal);
 
     private static async Task ConfigureServeAsync(
         EnvironmentCallbackContext context,

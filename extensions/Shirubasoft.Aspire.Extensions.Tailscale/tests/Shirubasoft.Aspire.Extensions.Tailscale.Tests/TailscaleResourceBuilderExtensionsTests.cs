@@ -247,14 +247,15 @@ public sealed class TailscaleResourceBuilderExtensionsTests
             environment["TAILSCALE_SERVE_CONFIG_JSON"]);
         Assert.Contains("\"${TS_CERT_DOMAIN}:443\"", environment["TAILSCALE_SERVE_CONFIG_JSON"], StringComparison.Ordinal);
 
-        Assert.Equal("-c", arguments[0]);
-        var script = Assert.Single(arguments.Skip(1));
+        // The script travels in an environment variable and the entrypoint evaluates
+        // it, so the script itself is free to use every shell expansion.
+        Assert.Equal(["-c", "eval \"$TAILSCALE_START_SCRIPT\""], arguments);
+        var script = environment["TAILSCALE_START_SCRIPT"];
+        Assert.Equal(TailscaleSidecarDefaults.StartScript, script);
         Assert.Contains("\"$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
         Assert.Contains("\"$TS_SERVE_CONFIG\"", script, StringComparison.Ordinal);
         Assert.Contains("\"$TS_STATE_DIR/tailscaled.state\"", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("> \"$TS_STATE_DIR/aspire-tags\"", script, StringComparison.Ordinal);
         Assert.EndsWith("exec containerboot", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("$(", script, StringComparison.Ordinal);
     }
 
     [Fact]
