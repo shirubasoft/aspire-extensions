@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Microsoft.Extensions.DependencyInjection;
@@ -158,13 +159,36 @@ public static class CloudflareTunnelResourceBuilderExtensions
     /// <param name="builder">The target resource builder.</param>
     /// <param name="tunnel">The Cloudflare Tunnel resource builder.</param>
     /// <param name="hostname">The public hostname.</param>
+    /// <param name="endpointName">The endpoint name.</param>
+    /// <returns>The target resource builder.</returns>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static IResourceBuilder<T> WithCloudflareTunnel<T>(
+        this IResourceBuilder<T> builder,
+        IResourceBuilder<CloudflareTunnelResource> tunnel,
+        string hostname,
+        string endpointName)
+        where T : IResourceWithEndpoints =>
+        WithCloudflareTunnel(builder, tunnel, hostname, endpointName, routeName: null);
+
+    /// <summary>
+    /// Publishes a resource endpoint through a named Cloudflare Tunnel.
+    /// </summary>
+    /// <typeparam name="T">The target resource type.</typeparam>
+    /// <param name="builder">The target resource builder.</param>
+    /// <param name="tunnel">The Cloudflare Tunnel resource builder.</param>
+    /// <param name="hostname">The public hostname.</param>
     /// <param name="endpointName">The endpoint name. The default is <c>http</c>.</param>
+    /// <param name="routeName">
+    /// The route resource name. The default is <c>{tunnel}-route-{hostname}</c>,
+    /// with dots and colons in the hostname replaced by hyphens.
+    /// </param>
     /// <returns>The target resource builder.</returns>
     public static IResourceBuilder<T> WithCloudflareTunnel<T>(
         this IResourceBuilder<T> builder,
         IResourceBuilder<CloudflareTunnelResource> tunnel,
         string hostname,
-        string endpointName = "http")
+        string endpointName = "http",
+        [ResourceName] string? routeName = null)
         where T : IResourceWithEndpoints
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -181,6 +205,7 @@ public static class CloudflareTunnelResourceBuilderExtensions
         AddPublishedRoute(
             builder.ApplicationBuilder,
             tunnel,
+            routeName ?? $"{tunnel.Resource.Name}-route-{MakeResourceName(hostname)}",
             builder.Resource,
             hostname,
             endpoint);
@@ -317,13 +342,13 @@ public static class CloudflareTunnelResourceBuilderExtensions
     private static void AddPublishedRoute(
         IDistributedApplicationBuilder builder,
         IResourceBuilder<CloudflareTunnelResource> tunnel,
+        string name,
         IResource target,
         string hostname,
         EndpointReference endpoint)
     {
-        var routeName = $"{tunnel.Resource.Name}-route-{MakeResourceName(hostname)}";
         var route = new PublishedRouteResource(
-            routeName,
+            name,
             hostname,
             endpoint,
             target,

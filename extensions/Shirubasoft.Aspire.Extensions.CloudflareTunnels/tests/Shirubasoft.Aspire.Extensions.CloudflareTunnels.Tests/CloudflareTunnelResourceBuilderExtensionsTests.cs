@@ -116,6 +116,42 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
             annotation => annotation is ResourceUrlsCallbackAnnotation);
     }
 
+    [Fact]
+    public void WithCloudflareTunnelUsesTheRouteName()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tunnel = builder.AddCloudflareTunnel("my-application-public-tunnel");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80);
+
+        web.WithCloudflareTunnel(
+            tunnel,
+            "my-application.staging.example.com",
+            routeName: "web-route");
+
+        var route = Assert.Single(builder.Resources.OfType<PublishedRouteResource>());
+        Assert.Equal("web-route", route.Name);
+        Assert.Equal("my-application.staging.example.com", route.Hostname);
+    }
+
+    [Fact]
+    public void WithCloudflareTunnelPublishesTheNamedEndpoint()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tunnel = builder.AddCloudflareTunnel("public");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80)
+            .WithHttpEndpoint(targetPort: 81, name: "admin");
+
+        web.WithCloudflareTunnel(tunnel, "admin.example.com", "admin");
+
+        var route = Assert.Single(builder.Resources.OfType<PublishedRouteResource>());
+        Assert.Equal("public-route-admin-example-com", route.Name);
+        Assert.Equal("admin", route.TargetEndpoint.EndpointName);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
@@ -130,6 +166,8 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
         Assert.Throws<ArgumentException>(() => builder.AddCloudflareTunnel(value));
         Assert.Throws<ArgumentException>(() => builder.AddCloudflareQuickTunnel(value));
         Assert.Throws<ArgumentException>(() => web.WithCloudflareTunnel(tunnel, value));
+        Assert.Throws<ArgumentException>(
+            () => web.WithCloudflareTunnel(tunnel, "app.example.com", routeName: value));
     }
 
     [Fact]
