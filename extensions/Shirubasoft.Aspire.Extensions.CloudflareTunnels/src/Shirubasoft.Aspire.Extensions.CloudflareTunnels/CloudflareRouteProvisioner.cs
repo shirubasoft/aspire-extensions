@@ -25,6 +25,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         CloudflareTunnelResource tunnel,
         IReadOnlyList<PublishedRouteResource> routes,
         DistributedApplicationExecutionContext executionContext,
+        Func<PublishedRouteResource, string, CancellationToken, Task> reportWarning,
         ILogger logger,
         CancellationToken cancellationToken) =>
         ConfigureRoutesForPipelineAsync(
@@ -34,6 +35,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
                 tunnel,
                 route,
                 executionContext,
+                reportWarning,
                 token),
             logger,
             cancellationToken);
@@ -241,6 +243,7 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
         CloudflareTunnelResource tunnel,
         PublishedRouteResource route,
         DistributedApplicationExecutionContext executionContext,
+        Func<PublishedRouteResource, string, CancellationToken, Task> reportWarning,
         CancellationToken cancellationToken)
     {
         var deploymentTarget = route.TargetResource.GetDeploymentTargetAnnotation();
@@ -250,43 +253,64 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
 
         var expression = GetServiceUrlExpression(computeEnvironment, route);
 
-        var serviceUrl = await expression.GetValueAsync(
-            new ValueProviderContext
-            {
-                Caller = tunnel,
-                ExecutionContext = executionContext,
-            },
+        var serviceUrl = RequireServiceUrl(
+            await expression.Url.GetValueAsync(
+                new ValueProviderContext
+                {
+                    Caller = tunnel,
+                    ExecutionContext = executionContext,
+                },
+                cancellationToken).ConfigureAwait(false),
+            route);
+
+        await ReportUnknownTargetPortAsync(
+            expression,
+            route,
+            serviceUrl,
+            reportWarning,
             cancellationToken).ConfigureAwait(false);
 
-        return RequireServiceUrl(serviceUrl, route);
+        return serviceUrl;
     }
 
+    internal static Task ReportUnknownTargetPortAsync(
+        ServiceUrlExpression expression,
+        PublishedRouteResource route,
+        string serviceUrl,
+        Func<PublishedRouteResource, string, CancellationToken, Task> reportWarning,
+        CancellationToken cancellationToken) =>
+        expression.HasUnknownTargetPort
+            ? reportWarning(
+                route,
+                "Docker Compose assigns the container port of endpoint " +
+                $"'{route.TargetEndpoint.EndpointName}' on resource " +
+                $"'{route.TargetResource.Name}', and the route step cannot discover it. " +
+                $"{route.Hostname} routes to {serviceUrl} instead. Set the endpoint's " +
+                "target port if the service listens on another port.",
+                cancellationToken)
+            : Task.CompletedTask;
+
 #pragma warning disable ASPIRECOMPUTE002
-    internal static ReferenceExpression GetServiceUrlExpression(
+    internal static ServiceUrlExpression GetServiceUrlExpression(
         IComputeEnvironmentResource computeEnvironment,
         PublishedRouteResource route) =>
         computeEnvironment is DockerComposeEnvironmentResource
             ? GetComposeServiceUrlExpression(computeEnvironment, route)
-            : computeEnvironment.GetEndpointPropertyExpression(
-                route.TargetEndpoint.Property(EndpointProperty.Url));
+            : new(GetDefaultServiceUrlExpression(computeEnvironment, route));
+
+    private static ReferenceExpression GetDefaultServiceUrlExpression(
+        IComputeEnvironmentResource computeEnvironment,
+        PublishedRouteResource route) =>
+        computeEnvironment.GetEndpointPropertyExpression(
+            route.TargetEndpoint.Property(EndpointProperty.Url));
 
     // Docker Compose inherits the default endpoint expression, which assumes an
     // ingress on port 80 or 443. Inside the Compose network, cloudflared reaches
-    // the service on the container port instead.
-    private static ReferenceExpression GetComposeServiceUrlExpression(
+    // the service on the container port that Compose resolves with the same API.
+    // A port that Compose allocates depends on resource order, so the route keeps
+    // the default expression for it.
+    private static ServiceUrlExpression GetComposeServiceUrlExpression(
         IComputeEnvironmentResource computeEnvironment,
-        PublishedRouteResource route)
-    {
-        var host = computeEnvironment.GetHostAddressExpression(route.TargetEndpoint);
-        var port = GetComposeTargetPortExpression(route);
-
-        return ReferenceExpression.Create(
-            $"{route.TargetEndpoint.Scheme}://{host}:{port}");
-    }
-#pragma warning restore ASPIRECOMPUTE002
-
-    // Docker Compose resolves container ports with the same API.
-    internal static ReferenceExpression GetComposeTargetPortExpression(
         PublishedRouteResource route)
     {
         var targetPort = route.TargetResource
@@ -298,14 +322,22 @@ internal sealed class CloudflareRouteProvisioner(ICloudflareApiClientFactory cli
 
         if (targetPort.IsAllocated)
         {
-            throw new InvalidOperationException(
-                $"Endpoint '{route.TargetEndpoint.EndpointName}' for resource " +
-                $"'{route.TargetResource.Name}' has no target port. Set its target " +
-                "port so the Cloudflare route can reach it.");
+            return new(
+                GetDefaultServiceUrlExpression(computeEnvironment, route),
+                HasUnknownTargetPort: true);
         }
 
-        return targetPort.Value is { } port
-            ? ReferenceExpression.Create($"{port.ToString(CultureInfo.InvariantCulture)}")
+        var host = computeEnvironment.GetHostAddressExpression(route.TargetEndpoint);
+        var port = targetPort.Value is { } value
+            ? ReferenceExpression.Create($"{value.ToString(CultureInfo.InvariantCulture)}")
             : ReferenceExpression.Create($"{new ContainerPortReference(route.TargetResource)}");
+
+        return new(ReferenceExpression.Create(
+            $"{route.TargetEndpoint.Scheme}://{host}:{port}"));
     }
+#pragma warning restore ASPIRECOMPUTE002
 }
+
+internal readonly record struct ServiceUrlExpression(
+    ReferenceExpression Url,
+    bool HasUnknownTargetPort = false);

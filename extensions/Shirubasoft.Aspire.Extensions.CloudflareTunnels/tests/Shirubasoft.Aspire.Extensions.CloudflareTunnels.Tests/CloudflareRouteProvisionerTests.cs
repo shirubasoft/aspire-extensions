@@ -1,4 +1,5 @@
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Docker;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -130,8 +131,12 @@ public sealed class CloudflareRouteProvisionerTests
             configuration.Ingress[0].Service);
     }
 
-    [Fact]
-    public async Task ComposeDeploymentRoutesToTheContainerTargetPort()
+    [Theory]
+    [InlineData(8080, "http://web:8080")]
+    [InlineData(null, "http://web")]
+    public async Task ComposeDeploymentRoutesToTheContainerTargetPort(
+        int? targetPort,
+        string expectedService)
     {
         var api = new TestCloudflareApiClient
         {
@@ -152,8 +157,7 @@ public sealed class CloudflareRouteProvisionerTests
             builder.AddDockerComposeEnvironment("env");
             var web = builder
                 .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
-                .WithArgs("--port", "8080")
-                .WithHttpEndpoint(targetPort: 8080, name: "http");
+                .WithHttpEndpoint(targetPort: targetPort, name: "http");
             var tunnel = builder.AddCloudflareTunnel("public");
             web.WithCloudflareTunnel(tunnel, "app.example.com");
             builder.Services.AddSingleton<ICloudflareApiClientFactory>(
@@ -168,7 +172,7 @@ public sealed class CloudflareRouteProvisionerTests
         }
 
         var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
-        Assert.Equal("http://web:8080", configuration.Ingress[0].Service);
+        Assert.Equal(expectedService, configuration.Ingress[0].Service);
     }
 
     [Fact]
@@ -183,53 +187,109 @@ public sealed class CloudflareRouteProvisionerTests
             new TestComputeEnvironmentResource("env"),
             route);
 
+        Assert.False(expression.HasUnknownTargetPort);
         Assert.Equal(
             "http://web.internal",
-            await expression.GetValueAsync(TestContext.Current.CancellationToken));
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task ComposeTargetPortFallsBackToTheContainerPort()
+    public async Task ComposeServiceUrlFallsBackToTheContainerPort()
     {
         var builder = DistributedApplication.CreateBuilder();
         var route = CreateRoute(builder
             .AddContainer("web", "nginx")
             .WithHttpEndpoint(port: 5000, name: "http"));
 
-        var port = CloudflareRouteProvisioner.GetComposeTargetPortExpression(route);
+        var expression = CloudflareRouteProvisioner.GetServiceUrlExpression(
+            new DockerComposeEnvironmentResource("env"),
+            route);
 
+        Assert.False(expression.HasUnknownTargetPort);
         Assert.Equal(
-            "5000",
-            await port.GetValueAsync(TestContext.Current.CancellationToken));
+            "http://web:5000",
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task ComposeTargetPortUsesTheDefaultProjectContainerPort()
+    public async Task ComposeServiceUrlUsesTheDefaultProjectContainerPort()
     {
         var builder = DistributedApplication.CreateBuilder();
         var route = CreateRoute(builder
             .AddResource(new ProjectResource("api"))
             .WithHttpEndpoint(name: "http"));
 
-        var port = CloudflareRouteProvisioner.GetComposeTargetPortExpression(route);
+        var expression = CloudflareRouteProvisioner.GetServiceUrlExpression(
+            new DockerComposeEnvironmentResource("env"),
+            route);
 
+        Assert.False(expression.HasUnknownTargetPort);
         Assert.Equal(
-            "8080",
-            await port.GetValueAsync(TestContext.Current.CancellationToken));
+            "http://api:8080",
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public void ComposeTargetPortRejectsAnAllocatedPort()
+    public async Task ComposeServiceUrlKeepsTheDefaultUrlForAnAllocatedPort()
     {
         var builder = DistributedApplication.CreateBuilder();
         var route = CreateRoute(builder
             .AddContainer("web", "nginx")
             .WithHttpEndpoint(name: "http"));
 
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            CloudflareRouteProvisioner.GetComposeTargetPortExpression(route));
+        var expression = CloudflareRouteProvisioner.GetServiceUrlExpression(
+            new DockerComposeEnvironmentResource("env"),
+            route);
 
-        Assert.Contains("'web'", exception.Message, StringComparison.Ordinal);
+        Assert.True(expression.HasUnknownTargetPort);
+        Assert.Equal(
+            "http://web",
+            await expression.Url.GetValueAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ReportUnknownTargetPortWarnsAboutTheRoute()
+    {
+        var (_, route) = CreateRoute();
+        var warnings = new List<(PublishedRouteResource Route, string Warning)>();
+
+        await CloudflareRouteProvisioner.ReportUnknownTargetPortAsync(
+            new(ReferenceExpression.Empty, HasUnknownTargetPort: true),
+            route,
+            "http://web",
+            (warnedRoute, warning, _) =>
+            {
+                warnings.Add((warnedRoute, warning));
+                return Task.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
+
+        var (warnedRoute, warning) = Assert.Single(warnings);
+        Assert.Same(route, warnedRoute);
+        Assert.Contains("'http'", warning, StringComparison.Ordinal);
+        Assert.Contains("'web'", warning, StringComparison.Ordinal);
+        Assert.Contains("app.example.com routes to http://web", warning, StringComparison.Ordinal);
+        Assert.Contains("target port", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReportUnknownTargetPortSkipsAKnownPort()
+    {
+        var (_, route) = CreateRoute();
+        var warned = false;
+
+        await CloudflareRouteProvisioner.ReportUnknownTargetPortAsync(
+            new(ReferenceExpression.Empty),
+            route,
+            "http://web:80",
+            (_, _, _) =>
+            {
+                warned = true;
+                return Task.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.False(warned);
     }
 
     [Fact]

@@ -71,4 +71,34 @@ public sealed class CloudflarePipelineStepsTests
         Assert.True(configured);
         Assert.Equal("app.example.com", summary);
     }
+
+    [Fact]
+    public async Task ReportWarningCompletesAWarningTaskForTheRoute()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var target = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint();
+        var route = new PublishedRouteResource(
+            "route",
+            "app.example.com",
+            target.GetEndpoint("http"),
+            target.Resource,
+            new CloudflareTunnelResource("public"));
+        var step = new RecordingReportingStep();
+
+        await CloudflarePipelineSteps.ReportWarningAsync(
+            step,
+            route,
+            "Set the endpoint's target port.",
+            TestContext.Current.CancellationToken);
+
+        var task = Assert.Single(step.Tasks);
+        Assert.Equal("Resolve the service URL for app.example.com", task.StatusText);
+        Assert.Equal("Set the endpoint's target port.", task.CompletionMessage);
+#pragma warning disable ASPIREPIPELINES001
+        Assert.Equal(Pipelines.CompletionState.CompletedWithWarning, task.CompletionState);
+#pragma warning restore ASPIREPIPELINES001
+        Assert.True(task.IsDisposed);
+    }
 }
