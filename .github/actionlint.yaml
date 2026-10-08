@@ -1,0 +1,7 @@
+# actionlint 1.7.12 predates GitHub's reusable workflow identity properties.
+# https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context
+paths:
+  .github/workflows/_extension-publish.yml:
+    ignore:
+      - 'property "workflow_sha" is not defined in object type'
+      - 'property "workflow_repository" is not defined in object type'

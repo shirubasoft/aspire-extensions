@@ -73,6 +73,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: main
 
       - name: Switch to the release commit after verifying it is on main
         shell: bash
@@ -89,6 +90,30 @@ jobs:
             exit 1
           fi
           git checkout --detach "$HEAD_SHA"
+
+      - name: Check out release tooling from this workflow's commit
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REPOSITORY" != "$REPOSITORY" ]]; then
+            echo "::error::Release tooling must come from $REPOSITORY, got '$WORKFLOW_REPOSITORY'."
+            exit 1
+          fi
+          if [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::workflow_sha must be a full commit SHA, got '$WORKFLOW_SHA'."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$WORKFLOW_SHA" refs/remotes/origin/main; then
+            echo "::error::Workflow commit $WORKFLOW_SHA is not on main. Refusing to run release tooling from it."
+            exit 1
+          fi
+          # Keep semantic-release's cwd and history at head_sha while loading co-located tooling.
+          git worktree add --detach "$RUNNER_TEMP/release-tooling" "$WORKFLOW_SHA"
+          echo "RELEASE_TOOLING_DIR=$RUNNER_TEMP/release-tooling" >> "$GITHUB_ENV"
 
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -109,7 +134,7 @@ jobs:
           node-version: 24
 
       - name: Install locked release tooling
-        run: npm ci --prefix .github/release
+        run: npm ci --prefix "$RELEASE_TOOLING_DIR/.github/release"
 
       - name: Bootstrap the package version baseline
         shell: bash
@@ -129,7 +154,7 @@ jobs:
           PACKAGE_ID: ${{ inputs.package_id }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
         run: >-
-          node .github/release/remove-incomplete-release-tag.mjs
+          node "$RELEASE_TOOLING_DIR/.github/release/remove-incomplete-release-tag.mjs"
           "$TAG_PREFIX" "$PACKAGE_ID" "$HEAD_SHA"
 
       - name: Version and publish
@@ -137,4 +162,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
           RELEASE_CONFIG: ${{ inputs.release_config }}
-        run: .github/release/node_modules/.bin/semantic-release --extends "$RELEASE_CONFIG"
+        run: >-
+          "$RELEASE_TOOLING_DIR/.github/release/node_modules/.bin/semantic-release"
+          --extends "$RELEASE_TOOLING_DIR/$RELEASE_CONFIG"
