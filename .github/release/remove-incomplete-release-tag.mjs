@@ -52,12 +52,34 @@ export async function readReleaseVersion(versionFile) {
   }
 }
 
+async function requireNoRelease({ tag, repository, request }) {
+  // The write-capable job token can see drafts in this list; lookup by tag cannot.
+  for (let page = 1; ; page += 1) {
+    const response = await request("GET", `/repos/${repository}/releases?per_page=100&page=${page}`);
+    expectStatus(response, 200, `Listing releases for ${tag}`);
+    if (!Array.isArray(response.body)) {
+      throw new Error(`Listing releases for ${tag} did not return an array. The tag stays.`);
+    }
+    const release = response.body.find((item) => item.tag_name === tag);
+    if (release) {
+      throw new Error(release.draft
+        ? `Release ${tag} has a draft; the tag stays. Publish or delete the draft manually, then rerun. `
+          + "Check its uploaded assets and NuGet packages before choosing recovery."
+        : `Release ${tag} is already published; the tag stays. Verify its assets and NuGet packages `
+          + "and recover any missing files manually before rerunning.");
+    }
+    if (response.body.length < 100) {
+      return;
+    }
+  }
+}
+
 /**
  * semantic-release pushes the release tag before it publishes the packages and the GitHub
  * release. When a later step fails, the tag stays behind and every following run treats it as a
  * completed release, so that version is never published. Removing the tag lets a rerun select
- * the same version again. Publishing stays idempotent because NuGet pushes skip duplicates and
- * the GitHub release is created only once.
+ * the same version again. NuGet pushes skip duplicates. Any matching GitHub release, including
+ * a draft left by an asset-upload failure, requires manual recovery before retrying.
  */
 export async function removeIncompleteReleaseTag({
   tag,
@@ -82,11 +104,7 @@ export async function removeIncompleteReleaseTag({
     };
   }
 
-  const release = await request("GET", `/repos/${repository}/releases/tags/${encodedTag}`);
-  if (release.status === 200) {
-    return { removed: false, reason: `Release ${tag} is already published, so the tag stays.` };
-  }
-  expectStatus(release, 404, `Reading release ${tag}`);
+  await requireNoRelease({ tag, repository, request });
 
   const deletion = await request("DELETE", `/repos/${repository}/git/refs/tags/${encodedTag}`);
   expectStatus(deletion, 204, `Deleting tag ${tag}`);
