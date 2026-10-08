@@ -1,8 +1,12 @@
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Pipelines;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Aspire.Hosting.Tests;
+
+#pragma warning disable ASPIREPIPELINES001
 
 public sealed class CloudflarePipelineStepsTests
 {
@@ -15,6 +19,109 @@ public sealed class CloudflarePipelineStepsTests
 
         Assert.Equal("configure-public-cloudflare-routes", step.Name);
         Assert.Equal([CloudflarePipelineSteps.Tag], step.Tags);
+    }
+
+    [Fact]
+    public async Task RouteStepDependsOnTheComposeDeployment()
+    {
+        string[] dependencies = [];
+        var pipeline = new ComposeDeploymentPipeline
+        {
+            Api = CreateApi(),
+            TunnelName = "public",
+            Hostname = "app.example.com",
+            Configure = builder => builder
+                .AddResource(new PipelineProbeResource("probe"))
+                .WithPipelineConfiguration(context => dependencies =
+                [
+                    .. context.Steps
+                        .Single(step => step.Name == "configure-public-cloudflare-routes")
+                        .DependsOnSteps,
+                ]),
+        };
+
+        await pipeline.RunAsync("publish");
+
+        Assert.Contains("docker-compose-up-env", dependencies);
+    }
+
+    [Fact]
+    public async Task RouteStepRunsAfterComposeUpSucceeds()
+    {
+        var api = CreateApi();
+        var dnsUpsertsDuringComposeUp = new List<int>();
+        var pipeline = new ComposeDeploymentPipeline
+        {
+            Api = api,
+            TunnelName = "public",
+            Hostname = "app.example.com",
+            ComposeUp = () =>
+            {
+                dnsUpsertsDuringComposeUp.Add(api.DnsUpserts.Count);
+                return Task.CompletedTask;
+            },
+        };
+
+        await pipeline.RunAsync(pipeline.RouteStepName);
+
+        Assert.Equal([0], dnsUpsertsDuringComposeUp);
+        Assert.Single(api.DnsUpserts);
+        Assert.NotNull(api.UpdatedConfiguration);
+    }
+
+    [Fact]
+    public async Task FailedComposeUpLeavesTunnelConfigurationAndDnsUntouched()
+    {
+        var api = CreateApi();
+        var composeUpCalls = 0;
+        var pipeline = new ComposeDeploymentPipeline
+        {
+            Api = api,
+            TunnelName = "public",
+            Hostname = "app.example.com",
+            ComposeUp = () =>
+            {
+                composeUpCalls++;
+                return Task.FromException(new InvalidOperationException("compose up failed"));
+            },
+        };
+
+        await pipeline.RunAsync("deploy");
+
+        Assert.Equal(1, composeUpCalls);
+        Assert.Equal(0, pipeline.ClientFactory.CallCount);
+        Assert.Empty(api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
+    }
+
+    [Fact]
+    public void DeploymentStepsIncludeComputeDeploymentsOfDeployedResources()
+    {
+        var environment = new TestComputeEnvironmentResource("aca");
+        var deploymentTarget = new PipelineProbeResource("web-app");
+        var web = new ContainerResource("web");
+        web.Annotations.Add(new DeploymentTargetAnnotation(deploymentTarget)
+        {
+            ComputeEnvironment = environment,
+        });
+        var deployWeb = CreateStep("deploy-web", deploymentTarget, WellKnownPipelineTags.DeployCompute);
+        var context = new PipelineConfigurationContext
+        {
+            Services = new ServiceCollection().BuildServiceProvider(),
+            Steps =
+            [
+                deployWeb,
+                CreateStep("provision-aca", environment, WellKnownPipelineTags.ProvisionInfrastructure),
+                CreateStep("build-web", web, WellKnownPipelineTags.BuildCompute),
+            ],
+            Model = new DistributedApplicationModel([environment, deploymentTarget, web]),
+        };
+
+        var steps = CloudflarePipelineSteps.GetDeploymentSteps(
+            context,
+            [web, new PipelineProbeResource("not-deployed")]);
+
+        Assert.Equal([deployWeb], steps);
     }
 
     [Fact]
@@ -96,9 +203,25 @@ public sealed class CloudflarePipelineStepsTests
         var task = Assert.Single(step.Tasks);
         Assert.Equal("Resolve the service URL for app.example.com", task.StatusText);
         Assert.Equal("Set the endpoint's target port.", task.CompletionMessage);
-#pragma warning disable ASPIREPIPELINES001
         Assert.Equal(Pipelines.CompletionState.CompletedWithWarning, task.CompletionState);
-#pragma warning restore ASPIREPIPELINES001
         Assert.True(task.IsDisposed);
     }
+
+    private static TestCloudflareApiClient CreateApi() =>
+        new()
+        {
+            ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
+        };
+
+    private static PipelineStep CreateStep(string name, IResource resource, string tag) =>
+        new()
+        {
+            Name = name,
+            Action = _ => Task.CompletedTask,
+            Tags = [tag],
+            Resource = resource,
+        };
+
+    private sealed class TestComputeEnvironmentResource(string name)
+        : Resource(name), IComputeEnvironmentResource;
 }

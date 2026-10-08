@@ -11,6 +11,14 @@ internal static class CloudflarePipelineSteps
 {
     internal const string Tag = "cloudflare";
 
+    // Docker Compose tags its compose-up step with this value. Other compute
+    // environments tag their deployment steps with WellKnownPipelineTags.DeployCompute.
+    private static readonly string[] DeploymentTags =
+    [
+        "docker-compose-up",
+        WellKnownPipelineTags.DeployCompute,
+    ];
+
     public static PipelineStep CreateConfigureRoutesStep(CloudflareTunnelResource tunnel) =>
         new()
         {
@@ -25,14 +33,42 @@ internal static class CloudflarePipelineSteps
     public static string GetConfigureRoutesStepName(CloudflareTunnelResource tunnel) =>
         $"configure-{tunnel.Name}-cloudflare-routes";
 
+    // Routes switch public traffic to the deployment, so the route step waits until
+    // the tunnel connector and every target have deployed. A failed deployment step
+    // stops the route step, and DNS and ingress keep serving the previous deployment.
+    public static void ConfigureDependencies(
+        PipelineConfigurationContext context,
+        CloudflareTunnelResource tunnel) =>
+        context
+            .GetSteps(tunnel, Tag)
+            .DependsOn(GetDeploymentSteps(
+                context,
+                [tunnel, .. GetRoutes(context.Model, tunnel).Select(route => route.TargetResource)]));
+
+    internal static IEnumerable<PipelineStep> GetDeploymentSteps(
+        PipelineConfigurationContext context,
+        IEnumerable<IResource> resources) =>
+        resources
+            .Select(resource => resource.GetDeploymentTargetAnnotation())
+            .OfType<DeploymentTargetAnnotation>()
+            .SelectMany(target => new IResource?[] { target.ComputeEnvironment, target.DeploymentTarget })
+            .OfType<IResource>()
+            .SelectMany(owner => DeploymentTags.SelectMany(tag => context.GetSteps(owner, tag)))
+            .Distinct();
+
+    internal static PublishedRouteResource[] GetRoutes(
+        DistributedApplicationModel model,
+        CloudflareTunnelResource tunnel) =>
+        model.Resources
+            .OfType<PublishedRouteResource>()
+            .Where(route => ReferenceEquals(route.Tunnel, tunnel))
+            .ToArray();
+
     private static Task ExecuteContextAsync(
         CloudflareTunnelResource tunnel,
         PipelineStepContext context)
     {
-        var routes = context.Model.Resources
-            .OfType<PublishedRouteResource>()
-            .Where(route => ReferenceEquals(route.Tunnel, tunnel))
-            .ToArray();
+        var routes = GetRoutes(context.Model, tunnel);
 
         return ExecuteAsync(
             tunnel,

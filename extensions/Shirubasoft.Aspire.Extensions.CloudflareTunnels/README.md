@@ -97,7 +97,9 @@ web.WithCloudflareTunnel(
 
 ## Deployment pipeline
 
-The named tunnel contributes a Cloudflare route step between Aspire's publish and deploy steps. Before deployment:
+The named tunnel contributes a Cloudflare route step to Aspire's deploy pipeline. The step runs after the compute environments that host the tunnel and its targets finish deploying, such as Docker Compose's `docker-compose-up-{environment}` step. If a deployment step fails, the route step does not run, and the existing DNS records and ingress rules stay unchanged.
+
+Before deployment:
 
 1. Create the named tunnel in Cloudflare.
 2. Supply `{name}-account-id` and `{name}-api-token`.

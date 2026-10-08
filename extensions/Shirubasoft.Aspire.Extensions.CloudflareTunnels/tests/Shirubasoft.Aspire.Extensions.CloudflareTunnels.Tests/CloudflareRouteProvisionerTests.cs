@@ -1,6 +1,5 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Docker;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -142,34 +141,16 @@ public sealed class CloudflareRouteProvisionerTests
         {
             ExistingTunnel = new("deployed-tunnel-id", "public", "healthy", null, null),
         };
-        var outputPath = Directory.CreateTempSubdirectory();
-        try
-        {
-            var builder = DistributedApplication.CreateBuilder(
-            [
-                "--operation", "publish",
-                "--step", "configure-public-cloudflare-routes",
-                "--output-path", outputPath.FullName,
-            ]);
-            builder.Configuration["Parameters:public-account-id"] = "account-id";
-            builder.Configuration["Parameters:public-api-token"] = "api-token";
-            builder.Configuration["Parameters:public-tunnel-token"] = "tunnel-token";
-            builder.AddDockerComposeEnvironment("env");
-            var web = builder
-                .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
-                .WithHttpEndpoint(targetPort: targetPort, name: "http");
-            var tunnel = builder.AddCloudflareTunnel("public");
-            web.WithCloudflareTunnel(tunnel, "app.example.com");
-            builder.Services.AddSingleton<ICloudflareApiClientFactory>(
-                new TestCloudflareApiClientFactory(api));
 
-            using var app = builder.Build();
-            await app.RunAsync(TestContext.Current.CancellationToken);
-        }
-        finally
+        var pipeline = new ComposeDeploymentPipeline
         {
-            outputPath.Delete(recursive: true);
-        }
+            Api = api,
+            TunnelName = "public",
+            Hostname = "app.example.com",
+            TargetPort = targetPort,
+        };
+
+        await pipeline.RunAsync(pipeline.RouteStepName);
 
         var configuration = Assert.IsType<TunnelConfiguration>(api.UpdatedConfiguration);
         Assert.Equal(expectedService, configuration.Ingress[0].Service);
