@@ -97,6 +97,8 @@ The named tunnel contributes a Cloudflare route step between Aspire's publish an
 
 The pipeline resolves each target's deployed endpoint, upserts its DNS record, and updates the tunnel ingress configuration. It fails when the tunnel, Cloudflare zone, deployment target, or deployed endpoint cannot be resolved.
 
+In a Docker Compose environment, `cloudflared` reaches each target on the Compose network, so the ingress rule uses the container port, such as `http://web:8080`. Give each published endpoint a fixed container port, for example `WithHttpEndpoint(targetPort: 8080)`. The pipeline fails when Compose would assign the port itself.
+
 ## Run the sample
 
 From this extension folder:
