@@ -19,8 +19,6 @@
   <ItemGroup>
     <PackageReference Include="ActionsToolkit.Core" />
     <PackageReference Include="CliWrap" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
   <ItemGroup>

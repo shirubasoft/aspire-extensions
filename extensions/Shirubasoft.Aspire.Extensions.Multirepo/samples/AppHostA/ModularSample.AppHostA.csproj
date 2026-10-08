@@ -2,6 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <UserSecretsId>aspire-multirepo-sample-a</UserSecretsId>
+    <AspireUseCliBundle Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(AspireHostingSDKVersion)', '13.5.0'))">true</AspireUseCliBundle>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../ModuleContract/ModularSample.ModuleContract.csproj" IsAspireProjectResource="false" />

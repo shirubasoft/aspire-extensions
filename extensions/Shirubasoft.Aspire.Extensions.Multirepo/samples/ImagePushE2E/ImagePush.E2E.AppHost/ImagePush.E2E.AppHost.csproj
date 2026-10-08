@@ -1,6 +1,7 @@
 <Project Sdk="Aspire.AppHost.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <AspireUseCliBundle Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(AspireHostingSDKVersion)', '13.5.0'))">true</AspireUseCliBundle>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.Docker" />

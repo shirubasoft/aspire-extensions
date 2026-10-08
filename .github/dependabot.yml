@@ -1,0 +1,43 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      # eng/update-aspire.sh updates the Aspire packages, AppHost SDK, and CLI together.
+      - dependency-name: Aspire.*
+      - dependency-name: aspire.*
+      # The Multirepo source generator must load in every .NET 10 SDK compiler.
+      - dependency-name: Microsoft.CodeAnalysis.CSharp
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      # These packages version with the .NET release that the repository targets.
+      - dependency-name: Microsoft.Extensions.*
+        update-types:
+          - version-update:semver-major
+      - dependency-name: Microsoft.SourceLink.*
+        update-types:
+          - version-update:semver-major
+    groups:
+      nuget:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"

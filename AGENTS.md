@@ -8,6 +8,8 @@ Reuse the root build entry points, CRAP score tool, release tooling, and reusabl
 
 Public packages target .NET 10 and the Aspire versions pinned in `Directory.Packages.props`. Pin the AppHost SDK in `global.json`. Enable nullable reference types, XML documentation, package validation, Source Link, symbols, and the public API analyzer.
 
+`eng/update-aspire.sh` updates the Aspire packages, AppHost SDK, and Aspire CLI. Dependabot updates every other dependency. Let Aspire packages supply their own dependencies, such as `Microsoft.Extensions.*` under `Aspire.Hosting`, instead of adding direct references. `aspire update` changes only Aspire versions, so a lower pin fails its restore.
+
 Never synchronously block on asynchronous work. Propagate `Task`, `ValueTask`, and cancellation tokens to callers.
 
 Backward compatibility is not a constraint before the first stable release. Mark later breaking changes with Conventional Commits syntax and a `BREAKING CHANGE:` footer.
