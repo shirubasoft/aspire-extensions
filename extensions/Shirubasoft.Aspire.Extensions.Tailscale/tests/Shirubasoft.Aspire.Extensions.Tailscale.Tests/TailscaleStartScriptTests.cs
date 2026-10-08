@@ -38,6 +38,11 @@ public abstract class TailscaleStartScriptScenarios
         var result = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
 
         Assert.Equal(ContainerbootExitCode, result.ExitCode);
+
+        // NewFileStore writes this exact initial store before it has any keys.
+        await workspace.WriteStateTextAsync("{}");
+        var emptyStore = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
+        Assert.Equal(ContainerbootExitCode, emptyStore.ExitCode);
     }
 
     [Fact]
@@ -119,13 +124,12 @@ public abstract class TailscaleStartScriptScenarios
         Assert.True(File.Exists(workspace.ServeConfigPath));
     }
 
-    // JSON encoders differ in whitespace. A profile that is present must be
-    // found in every layout, otherwise mismatched tags would start the node.
+    // Only the pinned image's MarshalIndent layout is accepted.
     [Theory]
     [InlineData("\"_current-profile\" : \"{0}\"")]
     [InlineData("\"_current-profile\":\t\"{0}\"")]
     [InlineData("\"_current-profile\":\"{0}\"")]
-    public async Task WhitespaceVariantsStillDetectTheProfile(string entryFormat)
+    public async Task NoncanonicalWhitespaceRefusesToStart(string entryFormat)
     {
         using var workspace = new ScriptWorkspace(CreateRunner());
         var entry = string.Format(null, entryFormat, TailscaleState.Base64("profile-5f3a"));
@@ -135,11 +139,11 @@ public abstract class TailscaleStartScriptScenarios
         var result = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("[tag:apps]", result.StandardError, StringComparison.Ordinal);
+        Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task CompactStateFileIsParsed()
+    public async Task CompactStateFileRefusesToStart()
     {
         using var workspace = new ScriptWorkspace(CreateRunner());
         await workspace.WriteStateTextAsync(
@@ -149,12 +153,12 @@ public abstract class TailscaleStartScriptScenarios
         var result = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("[tag:apps]", result.StandardError, StringComparison.Ordinal);
+        Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("\"_current-profile\": null", "_current-profile")]
-    [InlineData("\"_current-profile\": \"not*base64\"", "base64")]
+    [InlineData("\"_current-profile\": null", "state format")]
+    [InlineData("\"_current-profile\": \"not*base64\"", "state format")]
     [InlineData("\"_current-profile\": \"cHJvZmlsZS0uLi94\"", "is not a profile key")]
     [InlineData("\"_current-profile\": \"ZXZpbCI7IHJtIC1yZiAv\"", "is not a profile key")]
     public async Task UnreadableCurrentProfileRefusesToStart(string entry, string reason)
@@ -186,7 +190,7 @@ public abstract class TailscaleStartScriptScenarios
     }
 
     [Theory]
-    [InlineData("not*base64", "base64")]
+    [InlineData("not*base64", "state format")]
     [InlineData("bm90IGpzb24gYXQgYWxs", "prefs")]
     public async Task UnreadableProfileRefusesToStart(string encodedPrefs, string reason)
     {
@@ -214,6 +218,84 @@ public abstract class TailscaleStartScriptScenarios
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
         Assert.Contains("AdvertiseTags", result.StandardError, StringComparison.Ordinal);
+    }
+
+    // Every case runs under the host shell and the pinned image's BusyBox.
+    [Theory]
+    [InlineData("escaped-key")]
+    [InlineData("truncated")]
+    [InlineData("empty")]
+    [InlineData("whitespace-only")]
+    [InlineData("duplicate-key")]
+    [InlineData("unknown-structure")]
+    [InlineData("crlf")]
+    [InlineData("missing-comma")]
+    [InlineData("trailing-comma")]
+    [InlineData("trailing-content")]
+    [InlineData("unsafe-key")]
+    public async Task NoncanonicalStateRefusesToStart(string corruption)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var state = TailscaleState.Create("profile-5f3a", TailscaleState.Prefs(["tag:apps"]));
+        state = corruption switch
+        {
+            "escaped-key" => state.Replace("_current-profile", "\\u005fcurrent-profile", StringComparison.Ordinal),
+            "truncated" => "{\"_current-profile\": \"cHJv",
+            "empty" => "",
+            "whitespace-only" => " \t\n \n",
+            "duplicate-key" => state.Replace("{\n", "{\n  \"_current-profile\": \"\",\n", StringComparison.Ordinal),
+            "unknown-structure" => state.Replace("{\n", "{\n  \"extra\": {},\n", StringComparison.Ordinal),
+            "crlf" => state.Replace("\n", "\r\n", StringComparison.Ordinal),
+            "missing-comma" => state.Replace("\",\n", "\"\n", StringComparison.Ordinal),
+            "trailing-comma" => state.Replace("\"\n}", "\",\n}", StringComparison.Ordinal),
+            "trailing-content" => state + "[]\n",
+            "unsafe-key" => state.Replace("_machinekey", "unsafe.key", StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(corruption)),
+        };
+        await workspace.WriteStateTextAsync(state);
+
+        var result = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
+        Assert.Contains("state format", result.StandardError, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("escaped-key")]
+    [InlineData("truncated")]
+    [InlineData("duplicate-key")]
+    [InlineData("unknown-structure")]
+    [InlineData("compact")]
+    [InlineData("wrong-indent")]
+    [InlineData("invalid-tag")]
+    [InlineData("missing-comma")]
+    [InlineData("trailing-comma")]
+    [InlineData("trailing-content")]
+    public async Task NoncanonicalPrefsRefusesToStart(string corruption)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var prefs = TailscaleState.Prefs(["tag:apps"]);
+        prefs = corruption switch
+        {
+            "escaped-key" => prefs[..^2] + ",\n\t\"\\u0041dvertiseTags\": null\n}",
+            "truncated" => prefs[..^1],
+            "duplicate-key" => prefs.Replace("{\n", "{\n\t\"AdvertiseTags\": null,\n", StringComparison.Ordinal),
+            "unknown-structure" => prefs.Replace("\t\"RouteAll\": false,", "\t\"RouteAll\": false garbage,", StringComparison.Ordinal),
+            "compact" => prefs.Replace("\n", "", StringComparison.Ordinal).Replace("\t", "", StringComparison.Ordinal),
+            "wrong-indent" => prefs.Replace("\t", "  ", StringComparison.Ordinal),
+            "invalid-tag" => prefs.Replace("tag:apps", "tag:ap ps", StringComparison.Ordinal),
+            "missing-comma" => prefs.Replace("\",\n", "\"\n", StringComparison.Ordinal),
+            "trailing-comma" => prefs.Replace("\"tag:apps\"\n", "\"tag:apps\",\n", StringComparison.Ordinal),
+            "trailing-content" => prefs + "\n[]",
+            _ => throw new ArgumentOutOfRangeException(nameof(corruption)),
+        };
+        await workspace.WriteStateAsync(TailscaleState.Create("profile-5f3a", prefs));
+
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("could not read", result.StandardError, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -464,7 +546,7 @@ internal sealed class ScriptRunner
         return new((workspace, tags, withStateDirectory) =>
         {
             var startInfo = new ProcessStartInfo(runtime!);
-            foreach (var argument in new[] { "run", "--rm", "--volume", $"{workspace.RootDirectory}:/work:z" })
+            foreach (var argument in new[] { "run", "--rm", "--network", "none", "--volume", $"{workspace.RootDirectory}:/work:z" })
             {
                 startInfo.ArgumentList.Add(argument);
             }
