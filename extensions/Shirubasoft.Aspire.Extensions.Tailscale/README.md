@@ -31,7 +31,7 @@ await builder.Build().RunAsync();
 
 `AddTailnet` adds the secret parameter `{name}-oauth-client-secret` and defines the tags that nodes advertise. The default tag list is `tag:apps`.
 
-`WithTailscale` adds a sidecar container named `{resource}-ts` that joins the tailnet as `hostname` and serves the resource endpoint. Pass `endpointName` when the resource does not use `http`, and `tags` to advertise different tags than the tailnet default. Every tag must start with `tag:`. The hostname must be a lowercase DNS label of at most 59 characters.
+`WithTailscale` adds a sidecar container named `{resource}-ts` that joins the tailnet as `hostname` and serves the resource endpoint. Pass `endpointName` when the resource does not use `http`, and `tags` to advertise different tags than the tailnet default. A tag is `tag:` followed by a letter and then letters, digits, or hyphens, which is the grammar Tailscale accepts. The hostname must be a lowercase DNS label of at most 59 characters.
 
 The sidecar waits for the resource and appears under it in the Aspire dashboard.
 
@@ -54,12 +54,32 @@ A project resource runs on the host, so its sidecar proxies to the host address 
 - The image is `docker.io/tailscale/tailscale` pinned to one version.
 - `TS_AUTHKEY` is the OAuth client secret from the `.env` file with `?ephemeral=false&preauthorized=true`, so the node persists and needs no manual approval.
 - `TS_HOSTNAME` is the requested hostname without a suffix.
-- `TS_STATE_DIR` points to the named volume `{resource}-ts-state`, so the node identity survives container recreation.
+- `TS_STATE_DIR` points to the named volume `{resource}-ts-state`, so the node identity survives container recreation. Keep the volume to keep the identity.
+- `TAILSCALE_TAGS` lists the tags, and the sidecar records them on the state volume at `/var/lib/tailscale/aspire-tags` when it registers the node.
 - The serve configuration proxies HTTPS on port 443 to `http://{resource}:{target port}` on the Compose network. The sidecar writes it from an environment variable at start, so the generated Compose file needs no bind mounts and works with a remote `DOCKER_HOST`.
 - The serve configuration names the node certificate domain with the Tailscale placeholder `${TS_CERT_DOMAIN}`, written as `$${TS_CERT_DOMAIN}` so Compose passes it through unchanged.
 - The sidecar `depends_on` the resource service.
 
-The target port comes from the endpoint declaration. A container endpoint needs `targetPort`, or `port` when the container listens on the published port. A project resource uses the default container port `8080`. Publishing fails with an error that names the resource and endpoint when the endpoint has no fixed target port.
+The target port comes from the endpoint declaration. A container endpoint needs `targetPort`, or `port` when the container listens on the published port. A project resource uses the default container port `8080`. Publishing fails with an error that names the resource and endpoint when the endpoint has no fixed target port, and with an error that names the resource and compute environment when the resource publishes to anything other than Docker Compose.
+
+### Changing tags on a deployed node
+
+Tailscale assigns tags when it registers a node. A node that keeps its state keeps those tags, so a changed `tags` value does not reach the running node. The sidecar compares the requested tags with the recorded ones at start and refuses to start, with a message that names both tag sets, instead of running under the old identity.
+
+To change the tags of a deployed node:
+
+1. [Apply the new tags to the device](https://tailscale.com/docs/features/tags#apply-a-tag-to-a-device) in the Tailscale admin console or through the API.
+2. Set the new `tags` in the AppHost and publish again.
+3. Delete the recorded tags on the state volume, then start the sidecar:
+
+   ```bash
+   docker compose run --rm --entrypoint sh web-ts -c 'rm /var/lib/tailscale/aspire-tags'
+   docker compose up -d web-ts
+   ```
+
+### Removing a deployed node
+
+Deleting the state volume does not remove the node from the tailnet. The next deployment registers a new node, Tailscale appends a numeric suffix to its hostname, and the old node remains until it expires or is removed. Remove a node in the Tailscale admin console or through the API, then delete the state volume so the next deployment registers a fresh node. See [`TS_STATE_DIR`](https://tailscale.com/docs/features/containers/docker/docker-params#ts_state_dir) in the Tailscale documentation.
 
 ## Prerequisites
 
@@ -80,7 +100,7 @@ The target port comes from the endpoint declaration. A container endpoint needs 
 ## Caveats
 
 - The sidecar uses userspace networking (`TS_USERSPACE=true`), so it runs without `/dev/net/tun` or extra capabilities, including inside unprivileged LXC containers. Only the configured endpoint is reachable; the sidecar is not a subnet router or exit node.
-- A deployed node stays in the tailnet until it is removed from the admin console or its state volume is deleted. Run-mode nodes are ephemeral and disappear shortly after the container stops.
+- A deployed node stays in the tailnet until it is removed in the admin console or through the API. Run-mode nodes are ephemeral and disappear shortly after the container stops.
 - Tailscale certificates and MagicDNS names are issued per node. Two nodes cannot share a hostname; Tailscale appends a numeric suffix to the second one.
 - Publishing targets Docker Compose. Other Aspire compute environments are not supported.
 
