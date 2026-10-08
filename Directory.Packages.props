@@ -7,6 +7,8 @@
     <PackageVersion Include="Aspire.Hosting" Version="13.6.1" />
     <PackageVersion Include="Aspire.Hosting.Docker" Version="13.6.1" />
     <PackageVersion Include="Aspire.Hosting.Kafka" Version="13.6.1" />
+    <!-- Preview-only package, used by the CloudflareTunnels tests. eng/update-aspire.sh does not
+         move preview pins and Dependabot ignores Aspire.*: bump it by hand with each Aspire update. -->
     <PackageVersion Include="Aspire.Hosting.Kubernetes" Version="13.6.1-preview.1.26506.6" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.1" />
     <PackageVersion Include="CliWrap" Version="3.10.4" />
