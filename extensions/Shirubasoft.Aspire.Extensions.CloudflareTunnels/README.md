@@ -97,7 +97,33 @@ web.WithCloudflareTunnel(
 
 ## Deployment pipeline
 
-The named tunnel contributes a Cloudflare route step to Aspire's deploy pipeline. The step runs after the compute environments that host the tunnel and its targets finish deploying, such as Docker Compose's `docker-compose-up-{environment}` step. If a deployment step fails, the route step does not run, and the existing DNS records and ingress rules stay unchanged.
+The named tunnel contributes a Cloudflare route step to Aspire's deploy pipeline. The step runs after the tunnel and its targets finish deploying. If a deployment step fails, the route step does not run, and the existing DNS records and ingress rules stay unchanged.
+
+The route step waits for the deployment steps of the compute environments that host the tunnel and its targets:
+
+| Compute environment | Deployment step tag |
+| --- | --- |
+| Docker Compose | `docker-compose-up` |
+| Kubernetes | `helm-deploy` |
+| Azure Container Apps and Azure App Service | `deploy-compute` |
+
+A custom compute environment declares its deployment step by tagging it with `WellKnownPipelineTags.DeployCompute`. The step must belong to the environment or to the deployment target that the environment assigns to each resource. An AppHost declares the deployment step of an environment from another package by tagging that step in a pipeline configuration callback:
+
+```csharp
+#pragma warning disable ASPIREPIPELINES001
+builder.Pipeline.AddPipelineConfiguration(context =>
+{
+    foreach (var step in context.GetSteps(environment.Resource, "environment-deploy"))
+    {
+        step.Tags.Add(WellKnownPipelineTags.DeployCompute);
+    }
+
+    return Task.CompletedTask;
+});
+#pragma warning restore ASPIREPIPELINES001
+```
+
+If the tunnel or a target deploys to a compute environment without such a step, the route step fails before it contacts Cloudflare. Its error names the compute environment and the tags it looked for.
 
 Before deployment:
 

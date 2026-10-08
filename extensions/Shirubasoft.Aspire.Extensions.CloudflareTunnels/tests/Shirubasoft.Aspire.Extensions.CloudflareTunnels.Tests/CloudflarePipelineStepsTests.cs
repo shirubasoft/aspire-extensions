@@ -30,6 +30,53 @@ public sealed class CloudflarePipelineStepsTests
         Assert.Contains("docker-compose-up-env", pipeline.RouteStepDependencies);
     }
 
+    [Fact]
+    public async Task RouteStepDependsOnTheKubernetesDeployment()
+    {
+        var pipeline = new TunnelDeploymentPipeline
+        {
+            Api = CreateApi(),
+            AddEnvironment = builder => builder.AddKubernetesEnvironment("k8s"),
+        };
+
+        await pipeline.RunAsync("publish");
+
+        Assert.Null(pipeline.Failure);
+        Assert.Contains("helm-deploy-k8s", pipeline.RouteStepDependencies);
+    }
+
+    [Fact]
+    public async Task UnrecognizedDeploymentStepStopsTheRouteStepBeforeCloudflare()
+    {
+        var api = CreateApi();
+        var deployments = 0;
+        var pipeline = new TunnelDeploymentPipeline
+        {
+            Api = api,
+            AddEnvironment = builder => builder.AddTestComputeEnvironment(
+                "custom",
+                "custom-deploy",
+                deploy: () =>
+                {
+                    deployments++;
+                    return Task.CompletedTask;
+                }),
+        };
+
+        await pipeline.RunAsync("deploy");
+
+        Assert.Equal(1, deployments);
+        var failure = Assert.IsType<DistributedApplicationException>(pipeline.Failure);
+        Assert.Contains($"Step '{pipeline.RouteStepName}' failed", failure.Message);
+        Assert.Contains("compute environment 'custom' deploys 'public', 'web'", failure.Message);
+        Assert.Contains(
+            "tagged one of 'docker-compose-up', 'helm-deploy', 'deploy-compute'",
+            failure.Message);
+        Assert.Equal(0, pipeline.ClientFactory.CallCount);
+        Assert.Empty(api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
+    }
+
     // Running the route step by name, as `aspire do` does, also runs compose up.
     [Theory]
     [InlineData("deploy")]
@@ -134,6 +181,42 @@ public sealed class CloudflarePipelineStepsTests
 
         await pipeline.RunAsync("deploy");
 
+        Assert.Contains("deployment failed", pipeline.Failure?.Message);
+        Assert.Equal(0, pipeline.ClientFactory.CallCount);
+        Assert.Empty(api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
+    }
+
+    // An AppHost declares the deployment step of an environment from another package by
+    // tagging it before the tunnel's pipeline configuration runs.
+    [Fact]
+    public async Task RouteStepWaitsForADeploymentStepThatTheAppHostDeclares()
+    {
+        var api = CreateApi();
+        var pipeline = new TunnelDeploymentPipeline
+        {
+            Api = api,
+            AddEnvironment = builder =>
+            {
+                var environment = builder.AddTestComputeEnvironment(
+                    "custom",
+                    "custom-deploy",
+                    deploy: () => Task.FromException(new InvalidOperationException("deployment failed")));
+                builder.Pipeline.AddPipelineConfiguration(context =>
+                {
+                    foreach (var step in context.GetSteps(environment.Resource, "custom-deploy"))
+                    {
+                        step.Tags.Add(WellKnownPipelineTags.DeployCompute);
+                    }
+
+                    return Task.CompletedTask;
+                });
+            },
+        };
+
+        await pipeline.RunAsync("deploy");
+
+        Assert.Contains("deploy-custom", pipeline.RouteStepDependencies);
         Assert.Contains("deployment failed", pipeline.Failure?.Message);
         Assert.Equal(0, pipeline.ClientFactory.CallCount);
         Assert.Empty(api.DnsUpserts);
