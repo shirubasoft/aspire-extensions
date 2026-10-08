@@ -4,10 +4,10 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="ActionsToolkit.Core" Version="1.0.0" />
-    <PackageVersion Include="Aspire.Hosting" Version="13.5.3" />
-    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.5.3" />
-    <PackageVersion Include="Aspire.Hosting.Kafka" Version="13.5.3" />
-    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.5.3" />
+    <PackageVersion Include="Aspire.Hosting" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.Kafka" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.1" />
     <PackageVersion Include="CliWrap" Version="3.10.4" />
     <PackageVersion Include="Confluent.Kafka" Version="2.15.0" />
     <PackageVersion Include="coverlet.msbuild" Version="10.0.1" />
