@@ -1,0 +1,270 @@
+using Aspire.Hosting.ApplicationModel;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace Aspire.Hosting.Tests;
+
+public sealed class TailscaleResourceBuilderExtensionsTests
+{
+    [Fact]
+    public void AddTailnetCreatesASecretParameterWithDefaultTags()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var tailnet = builder.AddTailnet("tailnet");
+
+        Assert.Equal("tailnet", tailnet.Resource.Name);
+        Assert.Equal(["tag:apps"], tailnet.Resource.Tags);
+        var secret = Assert.Single(builder.Resources.OfType<ParameterResource>());
+        Assert.Same(secret, tailnet.Resource.OAuthClientSecret);
+        Assert.Equal("tailnet-oauth-client-secret", secret.Name);
+        Assert.True(secret.Secret);
+        Assert.Contains(
+            tailnet.Resource.Annotations,
+            annotation => ReferenceEquals(annotation, ManifestPublishingCallbackAnnotation.Ignore));
+    }
+
+    [Fact]
+    public void AddTailnetUsesTheProvidedTags()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var tailnet = builder.AddTailnet("tailnet", tags: ["tag:web", "tag:apps"]);
+
+        Assert.Equal(["tag:web", "tag:apps"], tailnet.Resource.Tags);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void AddTailnetRejectsBlankNames(string name)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        Assert.Throws<ArgumentException>(() => builder.AddTailnet(name));
+    }
+
+    [Theory]
+    [InlineData]
+    [InlineData("apps")]
+    [InlineData("tag:apps", "")]
+    public void AddTailnetRejectsTagsWithoutTheTagPrefix(params string[] tags)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var exception = Assert.Throws<ArgumentException>(() => builder.AddTailnet("tailnet", tags));
+
+        Assert.Contains("tag:", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WithTailscaleAddsASidecarNodeForTheResource()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80);
+
+        var result = web.WithTailscale(tailnet, hostname: "quadra-web");
+
+        Assert.Same(web, result);
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+        Assert.Equal("web-ts", sidecar.Name);
+        Assert.Same(tailnet.Resource, sidecar.Tailnet);
+        Assert.Same(web.Resource, sidecar.Target);
+        Assert.Equal("http", sidecar.TargetEndpoint.EndpointName);
+        Assert.Equal("quadra-web-dev", sidecar.Hostname);
+        Assert.Equal(["tag:apps"], sidecar.Tags);
+
+        var image = Assert.Single(sidecar.Annotations.OfType<ContainerImageAnnotation>());
+        Assert.Equal("docker.io", image.Registry);
+        Assert.Equal("tailscale/tailscale", image.Image);
+        Assert.Equal("v1.102.5", image.Tag);
+        Assert.Equal("/bin/sh", sidecar.Entrypoint);
+        Assert.Contains(
+            sidecar.Annotations.OfType<ResourceRelationshipAnnotation>(),
+            relationship => ReferenceEquals(relationship.Resource, web.Resource)
+                && relationship.Type == "Parent");
+        var wait = Assert.Single(sidecar.Annotations.OfType<WaitAnnotation>());
+        Assert.Same(web.Resource, wait.Resource);
+        Assert.Equal(WaitType.WaitUntilHealthy, wait.WaitType);
+        Assert.Empty(sidecar.Annotations.OfType<ContainerMountAnnotation>());
+    }
+
+    [Fact]
+    public void WithTailscaleUsesTheNamedEndpointAndOverridesTags()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80)
+            .WithHttpEndpoint(targetPort: 81, name: "admin");
+
+        web.WithTailscale(tailnet, "quadra-admin", endpointName: "admin", tags: ["tag:admin"]);
+
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+        Assert.Equal("admin", sidecar.TargetEndpoint.EndpointName);
+        Assert.Equal(["tag:admin"], sidecar.Tags);
+    }
+
+    [Fact]
+    public void WithTailscaleRejectsAMissingEndpoint()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => web.WithTailscale(tailnet, "quadra-admin", endpointName: "admin"));
+
+        Assert.Contains("'web'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'admin'", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(builder.Resources.OfType<TailscaleSidecarResource>());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("Quadra_Admin")]
+    [InlineData("-web")]
+    [InlineData("web-")]
+    [InlineData("web.example")]
+    [InlineData("a123456789b123456789c123456789d123456789e123456789f123456789")]
+    public void WithTailscaleRejectsInvalidHostnames(string hostname)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80);
+
+        Assert.Throws<ArgumentException>(() => web.WithTailscale(tailnet, hostname));
+    }
+
+    [Theory]
+    [InlineData("a")]
+    [InlineData("web1")]
+    [InlineData("quadra-admin-2")]
+    [InlineData("a123456789b123456789c123456789d123456789e123456789f12345678")]
+    public void WithTailscaleAcceptsDnsLabelHostnames(string hostname)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80);
+
+        web.WithTailscale(tailnet, hostname);
+
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+        Assert.Equal($"{hostname}-dev", sidecar.Hostname);
+    }
+
+    [Fact]
+    public void WithTailscaleRejectsTagsWithoutTheTagPrefix()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 80);
+
+        Assert.Throws<ArgumentException>(() => web.WithTailscale(tailnet, "web", tags: ["apps"]));
+    }
+
+    [Fact]
+    public async Task RunModeStartsAnEphemeralDevelopmentNodeWithoutState()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        builder.Configuration["Parameters:tailnet-oauth-client-secret"] = "tskey-client-test";
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 8080);
+        web.WithTailscale(tailnet, hostname: "quadra-web");
+        AllocateOnContainerNetwork(web.Resource, "web", 8080);
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+
+        var configuration = await BuildRunConfigurationAsync(builder, sidecar);
+        var environment = configuration.EnvironmentVariables;
+        var arguments = configuration.Arguments;
+
+        Assert.Equal("quadra-web-dev", environment["TS_HOSTNAME"]);
+        Assert.Equal(
+            "tskey-client-test?ephemeral=true&preauthorized=true",
+            environment["TS_AUTHKEY"]);
+        Assert.Equal("true", environment["TS_AUTH_ONCE"]);
+        Assert.Equal("true", environment["TS_USERSPACE"]);
+        Assert.Equal("--advertise-tags=tag:apps", environment["TS_EXTRA_ARGS"]);
+        Assert.Equal("/etc/tailscale/serve.json", environment["TS_SERVE_CONFIG"]);
+        Assert.DoesNotContain("TS_STATE_DIR", environment.Keys);
+        Assert.Equal(
+            TailscaleServeConfig.Create("http://web:8080", "${TS_CERT_DOMAIN}"),
+            environment["TAILSCALE_SERVE_CONFIG_JSON"]);
+        Assert.Contains("\"${TS_CERT_DOMAIN}:443\"", environment["TAILSCALE_SERVE_CONFIG_JSON"], StringComparison.Ordinal);
+
+        Assert.Equal("-c", arguments[0]);
+        var script = Assert.Single(arguments.Skip(1));
+        Assert.Contains("\"$TAILSCALE_SERVE_CONFIG_JSON\"", script, StringComparison.Ordinal);
+        Assert.Contains("/etc/tailscale/serve.json", script, StringComparison.Ordinal);
+        Assert.EndsWith("exec /usr/local/bin/containerboot", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunModeAdvertisesTheOverriddenTags()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        builder.Configuration["Parameters:tailnet-oauth-client-secret"] = "tskey-client-test";
+        var tailnet = builder.AddTailnet("tailnet");
+        var web = builder
+            .AddContainer("web", "nginx")
+            .WithHttpEndpoint(targetPort: 8080);
+        web.WithTailscale(tailnet, "quadra-web", tags: ["tag:web", "tag:admin"]);
+        AllocateOnContainerNetwork(web.Resource, "web", 8080);
+        var sidecar = Assert.Single(builder.Resources.OfType<TailscaleSidecarResource>());
+
+        var configuration = await BuildRunConfigurationAsync(builder, sidecar);
+
+        Assert.Equal("--advertise-tags=tag:web,tag:admin", configuration.EnvironmentVariables["TS_EXTRA_ARGS"]);
+    }
+
+    // Parameter values resolve through the application services, so the
+    // execution context must come from a built application.
+    private static async Task<RunConfiguration> BuildRunConfigurationAsync(
+        IDistributedApplicationBuilder builder,
+        IResource resource)
+    {
+        using var app = builder.Build();
+        var result = await ExecutionConfigurationBuilder.Create(resource)
+            .WithEnvironmentVariablesConfig()
+            .WithArgumentsConfig()
+            .BuildAsync(
+                app.Services.GetRequiredService<DistributedApplicationExecutionContext>(),
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        return new RunConfiguration(
+            result.EnvironmentVariables.ToDictionary(StringComparer.Ordinal),
+            result.Arguments.Select(argument => argument.Value).ToArray());
+    }
+
+    private sealed record RunConfiguration(
+        Dictionary<string, string> EnvironmentVariables,
+        string[] Arguments);
+
+    private static void AllocateOnContainerNetwork(IResource resource, string host, int port)
+    {
+        var endpoint = Assert.Single(resource.Annotations.OfType<EndpointAnnotation>());
+        endpoint.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(
+            KnownNetworkIdentifiers.DefaultAspireContainerNetwork,
+            new AllocatedEndpoint(
+                endpoint,
+                host,
+                port,
+                EndpointBindingMode.SingleAddress,
+                networkId: KnownNetworkIdentifiers.DefaultAspireContainerNetwork));
+    }
+}
