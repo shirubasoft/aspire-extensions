@@ -376,14 +376,4 @@ public sealed class CloudflareRouteProvisionerTests
             {
                 TunnelId = "tunnel-id",
             });
-
-#pragma warning disable ASPIRECOMPUTE002
-    private sealed class TestComputeEnvironmentResource(string name)
-        : Resource(name), IComputeEnvironmentResource
-    {
-        public ReferenceExpression GetHostAddressExpression(
-            EndpointReference endpointReference) =>
-            ReferenceExpression.Create($"{endpointReference.Resource.Name}.internal");
-    }
-#pragma warning restore ASPIRECOMPUTE002
 }

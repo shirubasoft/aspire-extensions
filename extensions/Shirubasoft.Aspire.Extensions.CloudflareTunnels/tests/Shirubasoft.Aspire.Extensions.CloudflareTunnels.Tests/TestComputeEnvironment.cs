@@ -13,7 +13,7 @@ internal sealed class TestComputeEnvironmentResource(string name)
 {
 #pragma warning disable ASPIRECOMPUTE002
     public ReferenceExpression GetHostAddressExpression(EndpointReference endpointReference) =>
-        ReferenceExpression.Create($"{endpointReference.Resource.Name}");
+        ReferenceExpression.Create($"{endpointReference.Resource.Name}.internal");
 #pragma warning restore ASPIRECOMPUTE002
 }
 
