@@ -73,8 +73,9 @@ internal static class TailscaleSidecarDefaults
               function fail() { bad = 1; exit 1 }
               # ipn/store.go:24-86, ipn/serve.go:28-30, ipn/ipnlocal/profiles.go:494-503,
               # and ipn/ipnlocal/local.go:839-884,8584-8588.
+              # Linux can migrate _daemon at startup; this sidecar only accepts native profile state.
               function state_key(key) {
-                return key ~ /^(_machinekey|_daemon|server-mode-start-key|_profiles|_current-profile|_taildrop-received|_debug_(magicsock|sockstats|syspolicy)_until)$/ ||
+                return key ~ /^(_machinekey|server-mode-start-key|_profiles|_current-profile|_taildrop-received|_debug_(magicsock|sockstats|syspolicy)_until)$/ ||
                   key ~ /^(profile-[0-9a-f]+|_serve\057[0-9a-f]+|_current\057S-1-[0-9-]+|profile-[0-9a-f]+[|][|]_routeInfo)$/
               }
               NR == 1 {

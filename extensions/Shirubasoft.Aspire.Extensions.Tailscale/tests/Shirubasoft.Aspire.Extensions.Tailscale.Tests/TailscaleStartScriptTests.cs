@@ -18,6 +18,35 @@ public abstract class TailscaleStartScriptScenarios
 
     private protected abstract ScriptRunner CreateRunner();
 
+    [Theory]
+    [InlineData("absent")]
+    [InlineData("empty")]
+    [InlineData("registered")]
+    public async Task LegacyDaemonPrefsRefuseToStart(string current)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var state = JsonNode.Parse(TailscaleState.PinnedImageFixture())!.AsObject();
+        var prefs = JsonNode.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(state["profile-c298"]!.GetValue<string>())))!;
+        prefs["AdvertiseTags"] = new JsonArray("tag:web");
+        state["_daemon"] = TailscaleState.Base64(TailscaleState.SerializePrefs(prefs));
+        if (current != "registered")
+        {
+            state.Remove("_current-profile");
+            state.Remove("_profiles");
+            state.Remove("profile-c298");
+            if (current == "empty")
+            {
+                state["_current-profile"] = "";
+            }
+        }
+
+        await workspace.WriteStateTextAsync(state.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("state volume", result.StandardError, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FirstStartWritesTheServeConfigAndStartsWithoutRecordingAnything()
     {
@@ -600,6 +629,9 @@ internal static class TailscaleState
                 },
             },
             new JsonSerializerOptions { WriteIndented = true, IndentCharacter = '\t', IndentSize = 1 });
+
+    public static string SerializePrefs(JsonNode prefs) => prefs.ToJsonString(
+        new JsonSerializerOptions { WriteIndented = true, IndentCharacter = '\t', IndentSize = 1 });
 
     public static string Base64(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
 
