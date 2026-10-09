@@ -24,6 +24,7 @@ jobs:
       contents: write
     uses: ./.github/workflows/_extension-publish.yml
     with:
+      ci_workflow_path: .github/workflows/cloudflare-tunnels-ci.yml
       artifact_name: cloudflare-tunnels-nuget-packages
       head_sha: ${{ github.event.workflow_run.head_sha }}
       initial_version: 1.1.8

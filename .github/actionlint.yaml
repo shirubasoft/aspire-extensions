@@ -3,5 +3,4 @@
 paths:
   .github/workflows/_extension-publish.yml:
     ignore:
-      - 'property "workflow_sha" is not defined in object type'
-      - 'property "workflow_repository" is not defined in object type'
+      - '^property "(workflow_sha|workflow_repository)" is not defined in object type \{check_run_id: number; container: \{id: string; network: string\}; services: \{string => \{id: string; network: string; ports: \{string => string\}\}\}; status: string\}$'

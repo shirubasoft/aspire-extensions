@@ -311,7 +311,7 @@ test("authenticates Git with process-only configuration without exposing credent
     git: async (actualArgs, options) => {
       calls += 1;
       assert.deepEqual(actualArgs, args);
-      assert.equal(options.env.GIT_CONFIG_COUNT, "6");
+      assert.equal(options.env.GIT_CONFIG_COUNT, "7");
       assert.equal(options.env.GIT_CONFIG_KEY_0, "credential.helper");
       assert.equal(options.env.GIT_CONFIG_VALUE_0, "");
       assert.equal(options.env.GIT_CONFIG_KEY_1, "http.followRedirects");
@@ -324,6 +324,8 @@ test("authenticates Git with process-only configuration without exposing credent
       assert.equal(options.env.GIT_CONFIG_VALUE_4, "");
       assert.equal(options.env.GIT_CONFIG_KEY_5, `http.https://github.example.test/${repository}.git.extraheader`);
       assert.equal(options.env.GIT_CONFIG_VALUE_5, authorization);
+      assert.equal(options.env.GIT_CONFIG_KEY_6, "core.hooksPath");
+      assert.equal(options.env.GIT_CONFIG_VALUE_6, os.devNull);
       assert.ok(!actualArgs.join(" ").includes(token));
       if (calls === 2) {
         throw new Error(`git error containing ${token} and ${authorization}`);
@@ -417,6 +419,11 @@ test("actual HTTP Git authenticates pushes to both repository URL forms without 
     fixture.backend(request, response);
   });
   const configFile = path.join(fixture.local, ".git", "config");
+  const hooksPath = path.join(fixture.local, "checkout-hooks");
+  const hookProbe = path.join(fixture.local, "hook-ran");
+  await mkdir(hooksPath);
+  await writeFile(path.join(hooksPath, "pre-push"), '#!/bin/sh\ntouch hook-ran\nexit 1\n', { mode: 0o755 });
+  await fixture.git(["-C", fixture.local, "config", "core.hooksPath", hooksPath]);
   const git = createAuthenticatedGit({ token, repository, serverUrl: `${serverUrl}/`, git: fixture.git });
 
   for (const suffix of ["", ".git"]) {
@@ -426,6 +433,7 @@ test("actual HTTP Git authenticates pushes to both repository URL forms without 
     await git(["-C", fixture.local, "push", "origin", `HEAD:refs/heads/${branch}`]);
     assert.equal((await fixture.git(["-C", fixture.remote, "rev-parse", `refs/heads/${branch}`])).trim(), fixture.sha);
     assert.equal(await readFile(configFile, "utf8"), configBefore);
+    await assert.rejects(readFile(hookProbe), { code: "ENOENT" });
   }
   assert.deepEqual(requests, ["", ".git"].flatMap((suffix) => [
     { method: "GET", url: `/${repository}${suffix}/info/refs?service=git-receive-pack`, authorization },

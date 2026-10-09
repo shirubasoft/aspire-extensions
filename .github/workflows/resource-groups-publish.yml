@@ -24,6 +24,7 @@ jobs:
       contents: write
     uses: ./.github/workflows/_extension-publish.yml
     with:
+      ci_workflow_path: .github/workflows/resource-groups-ci.yml
       artifact_name: resource-groups-nuget-packages
       head_sha: ${{ github.event.workflow_run.head_sha }}
       package_id: Shirubasoft.Aspire.Extensions.ResourceGroups

@@ -25,14 +25,16 @@ function stepCommand(name) {
   return /        run: (.+)/u.exec(step)[1];
 }
 
-async function fixture(t) {
+async function fixture(t, { releaseFiles = {} } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "workflow-release-tooling-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const cwd = path.join(directory, "release");
   const runnerTemp = path.join(directory, "runner's temporary files");
   const githubEnv = path.join(directory, "github-env");
   const env = {
-    ...process.env,
+    PATH: process.env.PATH,
+    HOME: directory,
+    TMPDIR: directory,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: os.devNull,
     GIT_CONFIG_COUNT: "0",
@@ -61,8 +63,16 @@ async function fixture(t) {
   await git("commit", "-m", "feat(resource-groups): baseline");
   await git("tag", "resource-groups-v1.2.0");
   await writeFile(path.join(cwd, extensionPath, "source.txt"), "fixed\n");
-  await git("commit", "-am", "fix(resource-groups): repair the extension");
+  for (const [filename, contents] of Object.entries(releaseFiles)) {
+    await mkdir(path.dirname(path.join(cwd, filename)), { recursive: true });
+    await writeFile(path.join(cwd, filename), contents);
+  }
+  await git("add", ".");
+  await git("commit", "-m", "fix(resource-groups): repair the extension");
   env.HEAD_SHA = await git("rev-parse", "HEAD");
+  for (const filename of Object.keys(releaseFiles)) {
+    await rm(path.join(cwd, filename));
+  }
   await cp(toolingDirectory, path.join(cwd, ".github/release"), {
     recursive: true, filter: (source) => path.basename(source) !== "node_modules",
   });
@@ -78,6 +88,82 @@ async function fixture(t) {
   return { cwd, env, git, githubEnv, run, runnerTemp };
 }
 
+test("verifies the CI workflow path alongside the caller's run identity", async (t) => {
+  const { env, run } = await fixture(t);
+  const caller = {
+    EVENT_NAME: "workflow_run", RUN_EVENT: "push", RUN_CONCLUSION: "success", RUN_HEAD_BRANCH: "main",
+    RUN_HEAD_REPOSITORY: env.REPOSITORY, RUN_HEAD_SHA: env.HEAD_SHA, INPUT_HEAD_SHA: env.HEAD_SHA,
+    RUN_ID: "123", INPUT_RUN_ID: "123", RUN_PATH: ".github/workflows/resource-groups-ci.yml",
+    EXPECTED_RUN_PATH: ".github/workflows/resource-groups-ci.yml",
+  };
+  await run(stepCommand("Verify the caller's CI run"), caller);
+  for (const override of [
+    { RUN_PATH: "" }, { RUN_PATH: ".github/workflows/kafka-ci.yml" },
+    { RUN_EVENT: "pull_request" }, { RUN_CONCLUSION: "failure" }, { RUN_HEAD_BRANCH: "other" },
+    { RUN_HEAD_REPOSITORY: "someone/fork" }, { INPUT_HEAD_SHA: "other" }, { INPUT_RUN_ID: "456" },
+  ]) {
+    await assert.rejects(run(stepCommand("Verify the caller's CI run"), { ...caller, ...override }));
+  }
+  for (const extension of ["kafka", "cloudflare-tunnels", "multirepo", "resource-groups", "test-projects"]) {
+    const callerWorkflow = await readFile(new URL(`../workflows/${extension}-publish.yml`, import.meta.url), "utf8");
+    assert.ok(callerWorkflow.includes(`ci_workflow_path: .github/workflows/${extension}-ci.yml`));
+  }
+});
+
+test("installs tooling with npm configuration outside the release checkout", async (t) => {
+  const { run, runnerTemp, env } = await fixture(t, {
+    releaseFiles: { ".npmrc": "registry=https://older-checkout.example.test\n" },
+  });
+  await run(stepCommand("Switch to the release commit after verifying it is on main"));
+  await run(stepCommand("Check out release tooling from this workflow's commit"));
+  const releaseTooling = path.join(runnerTemp, "release-tooling");
+  const { stdout: realNpm } = await run("command -v npm");
+  const bin = path.join(runnerTemp, "bin");
+  await mkdir(bin);
+  // Intercept ci to avoid reinstalling dependencies; use real npm's config loader in the step's cwd.
+  await writeFile(path.join(bin, "npm"),
+    '#!/bin/sh\n[ "$1" = ci ] || exit 1\npwd\nexec "$REAL_NPM" config get registry\n', { mode: 0o755 });
+  const { stdout } = await run(stepCommand("Install locked release tooling"), {
+    RELEASE_TOOLING_DIR: releaseTooling, REAL_NPM: realNpm.trim(),
+    PATH: `${bin}${path.delimiter}${env.PATH}`,
+  });
+  assert.equal(stdout.trim(), `${releaseTooling}/.github/release\nhttps://registry.npmjs.org/`);
+});
+
+test("never executes an older checkout's config with the real pinned semantic-release CLI", async (t) => {
+  const { cwd, env, git, run, runnerTemp } = await fixture(t, {
+    releaseFiles: {
+      "release.config.cjs": `
+        require("node:fs").writeFileSync(process.env.CONFIG_PROBE_FILE, JSON.stringify({
+          githubToken: process.env.GITHUB_TOKEN, nugetApiKey: process.env.NUGET_API_KEY,
+        }));
+        throw new Error("RELEASE_CHECKOUT_CONFIG_EXECUTED");
+      `,
+    },
+  });
+  await run(stepCommand("Switch to the release commit after verifying it is on main"));
+  await run(stepCommand("Check out release tooling from this workflow's commit"));
+  const releaseTooling = path.join(runnerTemp, "release-tooling");
+  await assert.rejects(readFile(path.join(releaseTooling, "release.config.cjs")), { code: "ENOENT" });
+  await symlink(path.join(toolingDirectory, "node_modules"),
+    path.join(releaseTooling, ".github/release/node_modules"), "junction");
+  const probeFile = path.join(runnerTemp, "config-probe.json");
+  const error = await run(stepCommand("Version and publish"), {
+    RELEASE_TOOLING_DIR: releaseTooling, RELEASE_CONFIG: releaseConfig,
+    GITHUB_TOKEN: "fake-github-token", NUGET_API_KEY: "fake-nuget-key",
+    CONFIG_PROBE_FILE: probeFile,
+  }).then(() => undefined, (error) => error);
+  const probe = await readFile(probeFile, "utf8").catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+    return null;
+  });
+  t.diagnostic(`Older checkout config probe: ${probe ?? "not executed"}`);
+  assert.equal(probe, null, "The release checkout config must never read publish credentials.");
+  assert.match(error?.stderr ?? "", /Untrusted release checkout configuration: release\.config\.cjs/u);
+  assert.equal(await git("rev-parse", "HEAD"), env.HEAD_SHA);
+  assert.ok(await readFile(path.join(cwd, "release.config.cjs"), "utf8"));
+});
+
 test("runs newer workflow tooling with the release checkout at an older commit lacking it", async (t) => {
   const { cwd, env, git, githubEnv, run, runnerTemp } = await fixture(t);
   await run(stepCommand("Switch to the release commit after verifying it is on main"));
@@ -90,6 +176,20 @@ test("runs newer workflow tooling with the release checkout at an older commit l
   assert.equal(await git("-C", releaseTooling, "rev-parse", "HEAD"), env.WORKFLOW_SHA);
   await symlink(path.join(toolingDirectory, "node_modules"),
     path.join(releaseTooling, ".github/release/node_modules"), "junction");
+
+  // GitHub PR mode stops after real configuration/plugin loading, before any remote operations.
+  const { stdout: cliOutput, stderr: cliDebug } = await run(stepCommand("Version and publish"), {
+    RELEASE_TOOLING_DIR: releaseTooling, RELEASE_CONFIG: releaseConfig,
+    GITHUB_TOKEN: "fake-github-token", NUGET_API_KEY: "fake-nuget-key",
+    GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/1/merge",
+    GITHUB_HEAD_REF: "test-branch", DEBUG: "semantic-release:config",
+    GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: os.devNull,
+  });
+  assert.match(cliOutput, /Running semantic-release version 25\.0\.9/u);
+  assert.match(cliOutput, /Loaded plugin "analyzeCommits"/u);
+  assert.match(cliOutput, /triggered by a pull request/u);
+  assert.match(cliDebug, /repositoryUrl: 'https:\/\/github\.com\/shirubasoft\/aspire-extensions\.git'/u);
+  assert.ok(cliDebug.includes(releaseTooling));
 
   const { stdout } = await run(stepCommand("Remove the tag left by an earlier unpublished attempt of this release"), {
     RELEASE_TOOLING_DIR: releaseTooling, GITHUB_REPOSITORY: env.REPOSITORY,

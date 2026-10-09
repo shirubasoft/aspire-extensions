@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -37,7 +38,7 @@ export function createAuthenticatedGit({ token, repository, serverUrl = "https:/
           GIT_TRACE2: "0",
           GIT_TRACE2_EVENT: "0",
           GIT_TRACE2_PERF: "0",
-          GIT_CONFIG_COUNT: "6",
+          GIT_CONFIG_COUNT: "7",
           GIT_CONFIG_KEY_0: "credential.helper",
           GIT_CONFIG_VALUE_0: "",
           GIT_CONFIG_KEY_1: "http.followRedirects",
@@ -50,6 +51,8 @@ export function createAuthenticatedGit({ token, repository, serverUrl = "https:/
           GIT_CONFIG_VALUE_4: "",
           GIT_CONFIG_KEY_5: gitHeaderKey,
           GIT_CONFIG_VALUE_5: `AUTHORIZATION: basic ${authorization}`,
+          GIT_CONFIG_KEY_6: "core.hooksPath",
+          GIT_CONFIG_VALUE_6: os.devNull,
         },
       });
     } catch {
