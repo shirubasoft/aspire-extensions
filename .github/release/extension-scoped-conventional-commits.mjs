@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { analyzeCommits as analyzeConventionalCommits } from "@semantic-release/commit-analyzer";
@@ -39,10 +38,10 @@ async function readCommitFiles(hash, cwd) {
 }
 
 async function readExtensionPaths(cwd) {
-  const entries = await readdir(path.join(cwd, extensionsDirectory), { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => `${extensionsDirectory}/${entry.name}`);
+  const { stdout } = await execFileAsync(
+    "git", ["ls-tree", "-d", "--name-only", "HEAD:extensions"], { cwd },
+  );
+  return stdout.split(/\r?\n/u).filter(Boolean).map((name) => `${extensionsDirectory}/${name}`);
 }
 
 // A commit belongs to an extension when it touches the extension folder. A change to a shared

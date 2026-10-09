@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -27,6 +27,7 @@ async function httpGitRepository(t) {
   t.after(() => rm(directory, { recursive: true, force: true }));
   const remote = path.join(directory, `${repository}.git`);
   const local = path.join(directory, "client");
+  const seed = path.join(directory, "seed");
   const env = {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: "1",
@@ -42,9 +43,13 @@ async function httpGitRepository(t) {
   await mkdir(path.dirname(remote), { recursive: true });
   await git(["init", "--bare", "--initial-branch=main", "--object-format=sha1", remote]);
   await git(["-C", remote, "config", "http.receivepack", "true"]);
-  await git(["init", "--initial-branch=main", "--object-format=sha1", local]);
-  await git(["-C", local, "-c", "user.name=HTTP test", "-c", "user.email=http-test@example.test",
+  await git(["init", "--initial-branch=main", "--object-format=sha1", seed]);
+  await writeFile(path.join(seed, "source.txt"), "Git metadata only fixture");
+  await git(["-C", seed, "add", "source.txt"]);
+  await git(["-C", seed, "-c", "user.name=HTTP test", "-c", "user.email=http-test@example.test",
     "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "HTTP authentication fixture"]);
+  await git(["clone", "--no-checkout", "--no-hardlinks", seed, local]);
+  await git(["-C", local, "remote", "remove", "origin"]);
   const sha = (await git(["-C", local, "rev-parse", "HEAD"])).trim();
   const backend = (request, response) => {
     const url = new URL(request.url, "http://localhost");
@@ -555,4 +560,40 @@ test("reads the CI-selected release version and tolerates a missing version file
   assert.equal(await readReleaseVersion(versionFile), null);
   await writeFile(versionFile, "1.2.1\n");
   assert.equal(await readReleaseVersion(versionFile), "1.2.1");
+});
+
+test("real recovery CLI removes only the incomplete tag from an empty workspace using external artifacts", async (t) => {
+  const fixture = await httpGitRepository(t);
+  const fixtureTag = "empty-workspace-v1.2.1";
+  const serverUrl = await listen(t, (request, response) => {
+    if (request.url.startsWith("/repos/")) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(request.url.includes("/git/ref/tags/")
+        ? { object: { type: "commit", sha: fixture.sha } } : []));
+      return;
+    }
+    fixture.backend(request, response);
+  });
+  await fixture.git(["-C", fixture.local, "remote", "add", "origin", `${serverUrl}/${repository}.git`]);
+  await fixture.git(["-C", fixture.local, "tag", fixtureTag]);
+  await fixture.git(["-C", fixture.local, "push", "--tags", "origin", "main"]);
+  const artifacts = await mkdtemp(path.join(os.tmpdir(), "recovery-external-artifacts-"));
+  t.after(() => rm(artifacts, { recursive: true, force: true }));
+  await writeFile(path.join(artifacts, "release-version.txt"), "1.2.1\n");
+  const { stdout } = await execFileAsync(process.execPath, [
+    new URL("./remove-incomplete-release-tag.mjs", import.meta.url).pathname,
+    "empty-workspace", "unused-relative-artifacts", fixture.sha,
+  ], {
+    cwd: fixture.local, timeout: 10000,
+    env: {
+      ...process.env, GITHUB_REPOSITORY: repository, GITHUB_TOKEN: "local-recovery-fake-token",
+      GITHUB_SERVER_URL: serverUrl, GITHUB_API_URL: serverUrl, RELEASE_ARTIFACTS_DIR: artifacts,
+      GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_PARAMETERS: undefined,
+    },
+  });
+  assert.match(stdout, /Removed tag empty-workspace-v1\.2\.1/u);
+  assert.equal((await fixture.git(["-C", fixture.remote, "tag", "--list", fixtureTag])).trim(), "");
+  assert.equal((await fixture.git(["-C", fixture.local, "tag", "--list", fixtureTag])).trim(), "");
+  assert.equal((await fixture.git(["-C", fixture.remote, "rev-parse", "main"])).trim(), fixture.sha);
+  assert.deepEqual(await readdir(fixture.local), [".git"]);
 });

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -40,7 +41,10 @@ export function createExtensionReleaseConfig({
     }
   }
 
-  const artifactPath = `artifacts/${packageId}`;
+  const artifactPath = process.env.RELEASE_ARTIFACTS_DIR || path.resolve(`artifacts/${packageId}`);
+  if (!path.isAbsolute(artifactPath)) {
+    throw new TypeError("RELEASE_ARTIFACTS_DIR must be an absolute path.");
+  }
   const packageSpecs = packages
     .map((packageDefinition) =>
       `${packageDefinition.id}${packageDefinition.symbols ? ":symbols" : ""}`)

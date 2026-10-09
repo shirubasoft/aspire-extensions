@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -198,7 +199,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error("GITHUB_REPOSITORY and GITHUB_TOKEN are required.");
     process.exitCode = 2;
   } else {
-    const version = await readReleaseVersion(`artifacts/${artifactDirectoryName}/release-version.txt`);
+    const artifactPath = process.env.RELEASE_ARTIFACTS_DIR || path.resolve(`artifacts/${artifactDirectoryName}`);
+    if (!path.isAbsolute(artifactPath)) throw new Error("RELEASE_ARTIFACTS_DIR must be an absolute path.");
+    const version = await readReleaseVersion(path.join(artifactPath, "release-version.txt"));
     if (version === null) {
       console.log("The CI artifact does not select a release version, so there is no release tag to remove.");
     } else {

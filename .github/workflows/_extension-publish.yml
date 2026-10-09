@@ -46,6 +46,8 @@ jobs:
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: core.hooksPath
       GIT_CONFIG_VALUE_0: /dev/null
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      DOTNET_NOLOGO: 'true'
     permissions:
       actions: read
       contents: write
@@ -85,22 +87,6 @@ jobs:
           persist-credentials: false
           ref: main
 
-      - name: Switch to the release commit after verifying it is on main
-        shell: bash
-        env:
-          HEAD_SHA: ${{ inputs.head_sha }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::head_sha must be a full commit SHA, got '$HEAD_SHA'."
-            exit 1
-          fi
-          if ! git merge-base --is-ancestor "$HEAD_SHA" refs/remotes/origin/main; then
-            echo "::error::Commit $HEAD_SHA is not on main. Refusing to run release tooling from it."
-            exit 1
-          fi
-          git checkout --detach "$HEAD_SHA"
-
       - name: Check out release tooling from this workflow's commit
         shell: bash
         env:
@@ -121,20 +107,37 @@ jobs:
             echo "::error::Workflow commit $WORKFLOW_SHA is not on main. Refusing to run release tooling from it."
             exit 1
           fi
-          # Keep semantic-release's cwd and history at head_sha while loading co-located tooling.
           git worktree add --detach "$RUNNER_TEMP/release-tooling" "$WORKFLOW_SHA"
           echo "RELEASE_TOOLING_DIR=$RUNNER_TEMP/release-tooling" >> "$GITHUB_ENV"
+
+      - name: Create the empty publish workspace at the release commit
+        shell: bash
+        env:
+          PACKAGE_ID: ${{ inputs.package_id }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          publish_dir="$(dirname "$GITHUB_WORKSPACE")/release-publish"
+          bash "$RELEASE_TOOLING_DIR/.github/release/create-publish-workspace.sh" \
+            "$GITHUB_WORKSPACE" "$publish_dir" "$HEAD_SHA" "https://github.com/$REPOSITORY.git"
+          {
+            echo "RELEASE_PUBLISH_DIR=$publish_dir"
+            echo "RELEASE_ARTIFACTS_DIR=$RUNNER_TEMP/release-artifacts/$PACKAGE_ID"
+            echo "DOTNET_CLI_HOME=$RUNNER_TEMP/release-dotnet-home"
+            echo "NUGET_PACKAGES=$RUNNER_TEMP/release-nuget-packages"
+          } >> "$GITHUB_ENV"
 
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          global-json-file: global.json
+          global-json-file: ${{ env.RELEASE_TOOLING_DIR }}/global.json
 
       - name: Download packages from CI
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.artifact_name }}
-          path: artifacts/${{ inputs.package_id }}
+          path: ${{ env.RELEASE_ARTIFACTS_DIR }}
           github-token: ${{ github.token }}
           run-id: ${{ inputs.workflow_run_id }}
 
@@ -149,6 +152,7 @@ jobs:
           npm ci
 
       - name: Bootstrap the package version baseline
+        working-directory: ${{ env.RELEASE_PUBLISH_DIR }}
         shell: bash
         env:
           TAG_PREFIX: ${{ inputs.tag_prefix }}
@@ -160,6 +164,7 @@ jobs:
           fi
 
       - name: Remove the tag left by an earlier unpublished attempt of this release
+        working-directory: ${{ env.RELEASE_PUBLISH_DIR }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ inputs.head_sha }}
@@ -170,6 +175,7 @@ jobs:
           "$TAG_PREFIX" "$PACKAGE_ID" "$HEAD_SHA"
 
       - name: Version and publish
+        working-directory: ${{ env.RELEASE_PUBLISH_DIR }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
@@ -177,7 +183,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          node "$RELEASE_TOOLING_DIR/.github/release/assert-release-checkout-safe.mjs"
+          node "$RELEASE_TOOLING_DIR/.github/release/assert-release-workspace-safe.mjs"
           "$RELEASE_TOOLING_DIR/.github/release/node_modules/.bin/semantic-release" \
             --extends "$RELEASE_TOOLING_DIR/$RELEASE_CONFIG" \
             --repository-url "https://github.com/$REPOSITORY.git"

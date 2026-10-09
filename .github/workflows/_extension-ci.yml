@@ -71,6 +71,11 @@ jobs:
       - name: Install locked release tooling
         run: npm ci --prefix .github/release
 
+      - name: Set up .NET for release security probes
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
       - name: Test release tooling
         run: npm test --prefix .github/release
 

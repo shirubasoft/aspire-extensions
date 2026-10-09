@@ -9,7 +9,11 @@ fi
 release_version="$1"
 artifact_directory_name="$2"
 package_specs_value="$3"
-artifact_path="artifacts/$artifact_directory_name"
+artifact_path="${RELEASE_ARTIFACTS_DIR:-$PWD/artifacts/$artifact_directory_name}"
+if [[ "$artifact_path" != /* ]]; then
+  echo "RELEASE_ARTIFACTS_DIR must be an absolute path." >&2
+  exit 1
+fi
 version_file="$artifact_path/release-version.txt"
 
 if [[ ! -f "$version_file" ]]; then

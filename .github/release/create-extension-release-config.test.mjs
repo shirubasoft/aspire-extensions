@@ -21,8 +21,8 @@ test("creates an independently tagged extension-scoped package release", () => {
   assert.deepEqual(
     config.plugins[2][1].assets.map((asset) => asset.path),
     [
-      "artifacts/Shirubasoft.Aspire.Extensions.Kafka/*.nupkg",
-      "artifacts/Shirubasoft.Aspire.Extensions.Kafka/*.snupkg",
+      path.resolve("artifacts/Shirubasoft.Aspire.Extensions.Kafka/*.nupkg"),
+      path.resolve("artifacts/Shirubasoft.Aspire.Extensions.Kafka/*.snupkg"),
     ],
   );
 });
