@@ -18,6 +18,212 @@ public abstract class TailscaleStartScriptScenarios
 
     private protected abstract ScriptRunner CreateRunner();
 
+    [Fact]
+    public async Task StartupDisablesUnvalidatedNetmapCache()
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        workspace.EnvironmentOverrides["TS_USE_CACHED_NETMAP"] = "true";
+        await workspace.WriteStateTextAsync(TailscaleState.PinnedImageFixture());
+
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(ContainerbootExitCode, result.ExitCode);
+        Assert.Contains("CACHE=false", result.StandardOutput, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("tag:apps", ContainerbootExitCode)]
+    [InlineData("tag:web", 1)]
+    public async Task GeneratedSingleProfileUsesTheCheckedTags(string tags, int exitCode)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        await workspace.WriteStateTextAsync(TailscaleState.PinnedImageSingleProfileFixture());
+
+        var result = await workspace.RunAsync(tags, withStateDirectory: true);
+
+        Assert.Equal(exitCode, result.ExitCode);
+    }
+
+    [Theory]
+    [InlineData("TS_AUTH_ONCE", "false")]
+    [InlineData("TS_USERSPACE", "false")]
+    [InlineData("TS_EXTRA_ARGS", "--advertise-tags=tag:web")]
+    [InlineData("TS_EXTRA_ARGS", "--advertise-tags=tag:apps --advertise-tags=tag:web")]
+    [InlineData("TS_EXTRA_ARGS", "--advertise-tags=tag:apps --force-reauth")]
+    [InlineData("TS_TAILSCALED_EXTRA_ARGS", "--state=/other/tailscaled.state")]
+    [InlineData("TS_TAILSCALED_EXTRA_ARGS", "--config=/other/config.json")]
+    [InlineData("TS_EXPERIMENTAL_VERSIONED_CONFIG_DIR", "/other")]
+    [InlineData("TS_KUBE_SECRET", "other")]
+    [InlineData("KUBERNETES_SERVICE_HOST", "192.0.2.1")]
+    [InlineData("TS_TEST_ONLY_ROOT", "/other")]
+    [InlineData("TS_DEBUG_FAKE_GOOS", "windows")]
+    public async Task AlternateStartupEnvironmentRefusesToStart(string name, string value)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        workspace.EnvironmentOverrides[name] = value;
+        await workspace.WriteStateTextAsync(TailscaleState.PinnedImageFixture());
+
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("startup environment", result.StandardError, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("tag:apps --accept-dns=true")]
+    [InlineData("tag:apps,")]
+    [InlineData("tag:ap_ps")]
+    public async Task InvalidRequestedTagsRefuseToStart(string tags)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var result = await workspace.RunAsync(tags, withStateDirectory: false);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("startup environment", result.StandardError, StringComparison.Ordinal);
+    }
+
+    // These cases alter selection inputs while the directly named prefs still have tag:apps.
+    [Theory]
+    [InlineData("metadata-id-redirect")]
+    [InlineData("multi-profile")]
+    [InlineData("no-metadata")]
+    [InlineData("empty-metadata")]
+    [InlineData("null-metadata")]
+    [InlineData("empty-metadata-value")]
+    [InlineData("malformed-metadata")]
+    [InlineData("metadata-array")]
+    [InlineData("null-profile")]
+    [InlineData("map-id-mismatch")]
+    [InlineData("embedded-id-mismatch")]
+    [InlineData("missing-id")]
+    [InlineData("empty-id")]
+    [InlineData("wrong-id-type")]
+    [InlineData("key-mismatch")]
+    [InlineData("missing-key")]
+    [InlineData("empty-key")]
+    [InlineData("wrong-key-type")]
+    [InlineData("duplicate-key")]
+    [InlineData("duplicate-map-id")]
+    [InlineData("escaped-key")]
+    [InlineData("escaped-id")]
+    [InlineData("case-key")]
+    [InlineData("case-duplicate-key")]
+    [InlineData("unknown-key")]
+    [InlineData("unknown-network-key")]
+    [InlineData("unknown-user-key")]
+    [InlineData("wrong-network-type")]
+    [InlineData("wrong-user-id-type")]
+    [InlineData("local-user")]
+    [InlineData("missing-name")]
+    [InlineData("missing-control")]
+    [InlineData("missing-network")]
+    [InlineData("missing-user")]
+    [InlineData("missing-node-id")]
+    [InlineData("missing-local-user")]
+    [InlineData("bad-created")]
+    [InlineData("duplicate-network-key")]
+    [InlineData("nested-case-key")]
+    [InlineData("orphan-profile")]
+    [InlineData("no-current")]
+    [InlineData("empty-current")]
+    [InlineData("wrong-current")]
+    [InlineData("metadata-only")]
+    [InlineData("orphan-without-current")]
+    [InlineData("serve-without-current")]
+    [InlineData("route-info-without-current")]
+    [InlineData("orphan-serve")]
+    [InlineData("orphan-route-info")]
+    [InlineData("no-machine-key")]
+    [InlineData("empty-machine-key")]
+    [InlineData("legacy-selector")]
+    [InlineData("windows-selector")]
+    [InlineData("legacy-ios")]
+    [InlineData("legacy-android")]
+    public async Task UnsupportedProfileStateRefusesToStart(string corruption)
+    {
+        using var workspace = new ScriptWorkspace(CreateRunner());
+        var state = JsonNode.Parse(corruption is "metadata-id-redirect" or "multi-profile"
+            ? TailscaleState.PinnedImageMultiProfileFixture() : TailscaleState.PinnedImageFixture())!.AsObject();
+        var metadata = JsonNode.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(state["_profiles"]!.GetValue<string>())))!.AsObject();
+        var profile = metadata["c298"]!.AsObject();
+        switch (corruption)
+        {
+            case "metadata-id-redirect": profile["ID"] = "d4e5"; break;
+            case "map-id-mismatch": metadata["d4e5"] = profile.DeepClone(); metadata.Remove("c298"); break;
+            case "embedded-id-mismatch": profile["ID"] = "d4e5"; break;
+            case "missing-id": profile.Remove("ID"); break;
+            case "empty-id": profile["ID"] = ""; break;
+            case "wrong-id-type": profile["ID"] = 123; break;
+            case "key-mismatch": profile["Key"] = "profile-d4e5"; break;
+            case "missing-key": profile.Remove("Key"); break;
+            case "empty-key": profile["Key"] = ""; break;
+            case "wrong-key-type": profile["Key"] = false; break;
+            case "case-key": profile["key"] = profile["Key"]!.DeepClone(); profile.Remove("Key"); break;
+            case "case-duplicate-key": profile["key"] = "profile-d4e5"; break;
+            case "unknown-key": profile["Unknown"] = ""; break;
+            case "unknown-network-key": profile["NetworkProfile"]!["Unknown"] = ""; break;
+            case "unknown-user-key": profile["UserProfile"]!["Unknown"] = ""; break;
+            case "wrong-network-type": profile["NetworkProfile"] = false; break;
+            case "wrong-user-id-type": profile["UserProfile"]!["ID"] = "123"; break;
+            case "local-user": profile["LocalUserID"] = "S-1-5-123"; break;
+            case "missing-name": profile.Remove("Name"); break;
+            case "missing-control": profile.Remove("ControlURL"); break;
+            case "missing-network": profile.Remove("NetworkProfile"); break;
+            case "missing-user": profile.Remove("UserProfile"); break;
+            case "missing-node-id": profile.Remove("NodeID"); break;
+            case "missing-local-user": profile.Remove("LocalUserID"); break;
+            case "bad-created": profile["Created"] = "yesterday"; break;
+            case "nested-case-key": profile["NetworkProfile"]!["magicdnsname"] = "example.ts.net"; break;
+            case "null-profile": metadata["c298"] = null; break;
+        }
+
+        var encodedMetadata = metadata.ToJsonString();
+        encodedMetadata = corruption switch
+        {
+            "duplicate-network-key" => encodedMetadata.Replace("\"MagicDNSName\":", "\"MagicDNSName\":\"other\",\"MagicDNSName\":", StringComparison.Ordinal),
+            "empty-metadata" => "{}",
+            "null-metadata" => "null",
+            "empty-metadata-value" => "",
+            "malformed-metadata" => encodedMetadata[..^1],
+            "metadata-array" => "[]",
+            "duplicate-key" => encodedMetadata.Replace("\"ID\":", "\"Key\":\"profile-d4e5\",\"ID\":", StringComparison.Ordinal),
+            "duplicate-map-id" => "{\"c298\":" + profile.ToJsonString() + ",\"c298\":" + profile.ToJsonString() + "}",
+            "escaped-key" => encodedMetadata.Replace("\"Key\"", "\"\\u004bey\"", StringComparison.Ordinal),
+            "escaped-id" => encodedMetadata.Replace("\"ID\":\"c298\"", "\"ID\":\"\\u0063298\"", StringComparison.Ordinal),
+            _ => encodedMetadata,
+        };
+        state["_profiles"] = TailscaleState.Base64(encodedMetadata);
+        switch (corruption)
+        {
+            case "no-metadata": state.Remove("_profiles"); break;
+            case "orphan-profile": state["profile-d4e5"] = state["profile-c298"]!.DeepClone(); break;
+            case "no-current": state.Remove("_current-profile"); break;
+            case "empty-current": state["_current-profile"] = ""; break;
+            case "wrong-current": state["_current-profile"] = TailscaleState.Base64("profile-d4e5"); break;
+            case "metadata-only": state.Remove("_current-profile"); state.Remove("profile-c298"); break;
+            case "orphan-without-current": state.Remove("_current-profile"); state.Remove("_profiles"); break;
+            case "serve-without-current":
+            case "route-info-without-current":
+                state.Remove("_current-profile"); state.Remove("_profiles"); state.Remove("profile-c298");
+                state[corruption == "serve-without-current" ? "_serve/c298" : "profile-c298||_routeInfo"] = TailscaleState.Base64("{}");
+                break;
+            case "orphan-serve": state["_serve/d4e5"] = TailscaleState.Base64("{}"); break;
+            case "orphan-route-info": state["profile-d4e5||_routeInfo"] = TailscaleState.Base64("{}"); break;
+            case "no-machine-key": state.Remove("_machinekey"); break;
+            case "empty-machine-key": state["_machinekey"] = ""; break;
+            case "legacy-selector": state["server-mode-start-key"] = TailscaleState.Base64("profile-c298"); break;
+            case "windows-selector": state["_current/S-1-5-123"] = TailscaleState.Base64("profile-c298"); break;
+            case "legacy-ios": state["ipn-go-bridge"] = state["profile-c298"]!.DeepClone(); break;
+            case "legacy-android": state["ipn-android"] = state["profile-c298"]!.DeepClone(); break;
+        }
+
+        await workspace.WriteStateTextAsync(state.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("state volume", result.StandardError, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("absent")]
     [InlineData("empty")]
@@ -76,14 +282,15 @@ public abstract class TailscaleStartScriptScenarios
     }
 
     [Fact]
-    public async Task EmptyCurrentProfileIsAFreshRegistration()
+    public async Task EmptyCurrentProfileRefusesToStart()
     {
         using var workspace = new ScriptWorkspace(CreateRunner());
         await workspace.WriteStateAsync(TailscaleState.Create(currentProfile: "", prefs: null));
 
         var result = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
 
-        Assert.Equal(ContainerbootExitCode, result.ExitCode);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("state volume", result.StandardError, StringComparison.Ordinal);
     }
 
     // A first boot that failed before registration leaves no identity, so a
@@ -208,8 +415,9 @@ public abstract class TailscaleStartScriptScenarios
     public async Task MissingProfileEntryRefusesToStart()
     {
         using var workspace = new ScriptWorkspace(CreateRunner());
-        await workspace.WriteStateTextAsync(
-            "{\n  \"_current-profile\": \"" + TailscaleState.Base64("profile-5f3a") + "\"\n}\n");
+        var state = JsonNode.Parse(TailscaleState.Create("profile-5f3a", TailscaleState.Prefs(["tag:apps"])))!.AsObject();
+        state.Remove("profile-5f3a");
+        await workspace.WriteStateTextAsync(state.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 
         var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
 
@@ -225,8 +433,9 @@ public abstract class TailscaleStartScriptScenarios
     public async Task UnreadableProfileRefusesToStart(string encodedPrefs, string reason)
     {
         using var workspace = new ScriptWorkspace(CreateRunner());
-        await workspace.WriteStateTextAsync(
-            "{\n  \"_current-profile\": \"" + TailscaleState.Base64("profile-5f3a") + "\",\n  \"profile-5f3a\": \"" + encodedPrefs + "\"\n}\n");
+        var state = JsonNode.Parse(TailscaleState.Create("profile-5f3a", TailscaleState.Prefs(["tag:apps"])))!;
+        state["profile-5f3a"] = encodedPrefs;
+        await workspace.WriteStateTextAsync(state.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 
         var result = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
 
@@ -466,7 +675,7 @@ public abstract class TailscaleStartScriptScenarios
     }
 
     [Fact]
-    public async Task PinnedImageStateWithASecondProfileUsesTheCurrentOne()
+    public async Task PinnedImageStateWithASecondProfileRefusesToStart()
     {
         using var workspace = new ScriptWorkspace(CreateRunner());
         await workspace.WriteStateTextAsync(TailscaleState.PinnedImageMultiProfileFixture());
@@ -474,9 +683,9 @@ public abstract class TailscaleStartScriptScenarios
         var starts = await workspace.RunAsync(tags: "tag:apps", withStateDirectory: true);
         var refuses = await workspace.RunAsync(tags: "tag:web", withStateDirectory: true);
 
-        Assert.Equal(ContainerbootExitCode, starts.ExitCode);
+        Assert.Equal(1, starts.ExitCode);
         Assert.Equal(1, refuses.ExitCode);
-        Assert.Contains("[tag:apps]", refuses.StandardError, StringComparison.Ordinal);
+        Assert.Contains("state volume", starts.StandardError, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -565,6 +774,9 @@ internal static class TailscaleState
         "Fixtures",
         $"tailscaled.multi-profile.state.{FixtureImageTag}.json");
 
+    public static string PinnedImageSingleProfileFixture() => File.ReadAllText(Path.Combine(
+        AppContext.BaseDirectory, "Fixtures", $"tailscaled.single-profile.state.{FixtureImageTag}.json"));
+
     public static string PinnedImageMultiProfileFixture() => File.ReadAllText(MultiProfileFixturePath);
 
     public static string PinnedImageFixtureWithSecondProfile(string profileKey, string[] tags)
@@ -603,7 +815,12 @@ internal static class TailscaleState
         if (!string.IsNullOrEmpty(currentProfile))
         {
             entries[currentProfile] = Base64(prefs ?? "{}");
-            entries["_profiles"] = Base64("{\"5f3a\":{\"ID\":\"5f3a\",\"Key\":\"" + currentProfile + "\"}}");
+            var profile = JsonNode.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(
+                JsonNode.Parse(PinnedImageFixture())!["_profiles"]!.GetValue<string>())))!["c298"]!.DeepClone();
+            var id = currentProfile["profile-".Length..];
+            profile["ID"] = id;
+            profile["Key"] = currentProfile;
+            entries["_profiles"] = Base64(new JsonObject { [id] = profile }.ToJsonString());
         }
 
         return Serialize(entries);
@@ -650,13 +867,15 @@ internal sealed class ScriptWorkspace : IDisposable
         _runner = runner;
         var binDirectory = _root.CreateSubdirectory("bin");
         var containerboot = Path.Combine(binDirectory.FullName, "containerboot");
-        File.WriteAllText(containerboot, "#!/bin/sh\nexit 42\n");
+        File.WriteAllText(containerboot, "#!/bin/sh\nprintf 'CACHE=%s\\n' \"${TS_USE_CACHED_NETMAP:-}\"\nexit 42\n");
         if (!OperatingSystem.IsWindows())
         {
             File.SetUnixFileMode(containerboot, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
                 | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         }
     }
+
+    public Dictionary<string, string> EnvironmentOverrides { get; } = [];
 
     public string RootDirectory => _root.FullName;
 
@@ -705,6 +924,13 @@ internal sealed class ScriptRunner
             startInfo.Environment["TS_SERVE_CONFIG"] = workspace.ServeConfigPath;
             startInfo.Environment["TAILSCALE_SERVE_CONFIG_JSON"] = "{\"serve\":true}";
             startInfo.Environment["TAILSCALE_TAGS"] = tags;
+            startInfo.Environment["TS_EXTRA_ARGS"] = "--advertise-tags=" + tags;
+            startInfo.Environment["TS_AUTH_ONCE"] = "true";
+            startInfo.Environment["TS_USERSPACE"] = "true";
+            foreach (var (name, value) in workspace.EnvironmentOverrides)
+            {
+                startInfo.Environment[name] = value;
+            }
             startInfo.Environment.Remove("TS_STATE_DIR");
             if (withStateDirectory)
             {
@@ -744,10 +970,18 @@ internal sealed class ScriptRunner
                 ["TS_SERVE_CONFIG"] = "/work/serve.json",
                 ["TAILSCALE_SERVE_CONFIG_JSON"] = "{\"serve\":true}",
                 ["TAILSCALE_TAGS"] = tags,
+                ["TS_EXTRA_ARGS"] = "--advertise-tags=" + tags,
+                ["TS_AUTH_ONCE"] = "true",
+                ["TS_USERSPACE"] = "true",
             };
             if (withStateDirectory)
             {
                 variables["TS_STATE_DIR"] = "/work/state";
+            }
+
+            foreach (var (name, value) in workspace.EnvironmentOverrides)
+            {
+                variables[name] = value;
             }
 
             foreach (var (name, value) in variables)

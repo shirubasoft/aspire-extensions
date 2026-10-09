@@ -48,7 +48,7 @@ func main() {
 	if len(os.Args) != 3 {
 		panic("usage: generate.go <sanitized-state-fixture> <new-output-path>")
 	}
-	for _, value := range []any{ipn.Prefs{}, ipn.AutoUpdatePrefs{}, ipn.AppConnectorPrefs{}, persist.Persist{}, tailcfg.UserProfile{}, drive.Share{}} {
+	for _, value := range []any{ipn.Prefs{}, ipn.AutoUpdatePrefs{}, ipn.AppConnectorPrefs{}, persist.Persist{}, tailcfg.UserProfile{}, drive.Share{}, ipn.LoginProfile{}, ipn.NetworkProfile{}} {
 		fmt.Printf("%T: %s\n", value, jsonFields(value))
 	}
 	input, err := os.ReadFile(os.Args[1])
@@ -84,25 +84,30 @@ func main() {
 	prefs.Persist.UserProfile.ProfilePicURL = "https://example.invalid/fixture.png"
 	prefs.Persist.UserProfile.Groups = []string{"group:fixture"}
 	state[current] = prefs.ToBytes()
-	second := prefs
-	second.AdvertiseTags = []string{"tag:web"}
-	state["profile-d4e5"] = second.ToBytes()
-	profiles["d4e5"] = ipn.LoginProfile{ID: "d4e5", Key: "profile-d4e5", NodeID: "nOTHERNODE", ControlURL: prefs.ControlURL}
-	state[ipn.KnownProfilesStateKey], err = json.Marshal(profiles)
-	must(err)
 	currentID := ipn.ProfileID(strings.TrimPrefix(string(current), "profile-"))
 	state[ipn.ServeConfigKey(currentID)], err = json.Marshal(ipn.ServeConfig{})
 	must(err)
 	state[current+"||_routeInfo"], err = json.Marshal(appctype.RouteInfo{})
 	must(err)
 
-	if _, err := os.Stat(os.Args[2]); !os.IsNotExist(err) {
+	writeStore(strings.Replace(os.Args[2], "multi-profile", "single-profile", 1), state)
+	second := prefs
+	second.AdvertiseTags = []string{"tag:web"}
+	state["profile-d4e5"] = second.ToBytes()
+	profiles["d4e5"] = ipn.LoginProfile{ID: "d4e5", Key: "profile-d4e5", NodeID: "nOTHERNODE", ControlURL: prefs.ControlURL}
+	state[ipn.KnownProfilesStateKey], err = json.Marshal(profiles)
+	must(err)
+	writeStore(os.Args[2], state)
+}
+
+func writeStore(output string, state map[ipn.StateKey][]byte) {
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		panic("output path must not already exist")
 	}
-	fileStore, err := store.NewFileStore(func(string, ...any) {}, os.Args[2])
+	fileStore, err := store.NewFileStore(func(string, ...any) {}, output)
 	must(err)
 	for key, value := range state {
 		must(fileStore.WriteState(key, value))
 	}
-	fmt.Println("multi-profile fixture written through upstream NewFileStore")
+	fmt.Printf("fixture written through upstream NewFileStore: %s\n", output)
 }

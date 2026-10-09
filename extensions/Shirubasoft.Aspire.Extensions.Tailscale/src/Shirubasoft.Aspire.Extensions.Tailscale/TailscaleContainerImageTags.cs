@@ -35,7 +35,9 @@ internal static class TailscaleSidecarDefaults
     //
     // The pinned tailscaled writes a two-space-indented object of base64
     // strings, or "{}" for its initial empty store. Validate the entire store
-    // before treating an absent or empty "_current-profile" as fresh registration. Empty files are corrupt. Prefs
+    // before accepting either a pre-registration store or one Linux profile.
+    // Profile metadata must select exactly the prefs checked below. Empty files
+    // and incomplete registrations require resetting the volume. Prefs
     // use tab-indented JSON; validate their nesting, keys, values and tag grammar
     // before comparing the sets. Unrecognised serialization stops the sidecar.
     // State and prefs key allowlists follow the pinned upstream types. The
@@ -47,6 +49,20 @@ internal static class TailscaleSidecarDefaults
         # State schema: v1.102.5
         set -eu
         export LC_ALL=C
+        invalid_environment() {
+          echo "Tailscale sidecar: unsupported startup environment: $1. Restore the AppHost-generated Tailscale environment before starting this sidecar." >&2
+          exit 1
+        }
+        [ "${TS_AUTH_ONCE:-}" = true ] && [ "${TS_USERSPACE:-}" = true ] || invalid_environment "TS_AUTH_ONCE and TS_USERSPACE must be true"
+        printf '%s' "${TAILSCALE_TAGS:-}" | awk '
+          $0 !~ /^tag:[A-Za-z][A-Za-z0-9-]*(,tag:[A-Za-z][A-Za-z0-9-]*)*$/ { exit 1 }
+          END { if (NR != 1) exit 1 }
+        ' || invalid_environment "TAILSCALE_TAGS must be a comma-separated list of valid tags"
+        [ "${TS_EXTRA_ARGS:-}" = "--advertise-tags=$TAILSCALE_TAGS" ] || invalid_environment "TS_EXTRA_ARGS must advertise exactly TAILSCALE_TAGS"
+        [ -z "${TS_TAILSCALED_EXTRA_ARGS:-}${TS_EXPERIMENTAL_VERSIONED_CONFIG_DIR:-}${TS_KUBE_SECRET:-}${KUBERNETES_SERVICE_HOST:-}${TS_TEST_ONLY_ROOT:-}${TS_DEBUG_FAKE_GOOS:-}" ] || invalid_environment "alternate daemon arguments, config files, state stores and roots are unsupported"
+        # Disk-cached netmaps are another startup input outside the validated store.
+        # Obtain the node and its assigned tags from control instead of replaying a cache.
+        export TS_USE_CACHED_NETMAP=false
         printf '%s' "${{ServeConfigVariable}}" > "$TS_SERVE_CONFIG"
         state_dir="${TS_STATE_DIR:-}"
         if [ -n "$state_dir" ]; then
@@ -75,8 +91,8 @@ internal static class TailscaleSidecarDefaults
               # and ipn/ipnlocal/local.go:839-884,8584-8588.
               # Linux can migrate _daemon at startup; this sidecar only accepts native profile state.
               function state_key(key) {
-                return key ~ /^(_machinekey|server-mode-start-key|_profiles|_current-profile|_taildrop-received|_debug_(magicsock|sockstats|syspolicy)_until)$/ ||
-                  key ~ /^(profile-[0-9a-f]+|_serve\057[0-9a-f]+|_current\057S-1-[0-9-]+|profile-[0-9a-f]+[|][|]_routeInfo)$/
+                return key ~ /^(_machinekey|_profiles|_current-profile|_taildrop-received|_debug_(magicsock|sockstats|syspolicy)_until)$/ ||
+                  key ~ /^(profile-[0-9a-f]+|_serve\057[0-9a-f]+|profile-[0-9a-f]+[|][|]_routeInfo)$/
               }
               NR == 1 {
                 if ($0 == "{}") { closed = 1; next }
@@ -118,6 +134,104 @@ internal static class TailscaleSidecarDefaults
               decode "$current" "the _current-profile entry"
               profile=$decoded
               printf '%s' "$profile" | grep -Eq '^profile-[0-9a-f]+$' || unreadable "the current profile is not a profile key"
+              metadata=$(entry _profiles)
+              [ -n "$metadata" ] || unreadable "the _profiles metadata is missing or empty"
+              decode "$metadata" "the _profiles metadata"
+              # writeKnownProfiles uses compact JSON. Parse the entire typed Linux
+              # LoginProfile map, including nested objects, before following any link.
+              id=$(printf '%s' "$decoded" | awk '
+                function fail() { exit 1 }
+                function take(value) {
+                  if (substr(doc, pos, length(value)) != value) fail()
+                  pos += length(value)
+                }
+                function string_value(remaining, value) {
+                  remaining = substr(doc, pos)
+                  if (!match(remaining, /^"([^"\\[:cntrl:]]|\\(["\\\057bfnrt]|u[0-9a-fA-F]{4}))*"/)) fail()
+                  value = substr(remaining, 1, RLENGTH)
+                  pos += RLENGTH
+                  return value
+                }
+                function fields(scope, names, list, n, i) {
+                  n = split(names, list, " ")
+                  for (i = 1; i <= n; i++) allowed[scope, list[i]] = 1
+                }
+                BEGIN {
+                  # ipn/prefs.go:1052-1124, tailcfg/tailcfg.go:289-302.
+                  fields("Profile", "ID Name NetworkProfile Key UserProfile NodeID LocalUserID ControlURL Created")
+                  fields("NetworkProfile", "MagicDNSName DomainName DisplayName")
+                  fields("UserProfile", "ID LoginName DisplayName ProfilePicURL Groups")
+                }
+                function object(scope, name, key, value, count, required, n, i) {
+                  take("{")
+                  if (substr(doc, pos, 1) == "}") fail()
+                  while (1) {
+                    name = string_value()
+                    # Keys and selection values must be literal, exact upstream names.
+                    key = substr(name, 2, length(name) - 2)
+                    if (!allowed[scope, key] || seen[scope, tolower(key)]++) fail()
+                    take(":")
+                    if (scope == "Profile" && (key == "NetworkProfile" || key == "UserProfile")) {
+                      object(key)
+                    } else if (scope == "UserProfile" && key == "Groups") {
+                      take("[")
+                      if (substr(doc, pos, 1) != "]") {
+                        while (1) {
+                          string_value()
+                          if (substr(doc, pos, 1) == "]") break
+                          take(",")
+                        }
+                      }
+                      take("]")
+                    } else if (scope == "UserProfile" && key == "ID") {
+                      if (!match(substr(doc, pos), /^-?(0|[1-9][0-9]*)/)) fail()
+                      pos += RLENGTH
+                    } else {
+                      value = string_value()
+                      if (scope == "Profile") {
+                        if (key == "ID" && value != "\"" id "\"") fail()
+                        if (key == "Key" && value != "\"profile-" id "\"") fail()
+                        if (key == "LocalUserID" && value != "\"\"") fail()
+                        if (key == "Created" && value !~ /^"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})"$/) fail()
+                      }
+                    }
+                    count++
+                    if (substr(doc, pos, 1) == "}") break
+                    take(",")
+                  }
+                  take("}")
+                  # These fields always serialize, including their zero values.
+                  if (scope == "Profile") {
+                    n = split("id name networkprofile key userprofile nodeid localuserid controlurl", required, " ")
+                    for (i = 1; i <= n; i++) if (!seen[scope, required[i]]) fail()
+                  }
+                  if (scope == "NetworkProfile" && count != 3) fail()
+                  if (scope == "UserProfile" && (!seen[scope, "id"] || !seen[scope, "loginname"] || !seen[scope, "displayname"])) fail()
+                }
+                NR != 1 { fail() }
+                {
+                  doc = $0; pos = 1
+                  take("{")
+                  name = string_value()
+                  if (name !~ /^"[0-9a-f]{4}"$/) fail()
+                  id = substr(name, 2, 4)
+                  take(":")
+                  object("Profile")
+                  # Exactly one entry: ordinary up/reauth never creates a second profile.
+                  take("}")
+                  if (pos != length(doc) + 1) fail()
+                  print id
+                }
+              ') || unreadable "the _profiles metadata is not one complete Linux profile with matching ID and Key"
+              [ "$profile" = "profile-$id" ] || unreadable "the _current-profile entry does not match the _profiles metadata"
+              [ -n "$(entry _machinekey)" ] || unreadable "the registered profile has no machine key"
+              printf '%s\n' "$store" | awk -v profile="$profile" -v id="$id" '
+                {
+                  split($0, fields, "\""); key = fields[2]
+                  if (key ~ /^profile-/ && key != profile && key != profile "||_routeInfo") exit 1
+                  if (key ~ /^_serve\057/ && key != "_serve/" id) exit 1
+                }
+              ' || unreadable "the store contains orphan or extra profile keys"
               encoded=$(entry "$profile")
               [ -n "$encoded" ] || unreadable "profile '$profile' is missing or empty"
               decode "$encoded" "profile '$profile'"
@@ -221,6 +335,12 @@ internal static class TailscaleSidecarDefaults
                 echo "Tailscale sidecar: the node on this state volume registered with tags [$(printf '%s' "$registered" | tr '\n' ' ' | sed 's/ $//')] but the AppHost now requests [$(printf '%s' "$requested" | tr '\n' ' ' | sed 's/ $//')]. Tailscale assigns tags when it registers a node. To change them: stop this sidecar, remove the node in the Tailscale admin console, delete the state volume, and deploy again." >&2
                 exit 1
               fi
+            else
+              # Only the empty store or a machine key can precede registration.
+              # Empty selectors, metadata and profile-scoped state are incomplete.
+              printf '%s\n' "$store" | awk '
+                NF { split($0, fields, "\""); if (fields[2] != "_machinekey" || !fields[4]) exit 1 }
+              ' || unreadable "the store without a current profile is not pre-registration state"
             fi
           fi
         fi
