@@ -55,19 +55,21 @@ A project resource runs on the host, so its sidecar proxies to the host address 
 - `TS_AUTHKEY` is the OAuth client secret from the `.env` file with `?ephemeral=false&preauthorized=true`, so the node persists and needs no manual approval.
 - `TS_HOSTNAME` is the requested hostname without a suffix.
 - `TS_STATE_DIR` points to the named volume `{resource}-ts-state`, so the node identity survives container recreation. Keep the volume to keep the identity.
-- `TAILSCALE_TAGS` lists the tag set. At start the sidecar reads the node profile in `tailscaled.state` on the state volume and refuses to start when that profile registered with a different tag set, so a changed `tags` value never runs under the old identity. Fresh registration accepts a missing file, the pinned image's initial `{}` store, or a store containing only its machine key. Registered state must contain exactly one Linux profile: the `_profiles` map key, embedded `ID`, `Key`, `_current-profile`, and existing prefs key must agree. Legacy state, multiple profiles, orphan profile keys, incomplete registration and empty files require resetting the state volume. The sidecar validates the complete two-space-indented base64 store, compact profile metadata and tab-indented prefs written by the pinned image before comparing tags. Escaped or duplicate keys, malformed structure, and other serialization layouts stop the sidecar with an error naming the reason. Decoded prefs accept LF or CRLF line endings and preserve whitespace inside JSON strings.
-- Startup requires the generated `TS_AUTH_ONCE=true`, `TS_USERSPACE=true` and `TS_EXTRA_ARGS=--advertise-tags=<TAILSCALE_TAGS>`. Alternate daemon arguments, config files and state stores stop the sidecar. Disk netmap cache replay is disabled so an unchecked cached node cannot supply startup tags.
+- `TS_AUTH_ONCE=true`, `TS_USERSPACE=true` and `TS_EXTRA_ARGS=--advertise-tags=<tags>` configure userspace registration.
+- `TAILSCALE_TAGS` lists the requested tag set. Before registration the start script writes its sorted, comma-joined tag set to `$TS_STATE_DIR/aspire-tags`. It treats a `tailscaled.state` file containing a `"_current-profile"` key as registered. Registered nodes start only when the marker and requested tags match after sorting, deduplication and whitespace normalization. A changed tag set or missing marker stops the sidecar with guidance to delete the state volume and re-register. An unregistered node rewrites the marker, so a failed first registration can retry with corrected tags.
 - `TAILSCALE_START_SCRIPT` carries the start script and the entrypoint evaluates it. Compose doubles every `$` in the value, so the script reaches the shell unchanged.
 - The serve configuration proxies HTTPS on port 443 to `http://{resource}:{target port}` on the Compose network. The sidecar writes it from an environment variable at start, so the generated Compose file needs no bind mounts and works with a remote `DOCKER_HOST`.
 - The serve configuration names the node certificate domain with the Tailscale placeholder `${TS_CERT_DOMAIN}`, written as `$${TS_CERT_DOMAIN}` so Compose passes it through unchanged.
 - The sidecar `depends_on` the resource service.
-- One sidecar owns one state volume. The start script only reads the volume, but two daemons sharing one identity are unsupported.
+- One sidecar owns one state volume. Two daemons sharing one identity are unsupported.
+
+This detects tag changes against a sidecar's own state; it is not a security boundary, since anyone who can write the state volume controls the host.
 
 The target port comes from the endpoint declaration. A container endpoint needs `targetPort`, or `port` when the container listens on the published port. A project resource uses the default container port `8080`. Publishing fails with an error that names the resource and endpoint when the endpoint has no fixed target port, and with an error that names the resource and compute environment when the resource publishes to anything other than Docker Compose.
 
 ### Changing tags on a deployed node
 
-Tailscale assigns tags when it registers a node, and the node profile on the state volume keeps that tag set. A changed `tags` value in the AppHost therefore means a new registration. To change the tags of a deployed node:
+Tailscale assigns tags when it registers a node. With `TS_AUTH_ONCE` and persisted state, changing `tags` in the AppHost does not update that registration. The sidecar compares the requested tags with its own marker and stops when they differ. Registered state without a marker also requires a reset. To change the tags of a deployed node:
 
 1. Stop the sidecar, so a restart policy does not keep restarting the refused container:
 
@@ -85,7 +87,7 @@ Tailscale assigns tags when it registers a node, and the node profile on the sta
 
 4. Set the new `tags` in the AppHost and deploy again. The sidecar registers a new node with the new tags.
 
-[Applying a tag to a device](https://tailscale.com/docs/features/tags#apply-a-tag-to-a-device) in the admin console changes the device without a new registration. The AppHost `tags` then keep describing the registration, because the sidecar compares them with the registered profile, not with the tags the admin console shows.
+[Applying a tag to a device](https://tailscale.com/docs/features/tags#apply-a-tag-to-a-device) in the admin console changes the device without a new registration. The AppHost `tags` then keep describing the registration, because the sidecar compares them with its own marker. The marker does not track admin-console changes.
 
 ### Removing a deployed node
 
