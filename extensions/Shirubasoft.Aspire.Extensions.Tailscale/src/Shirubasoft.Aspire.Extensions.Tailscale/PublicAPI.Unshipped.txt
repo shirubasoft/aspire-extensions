@@ -1,0 +1,15 @@
+#nullable enable
+Aspire.Hosting.ApplicationModel.TailnetResource
+Aspire.Hosting.ApplicationModel.TailnetResource.OAuthClientSecret.get -> Aspire.Hosting.ApplicationModel.ParameterResource!
+Aspire.Hosting.ApplicationModel.TailnetResource.Tags.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Aspire.Hosting.ApplicationModel.TailnetResource.TailnetResource(string! name, Aspire.Hosting.ApplicationModel.ParameterResource! oauthClientSecret, System.Collections.Generic.IReadOnlyList<string!>! tags) -> void
+Aspire.Hosting.ApplicationModel.TailscaleSidecarResource
+Aspire.Hosting.ApplicationModel.TailscaleSidecarResource.Hostname.get -> string!
+Aspire.Hosting.ApplicationModel.TailscaleSidecarResource.Tags.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Aspire.Hosting.ApplicationModel.TailscaleSidecarResource.Tailnet.get -> Aspire.Hosting.ApplicationModel.TailnetResource!
+Aspire.Hosting.ApplicationModel.TailscaleSidecarResource.TailscaleSidecarResource(string! name, Aspire.Hosting.ApplicationModel.TailnetResource! tailnet, Aspire.Hosting.ApplicationModel.IResourceWithEndpoints! target, Aspire.Hosting.ApplicationModel.EndpointReference! targetEndpoint, string! hostname, System.Collections.Generic.IReadOnlyList<string!>! tags) -> void
+Aspire.Hosting.ApplicationModel.TailscaleSidecarResource.Target.get -> Aspire.Hosting.ApplicationModel.IResourceWithEndpoints!
+Aspire.Hosting.ApplicationModel.TailscaleSidecarResource.TargetEndpoint.get -> Aspire.Hosting.ApplicationModel.EndpointReference!
+Aspire.Hosting.TailscaleResourceBuilderExtensions
+static Aspire.Hosting.TailscaleResourceBuilderExtensions.AddTailnet(this Aspire.Hosting.IDistributedApplicationBuilder! builder, string! name, System.Collections.Generic.IReadOnlyList<string!>? tags = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.TailnetResource!>!
+static Aspire.Hosting.TailscaleResourceBuilderExtensions.WithTailscale<T>(this Aspire.Hosting.ApplicationModel.IResourceBuilder<T>! builder, Aspire.Hosting.ApplicationModel.IResourceBuilder<Aspire.Hosting.ApplicationModel.TailnetResource!>! tailnet, string! hostname, string! endpointName = "http", System.Collections.Generic.IReadOnlyList<string!>? tags = null) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<T>!

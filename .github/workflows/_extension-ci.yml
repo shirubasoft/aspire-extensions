@@ -56,6 +56,9 @@ jobs:
             .github/workflows/resource-groups-ci.yml
             .github/workflows/resource-groups-prerelease.yml
             .github/workflows/resource-groups-publish.yml
+            .github/workflows/tailscale-ci.yml
+            .github/workflows/tailscale-prerelease.yml
+            .github/workflows/tailscale-publish.yml
             .github/workflows/test-projects-ci.yml
             .github/workflows/test-projects-prerelease.yml
             .github/workflows/test-projects-publish.yml
