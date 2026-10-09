@@ -427,3 +427,21 @@ test("real semantic-release dry run and exec publish work with only Git metadata
   t.diagnostic("Real CLI: rev-parse, log, tag discovery, notes fetch, verifyAuth push --dry-run, version 1.2.1 and notes generation passed with only .git.");
   t.diagnostic("Real Git helpers: local fixture tag/notes and pushes passed; stale main refused. Real exec publisher ran mocked dotnet in the empty workspace.");
 });
+
+test("CI smoke check uses production's workspace parent chain and fails closed on ancestor config", async (t) => {
+  const { cwd, env, run } = await fixture(t);
+  const ci = await readFile(new URL("../workflows/_extension-ci.yml", import.meta.url), "utf8");
+  assert.match(ci, /Smoke test the publish workspace on this runner\n\s+run: bash \.github\/release\/smoke-test-publish-workspace\.sh/u);
+  assert.match(ci.split("  release-version:")[0], /fetch-depth: 0/u);
+  await symlink(path.join(toolingDirectory, "node_modules"), path.join(cwd, ".github/release/node_modules"), "junction");
+  const smoke = "bash .github/release/smoke-test-publish-workspace.sh";
+  const options = { GITHUB_REPOSITORY: env.REPOSITORY };
+  const publishDirectory = path.join(path.dirname(cwd), "release-publish");
+  const { stdout } = await run(smoke, options);
+  assert.ok(stdout.includes(`Publish workspace guard passed in ${publishDirectory}.`));
+  await assert.rejects(readdir(publishDirectory), { code: "ENOENT" });
+  const ancestorConfig = path.join(path.dirname(cwd), "package.json");
+  await writeFile(ancestorConfig, "{}");
+  await assert.rejects(run(smoke, options), /Untrusted ancestor configuration/u);
+  await assert.rejects(readdir(publishDirectory), { code: "ENOENT" });
+});
