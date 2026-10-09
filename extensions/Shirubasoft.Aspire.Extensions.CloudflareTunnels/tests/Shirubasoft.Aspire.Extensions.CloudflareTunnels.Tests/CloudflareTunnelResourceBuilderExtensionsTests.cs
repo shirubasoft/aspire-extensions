@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Pipelines;
 using Xunit;
 
 namespace Aspire.Hosting.Tests;
@@ -164,6 +165,7 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
             .WithHttpEndpoint(targetPort: 80);
 
         Assert.Throws<ArgumentException>(() => builder.AddCloudflareTunnel(value));
+        Assert.Throws<ArgumentException>(() => builder.AddCloudflareTunnelConnector(value));
         Assert.Throws<ArgumentException>(() => builder.AddCloudflareQuickTunnel(value));
         Assert.Throws<ArgumentException>(() => web.WithCloudflareTunnel(tunnel, value));
         Assert.Throws<ArgumentException>(
@@ -183,6 +185,46 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
         Assert.DoesNotContain(
             tunnel.Resource.Annotations,
             annotation => annotation is WaitAnnotation);
+    }
+
+    [Fact]
+    public void ExternallyManagedPublishRequiresOnlyTheConnectorTokenAndRetainsRoutes()
+    {
+        var builder = DistributedApplication.CreateBuilder(["--operation", "publish"]);
+        var tunnel = builder.AddCloudflareTunnelConnector("public", metricsPort: 16012);
+        var web = builder.AddContainer("web", "nginx").WithHttpEndpoint(targetPort: 8080);
+
+        web.WithCloudflareTunnel(tunnel, "app.example.com");
+
+        AssertContainer(tunnel.Resource, 16012);
+        var parameter = Assert.Single(builder.Resources.OfType<ParameterResource>());
+        Assert.Equal("public-tunnel-token", parameter.Name);
+        Assert.True(parameter.Secret);
+        Assert.Empty(builder.Resources.OfType<CloudflareTunnelInstallerResource>());
+        Assert.DoesNotContain(tunnel.Resource.Annotations, annotation => annotation is CloudflareTunnelCredentialsAnnotation);
+#pragma warning disable ASPIREPIPELINES001
+        Assert.Empty(tunnel.Resource.Annotations.OfType<PipelineStepAnnotation>());
+        Assert.Empty(tunnel.Resource.Annotations.OfType<PipelineConfigurationAnnotation>());
+#pragma warning restore ASPIREPIPELINES001
+        var route = Assert.Single(builder.Resources.OfType<PublishedRouteResource>());
+        Assert.Equal("app.example.com", route.Hostname);
+        Assert.Same(tunnel.Resource, route.Tunnel);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExternallyManagedOptionPreservesNamedTunnelRunMode(bool externallyManagedRoutes)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var tunnel = externallyManagedRoutes
+            ? builder.AddCloudflareTunnelConnector("public")
+            : builder.AddCloudflareTunnel("public");
+
+        Assert.Single(builder.Resources.OfType<CloudflareTunnelInstallerResource>());
+        Assert.Equal(2, builder.Resources.OfType<ParameterResource>().Count());
+        Assert.Single(tunnel.Resource.Annotations.OfType<CloudflareTunnelCredentialsAnnotation>());
     }
 
     private static void AssertContainer(ContainerResource resource, int expectedPort)

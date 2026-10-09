@@ -22,12 +22,34 @@ public static class CloudflareTunnelResourceBuilderExtensions
     public static IResourceBuilder<CloudflareTunnelResource> AddCloudflareTunnel(
         this IDistributedApplicationBuilder builder,
         [ResourceName] string name,
-        int? metricsPort = null)
+        int? metricsPort = null) =>
+        AddCloudflareTunnelCore(builder, name, externallyManagedRoutes: false, metricsPort);
+
+    /// <summary>
+    /// Adds a named tunnel whose publish-mode ingress and DNS are managed externally.
+    /// </summary>
+    /// <param name="builder">The distributed application builder.</param>
+    /// <param name="name">The Aspire resource name and Cloudflare tunnel name.</param>
+    /// <param name="metricsPort">The optional host port for cloudflared metrics.</param>
+    /// <returns>The Cloudflare Tunnel resource builder.</returns>
+    /// <remarks>
+    /// Publish mode requires only the connector token and skips the route pipeline step.
+    /// Run mode retains the named tunnel's managed provisioning and routing behavior.
+    /// </remarks>
+    public static IResourceBuilder<CloudflareTunnelResource> AddCloudflareTunnelConnector(
+        this IDistributedApplicationBuilder builder,
+        [ResourceName] string name,
+        int? metricsPort = null) =>
+        AddCloudflareTunnelCore(builder, name, externallyManagedRoutes: true, metricsPort);
+
+    private static IResourceBuilder<CloudflareTunnelResource> AddCloudflareTunnelCore(
+        IDistributedApplicationBuilder builder,
+        string name,
+        bool externallyManagedRoutes,
+        int? metricsPort)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
-        RegisterServices(builder);
 
         var tunnelResource = new CloudflareTunnelResource(name);
         var tunnelBuilder = ConfigureCloudflaredContainer(
@@ -41,6 +63,24 @@ public static class CloudflareTunnelResourceBuilderExtensions
                 $"0.0.0.0:{CloudflareTunnelContainerDefaults.MetricsPort}",
                 "run",
             ]);
+
+        if (externallyManagedRoutes && builder.ExecutionContext.IsPublishMode)
+        {
+            ConfigurePublishToken(builder, tunnelBuilder);
+            return tunnelBuilder;
+        }
+
+        ConfigureManagedTunnel(builder, tunnelBuilder);
+        return tunnelBuilder;
+    }
+
+    private static void ConfigureManagedTunnel(
+        IDistributedApplicationBuilder builder,
+        IResourceBuilder<CloudflareTunnelResource> tunnelBuilder)
+    {
+        var tunnelResource = tunnelBuilder.Resource;
+        var name = tunnelResource.Name;
+        RegisterServices(builder);
 
         var accountId = builder
             .AddParameter($"{name}-account-id", secret: false)
@@ -81,13 +121,9 @@ public static class CloudflareTunnelResourceBuilderExtensions
         }
         else
         {
-            var tunnelToken = builder
-                .AddParameter($"{name}-tunnel-token", secret: true)
-                .WithDescription("The token for a pre-provisioned Cloudflare tunnel.");
-            tunnelBuilder.WithEnvironment("TUNNEL_TOKEN", tunnelToken.Resource);
+            ConfigurePublishToken(builder, tunnelBuilder);
         }
 
-        return tunnelBuilder;
     }
 
     /// <summary>
@@ -214,6 +250,16 @@ public static class CloudflareTunnelResourceBuilderExtensions
             endpoint);
 
         return builder;
+    }
+
+    private static void ConfigurePublishToken(
+        IDistributedApplicationBuilder builder,
+        IResourceBuilder<CloudflareTunnelResource> tunnel)
+    {
+        var tunnelToken = builder
+            .AddParameter($"{tunnel.Resource.Name}-tunnel-token", secret: true)
+            .WithDescription("The token for a pre-provisioned Cloudflare tunnel.");
+        tunnel.WithEnvironment("TUNNEL_TOKEN", tunnelToken.Resource);
     }
 
     private static void RegisterServices(IDistributedApplicationBuilder builder)

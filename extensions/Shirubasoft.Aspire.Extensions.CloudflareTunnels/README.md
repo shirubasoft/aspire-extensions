@@ -138,6 +138,33 @@ Route configuration is not transactional. The step upserts the DNS record of eac
 
 In a Docker Compose environment, `cloudflared` reaches each target on the Compose network, so the ingress rule uses the container port, such as `http://web:8080`. Give each published endpoint a fixed container port, for example `WithHttpEndpoint(targetPort: 8080)`. If an endpoint has no fixed port, Compose assigns one that the route step cannot discover. The ingress rule then uses the endpoint's default port, and the pipeline completes with a warning that names the endpoint.
 
+## Externally managed routes
+
+Opt into connector-only publish mode when a trusted onboarding process owns the
+named tunnel, ingress and DNS:
+
+```csharp
+var tunnel = builder.AddCloudflareTunnelConnector("production");
+web.WithCloudflareTunnel(tunnel, "app.example.com");
+```
+
+Publish mode requires only the secret `production-tunnel-token` parameter and
+passes it to `cloudflared` as `TUNNEL_TOKEN`. It adds no Cloudflare route pipeline
+step and makes no Cloudflare API calls. Provision the tunnel, its ingress to the
+deployed service and target port, the catch-all 404, and the proxied DNS CNAME
+before deploying. Reconfigure them through that onboarding process when routes
+change. Route resources still record declared hostnames and target endpoints.
+
+`AddCloudflareTunnel` keeps its default managed behavior.
+`AddCloudflareTunnelConnector` changes publish mode only; named tunnels in run
+mode still use account and API credentials. An AppHost can keep using a Quick
+Tunnel in run mode and choose connector-only mode in publish mode.
+
+The sample keeps its Quick Tunnel defaults. Set
+`Cloudflare__ExternallyManagedRoutes=true` when publishing it to exercise the
+connector-only declaration, after onboarding `web.example.com` and supplying
+`Parameters__web_tunnel_tunnel_token`.
+
 ## Run the sample
 
 From this extension folder:

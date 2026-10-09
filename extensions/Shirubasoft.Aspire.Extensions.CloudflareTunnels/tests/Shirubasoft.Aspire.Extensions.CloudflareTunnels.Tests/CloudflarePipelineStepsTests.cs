@@ -10,6 +10,32 @@ namespace Aspire.Hosting.Tests;
 public sealed class CloudflarePipelineStepsTests
 {
     [Fact]
+    public async Task ConnectorOnlyDeploySkipsCloudflareAndDeploysWithOnlyTheToken()
+    {
+        var deployments = 0;
+        var api = CreateApi();
+        var pipeline = new TunnelDeploymentPipeline
+        {
+            Api = api,
+            ExternallyManagedRoutes = true,
+            ComposeUp = () =>
+            {
+                deployments++;
+                return Task.CompletedTask;
+            },
+        };
+
+        await pipeline.RunAsync("deploy");
+
+        Assert.Null(pipeline.Failure);
+        Assert.Equal(1, deployments);
+        Assert.DoesNotContain(pipeline.RouteStepName, pipeline.StepNames);
+        Assert.Equal(0, pipeline.ClientFactory.CallCount);
+        Assert.Empty(api.DnsUpserts);
+        Assert.Null(api.UpdatedConfiguration);
+    }
+
+    [Fact]
     public void StepUsesAStableResourceScopedName()
     {
         var tunnel = new CloudflareTunnelResource("public");
