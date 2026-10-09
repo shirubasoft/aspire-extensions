@@ -24,6 +24,10 @@ internal sealed class TunnelDeploymentPipeline
 
     public string Hostname { get; init; } = "app.example.com";
 
+    public bool ExternallyManagedRoutes { get; init; }
+
+    public IReadOnlyList<string> StepNames { get; private set; } = [];
+
     public int? TargetPort { get; init; } = 8080;
 
     public Action<IDistributedApplicationBuilder> AddEnvironment { get; init; } =
@@ -54,14 +58,19 @@ internal sealed class TunnelDeploymentPipeline
                 "--step", step,
                 "--output-path", outputPath.FullName,
             ]);
-            builder.Configuration[$"Parameters:{TunnelName}-account-id"] = "account-id";
-            builder.Configuration[$"Parameters:{TunnelName}-api-token"] = "api-token";
+            if (!ExternallyManagedRoutes)
+            {
+                builder.Configuration[$"Parameters:{TunnelName}-account-id"] = "account-id";
+                builder.Configuration[$"Parameters:{TunnelName}-api-token"] = "api-token";
+            }
             builder.Configuration[$"Parameters:{TunnelName}-tunnel-token"] = "tunnel-token";
             AddEnvironment(builder);
             var web = builder
                 .AddContainer("web", "docker.io/traefik/whoami", "v1.10")
                 .WithHttpEndpoint(targetPort: TargetPort, name: "http");
-            var tunnel = builder.AddCloudflareTunnel(TunnelName);
+            var tunnel = ExternallyManagedRoutes
+                ? builder.AddCloudflareTunnelConnector(TunnelName)
+                : builder.AddCloudflareTunnel(TunnelName);
             web.WithCloudflareTunnel(tunnel, Hostname);
             ConfigureTarget(web);
 
@@ -69,10 +78,15 @@ internal sealed class TunnelDeploymentPipeline
             // dependencies that the tunnel's callback added.
             builder
                 .AddResource(new PipelineProbeResource("route-step-probe"))
-                .WithPipelineConfiguration(context => RouteStepDependencies =
-                [
-                    .. context.Steps.Single(routeStep => routeStep.Name == RouteStepName).DependsOnSteps,
-                ]);
+                .WithPipelineConfiguration(context =>
+                {
+                    StepNames = [.. context.Steps.Select(pipelineStep => pipelineStep.Name)];
+                    RouteStepDependencies =
+                    [
+                        .. context.Steps.Where(routeStep => routeStep.Name == RouteStepName)
+                            .SelectMany(routeStep => routeStep.DependsOnSteps),
+                    ];
+                });
 
             ClientFactory = new TestCloudflareApiClientFactory(Api);
             builder.Services.AddSingleton<ICloudflareApiClientFactory>(ClientFactory);
