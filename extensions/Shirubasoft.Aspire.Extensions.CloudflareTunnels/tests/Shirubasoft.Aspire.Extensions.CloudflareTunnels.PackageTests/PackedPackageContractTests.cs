@@ -135,7 +135,8 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
             "--configuration",
             "Release",
             "--configfile",
-            nugetConfig);
+            nugetConfig,
+            $"-p:RestorePackagesPath={workspace.CreateDirectory("consumer-packages")}");
     }
 
     private static async Task<PackageArtifacts> GetArtifactsAsync(
