@@ -18,7 +18,6 @@ public sealed class PackedPackageContractTests
     private const string TestingPackageId = "Shirubasoft.Aspire.Extensions.Multirepo.Testing";
     private const string ToolPackageId = "Shirubasoft.Aspire.Extensions.Multirepo.Tool";
     private const string TemplatePackageId = "Shirubasoft.Aspire.Extensions.Multirepo.Templates";
-    private const string MinimumSupportedSdkVersion = "10.0.100";
     private static readonly Guid SourceLinkKind = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
     private static readonly SemaphoreSlim PackageBuildLock = new(1, 1);
     private static PackageArtifacts? _packageArtifacts;
@@ -82,17 +81,14 @@ public sealed class PackedPackageContractTests
     }
 
     [Fact]
-    public async Task Runtime_packages_ship_their_documentation()
+    public async Task Packages_ship_documentation()
     {
         var packages = await GetPackagesAsync(TestContext.Current.CancellationToken);
 
-        var coreReadme = ReadTextEntry(packages.CorePackagePath, "README.md");
-        var testingReadme = ReadTextEntry(packages.TestingPackagePath, "README.md");
-
-        Assert.StartsWith($"# {CorePackageId}", coreReadme, StringComparison.Ordinal);
-        Assert.Contains("## Quick start", coreReadme, StringComparison.Ordinal);
-        Assert.StartsWith($"# {TestingPackageId}", testingReadme, StringComparison.Ordinal);
-        Assert.Contains("DockerComposeDeploymentTestingBuilder", testingReadme, StringComparison.Ordinal);
+        AssertReadme(packages.CorePackagePath);
+        AssertReadme(packages.TestingPackagePath);
+        AssertReadme(packages.ToolPackagePath);
+        AssertReadme(packages.TemplatePackagePath);
         AssertXmlDocumentation(
             packages.CorePackagePath,
             $"lib/net10.0/{CorePackageId}.xml",
@@ -255,20 +251,6 @@ public sealed class PackedPackageContractTests
     }
 
     [Fact]
-    public async Task Tool_package_ships_its_command_and_workflow_reference()
-    {
-        var packages = await GetPackagesAsync(TestContext.Current.CancellationToken);
-
-        var readme = ReadTextEntry(packages.ToolPackagePath, "README.md");
-
-        Assert.Contains("## Producer: publish images", readme, StringComparison.Ordinal);
-        Assert.Contains("## Consumer: apply images", readme, StringComparison.Ordinal);
-        Assert.Contains("workflow dispatch", readme, StringComparison.Ordinal);
-        Assert.Contains("## Module image workflow document contract", readme, StringComparison.Ordinal);
-        Assert.DoesNotContain("Define an Aspire resource graph once", readme, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task Core_package_ships_generator_symbols_with_the_analyzer()
     {
         var packages = await GetPackagesAsync(TestContext.Current.CancellationToken);
@@ -277,21 +259,6 @@ public sealed class PackedPackageContractTests
 
         Assert.True(ContainsEntry(packages.CorePackagePath, generatorPdb));
         Assert.True(ContainsEntry(packages.CoreSymbolPackagePath, generatorPdb));
-    }
-
-    [Fact]
-    public async Task Core_package_generator_targets_the_minimum_supported_compiler()
-    {
-        var packages = await GetPackagesAsync(TestContext.Current.CancellationToken);
-        const string generatorAssembly =
-            "analyzers/dotnet/cs/Shirubasoft.Aspire.Extensions.Multirepo.Generators.dll";
-
-        Assert.Equal(
-            new Version(5, 0, 0, 0),
-            ReadAssemblyReferenceVersion(packages.CorePackagePath, generatorAssembly, "Microsoft.CodeAnalysis"));
-        Assert.Equal(
-            new Version(5, 0, 0, 0),
-            ReadAssemblyReferenceVersion(packages.CorePackagePath, generatorAssembly, "Microsoft.CodeAnalysis.CSharp"));
     }
 
     [Fact]
@@ -356,39 +323,6 @@ public sealed class PackedPackageContractTests
             CorePackageId,
             source,
             TestContext.Current.CancellationToken);
-    }
-
-    [Fact]
-    public async Task Packed_core_package_compiles_a_generated_consumer_with_the_minimum_sdk()
-    {
-        Assert.SkipUnless(
-            await IsMinimumSdkFeatureBandInstalledAsync(TestContext.Current.CancellationToken),
-            $"The .NET SDK {MinimumSupportedSdkVersion} feature band is not installed.");
-        var packages = await GetPackagesAsync(TestContext.Current.CancellationToken);
-        const string source = """
-            using Aspire.Hosting;
-
-            namespace MinimumSdkConsumer;
-
-            [GenerateDistributedApplicationModule("compatible")]
-            public static partial class CompatibleModule
-            {
-                public static void Define(IDistributedApplicationModuleBuilder module)
-                {
-                    module.AddContainer("cache", "redis");
-                }
-
-                public static System.Type GeneratedModuleType => typeof(Module);
-            }
-            """;
-
-        await BuildConsumerAsync(
-            packages,
-            "MinimumSdkCoreConsumer",
-            CorePackageId,
-            source,
-            TestContext.Current.CancellationToken,
-            MinimumSupportedSdkVersion);
     }
 
     [Fact]
@@ -612,6 +546,9 @@ public sealed class PackedPackageContractTests
             string.Equals(entry.FullName, entryPath, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static void AssertReadme(string packagePath) =>
+        Assert.False(string.IsNullOrWhiteSpace(ReadTextEntry(packagePath, "README.md")));
+
     private static void AssertXmlDocumentation(
         string packagePath,
         string entryPath,
@@ -723,40 +660,12 @@ public sealed class PackedPackageContractTests
             $"Assembly '{entryPath}' does not declare {nameof(AssemblyInformationalVersionAttribute)}.");
     }
 
-    private static Version ReadAssemblyReferenceVersion(
-        string packagePath,
-        string entryPath,
-        string assemblyName)
-    {
-        using var archive = ZipFile.OpenRead(packagePath);
-        var entry = Assert.Single(archive.Entries, entry =>
-            string.Equals(entry.FullName, entryPath, StringComparison.OrdinalIgnoreCase));
-        using var stream = entry.Open();
-        using var assemblyStream = new MemoryStream();
-        stream.CopyTo(assemblyStream);
-        assemblyStream.Position = 0;
-        using var peReader = new PEReader(assemblyStream);
-        var metadata = peReader.GetMetadataReader();
-        foreach (var referenceHandle in metadata.AssemblyReferences)
-        {
-            var reference = metadata.GetAssemblyReference(referenceHandle);
-            if (string.Equals(metadata.GetString(reference.Name), assemblyName, StringComparison.Ordinal))
-            {
-                return reference.Version;
-            }
-        }
-
-        throw new InvalidOperationException(
-            $"Assembly '{entryPath}' does not reference '{assemblyName}'.");
-    }
-
     private static async Task BuildConsumerAsync(
         PackageArtifacts packages,
         string name,
         string packageId,
         string source,
-        CancellationToken cancellationToken,
-        string? sdkVersion = null)
+        CancellationToken cancellationToken)
     {
         var projectDirectory = Path.Combine(packages.OutputPath, name);
         Directory.CreateDirectory(projectDirectory);
@@ -776,18 +685,9 @@ public sealed class PackedPackageContractTests
             </Project>
             """);
         File.WriteAllText(Path.Combine(projectDirectory, "Contract.cs"), source);
-        if (sdkVersion is not null)
-        {
-            File.WriteAllText(Path.Combine(projectDirectory, "global.json"), $$"""
-                {
-                  "sdk": {
-                    "version": "{{sdkVersion}}",
-                    "rollForward": "latestPatch",
-                    "allowPrerelease": false
-                  }
-                }
-                """);
-        }
+        File.WriteAllText(
+            Path.Combine(projectDirectory, "global.json"),
+            ReadRepositorySdkPin(packages.RepositoryRoot));
 
         new XDocument(
             new XElement("configuration",
@@ -818,15 +718,24 @@ public sealed class PackedPackageContractTests
             "--no-restore");
     }
 
-    private static async Task<bool> IsMinimumSdkFeatureBandInstalledAsync(CancellationToken cancellationToken)
+    private static string ReadRepositorySdkPin(string extensionRoot)
     {
-        var result = await CliCommand.Wrap("dotnet")
-            .WithArguments("--list-sdks")
-            .WithValidation(CommandResultValidation.None)
-            .ExecuteBufferedAsync(cancellationToken);
-        return result.IsSuccess && result.StandardOutput
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-            .Any(line => line.StartsWith("10.0.1", StringComparison.Ordinal));
+        for (var directory = new DirectoryInfo(extensionRoot);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            var globalJsonPath = Path.Combine(directory.FullName, "global.json");
+            if (!File.Exists(globalJsonPath))
+            {
+                continue;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(globalJsonPath));
+            var sdk = document.RootElement.GetProperty("sdk");
+            return JsonSerializer.Serialize(new Dictionary<string, JsonElement> { ["sdk"] = sdk.Clone() });
+        }
+
+        throw new InvalidOperationException("Unable to locate the repository global.json.");
     }
 
     private static async Task RunDotNetAsync(

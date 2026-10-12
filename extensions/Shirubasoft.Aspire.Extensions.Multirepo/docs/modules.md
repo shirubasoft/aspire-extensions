@@ -129,7 +129,7 @@ See the [remote initialization sample](../samples/RemoteInitialization/README.md
 
 The annotated type must be a top-level, non-generic, static partial class. Resource names must be compile-time strings in recognized `AddProject`, `AddContainer`, or `AddResource<TResource>` calls. The generator reports invalid declarations, unsupported names, generated-member collisions, and inaccessible custom resource types as build diagnostics.
 
-`Version` is an exact contract identifier. Change it when resource names, exposed types, required configuration, endpoints, or materialization behavior become incompatible; a source revision or image rebuild alone does not change the contract. The generator requires .NET SDK 10.0.100 or later.
+`Version` is an exact contract identifier. Change it when resource names, exposed types, required configuration, endpoints, or materialization behavior become incompatible; a source revision or image rebuild alone does not change the contract.
 
 For dynamic contracts, use `DefineModule` or `ExportModule` and the untyped `AddModule`/`ImportModule` APIs. The raw import does not register a definition for you.
 
