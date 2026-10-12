@@ -17,7 +17,7 @@ else
     var quickTunnel = builder.AddCloudflareQuickTunnel("web-tunnel")
         .WithReference(web);
 
-    if (builder.Configuration["Cloudflare:AllowedMail"] is { Length: > 0 } allowedMail)
+    if (builder.Configuration.GetSection("Cloudflare:AllowedMail").Get<string[]>() is { Length: > 0 } allowedMail)
     {
         quickTunnel.WithAllowedMail(allowedMail);
     }

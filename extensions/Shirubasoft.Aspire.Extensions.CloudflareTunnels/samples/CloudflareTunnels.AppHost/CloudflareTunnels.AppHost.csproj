@@ -5,6 +5,7 @@
     <AspireUseCliBundle Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(AspireHostingSDKVersion)', '13.5.0'))">true</AspireUseCliBundle>
   </PropertyGroup>
   <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/Shirubasoft.Aspire.Extensions.CloudflareTunnels/Shirubasoft.Aspire.Extensions.CloudflareTunnels.csproj"
                       IsAspireProjectResource="false" />
   </ItemGroup>

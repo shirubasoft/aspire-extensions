@@ -290,10 +290,21 @@ aspire run --project samples/CloudflareTunnels.AppHost/CloudflareTunnels.AppHost
 
 The sample starts nginx and publishes it through a Quick Tunnel. Open the public URL from the Aspire dashboard.
 
-Set the optional `Cloudflare:AllowedMail` configuration value to protect the sample's Quick Tunnel. The value holds one rule or a comma-separated list:
+Set the `Cloudflare:AllowedMail` array in the sample's `appsettings.json` to protect its Quick Tunnel. Each entry holds one email address or domain wildcard. The checked-in empty array keeps the sample unprotected:
+
+```json
+{
+  "Cloudflare": {
+    "AllowedMail": ["alice@example.com", "*@example.org"]
+  }
+}
+```
+
+Supply array entries through indexed environment variables:
 
 ```bash
-Cloudflare__AllowedMail='alice@example.com,*@example.org' \
+Cloudflare__AllowedMail__0='alice@example.com' \
+Cloudflare__AllowedMail__1='*@example.org' \
   aspire run --project samples/CloudflareTunnels.AppHost/CloudflareTunnels.AppHost.csproj
 ```
 
