@@ -103,7 +103,8 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
                 .WithHttpEndpoint(targetPort: 80);
 
             builder.AddCloudflareQuickTunnel("quick")
-                .WithReference(web);
+                .WithReference(web)
+                .WithAllowedMail("alice@example.com", "*@example.org");
 
             var tunnel = builder.AddCloudflareTunnel("public");
             web.WithCloudflareTunnel(tunnel, "app.example.com", routeName: "web-route");

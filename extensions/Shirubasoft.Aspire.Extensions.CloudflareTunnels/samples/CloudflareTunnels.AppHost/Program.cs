@@ -14,8 +14,13 @@ if (builder.ExecutionContext.IsPublishMode &&
 }
 else
 {
-    builder.AddCloudflareQuickTunnel("web-tunnel")
+    var quickTunnel = builder.AddCloudflareQuickTunnel("web-tunnel")
         .WithReference(web);
+
+    if (builder.Configuration["Cloudflare:AllowedMail"] is { Length: > 0 } allowedMail)
+    {
+        quickTunnel.WithAllowedMail(allowedMail);
+    }
 }
 
 await builder.Build().RunAsync();

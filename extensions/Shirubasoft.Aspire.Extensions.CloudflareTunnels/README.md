@@ -36,6 +36,22 @@ Pass an endpoint name when the target does not use `http`:
 quickTunnel.WithReference(web, endpointName: "admin");
 ```
 
+### Protected Quick Tunnels
+
+`WithAllowedMail` limits a Quick Tunnel to visitors who verify an allowed email address:
+
+```csharp
+builder.AddCloudflareQuickTunnel("web-tunnel")
+    .WithReference(web)
+    .WithAllowedMail("alice@example.com", "*@example.org");
+```
+
+Each rule is an email address or a `*@domain` wildcard that allows every address in that domain. A value can also hold a comma-separated list, such as `"alice@example.com,bob@example.com"`. Repeated calls add rules. Aspire trims and lowercases each rule, ignores duplicates, and passes each rule to `cloudflared` as an `--allowed-mail` argument. Builder calls throw `ArgumentException` for an empty or malformed rule, for a rule longer than 320 bytes, and when the tunnel would have more than 100 rules. Internationalized domains must use their punycode form, such as `*@xn--bcher-kva.example`.
+
+A protected tunnel still needs no Cloudflare account. Visitors open the public URL in a browser, enter an allowed email address, and confirm a one-time PIN that Cloudflare sends to it. Clients that cannot complete this interactive browser flow, such as webhook senders, API clients, and external uptime probes, cannot reach the target. The resource health check reads the local `cloudflared` metrics endpoint and is unaffected. The rules apply to the running Quick Tunnel only, and access ends when the `cloudflared` container stops. Changing the rules requires a new Quick Tunnel, which gets a new public URL.
+
+Recipient rules are container arguments and are visible in the Aspire dashboard and container inspection tools. Protected Quick Tunnels require `cloudflared` 2026.9.2 or later.
+
 ## Named tunnels
 
 A named tunnel can publish several resources under hostnames in a Cloudflare account.
@@ -174,6 +190,13 @@ aspire run --project samples/CloudflareTunnels.AppHost/CloudflareTunnels.AppHost
 ```
 
 The sample starts nginx and publishes it through a Quick Tunnel. Open the public URL from the Aspire dashboard.
+
+Set the optional `Cloudflare:AllowedMail` configuration value to protect the sample's Quick Tunnel. The value holds one rule or a comma-separated list:
+
+```bash
+Cloudflare__AllowedMail='alice@example.com,*@example.org' \
+  aspire run --project samples/CloudflareTunnels.AppHost/CloudflareTunnels.AppHost.csproj
+```
 
 ## Package contents
 

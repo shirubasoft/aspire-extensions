@@ -79,6 +79,7 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
         Assert.Equal(
             ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:60123", "--url"],
             arguments.Take(5).Select(argument => argument.ToString()!).ToArray());
+        Assert.Equal(6, arguments.Count);
         var endpoint = Assert.IsType<EndpointReference>(arguments[5]);
         Assert.Same(web.Resource, endpoint.Resource);
         Assert.Equal("http", endpoint.EndpointName);
@@ -232,7 +233,7 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
         var image = Assert.Single(resource.Annotations.OfType<ContainerImageAnnotation>());
         Assert.Equal("docker.io", image.Registry);
         Assert.Equal("cloudflare/cloudflared", image.Image);
-        Assert.Equal("2026.8.3", image.Tag);
+        Assert.Equal("2026.10.0", image.Tag);
 
         var endpoint = Assert.Single(resource.Annotations.OfType<EndpointAnnotation>());
         Assert.Equal("metrics", endpoint.Name);
