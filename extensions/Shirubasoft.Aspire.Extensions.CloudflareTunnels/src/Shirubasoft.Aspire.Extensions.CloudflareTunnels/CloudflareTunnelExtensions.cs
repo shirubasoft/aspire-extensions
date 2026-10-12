@@ -192,6 +192,45 @@ public static class CloudflareTunnelResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Restricts a Cloudflare Quick Tunnel to visitors who verify an allowed email address.
+    /// </summary>
+    /// <param name="tunnel">The Quick Tunnel resource builder.</param>
+    /// <param name="recipients">
+    /// Email addresses, such as <c>alice@example.com</c>, or domain wildcards, such as
+    /// <c>*@example.com</c>. Each value can contain a comma-separated list of rules.
+    /// </param>
+    /// <returns>The Quick Tunnel resource builder.</returns>
+    /// <remarks>
+    /// <para>
+    /// cloudflared passes each rule with <c>--allowed-mail</c>. Visitors must enter an allowed
+    /// email address in a browser and confirm a one-time PIN sent to that address. Clients that
+    /// cannot complete that interactive browser flow, such as webhook senders, cannot reach the
+    /// protected tunnel.
+    /// </para>
+    /// <para>
+    /// Rules are trimmed and lowercased. Repeated calls add rules, and duplicate rules are
+    /// ignored. A tunnel accepts at most 100 rules, each at most 320 bytes long.
+    /// Internationalized domains must use their punycode form.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">A rule is empty, invalid, or exceeds a limit.</exception>
+    public static IResourceBuilder<CloudflareQuickTunnelResource> WithAllowedMail(
+        this IResourceBuilder<CloudflareQuickTunnelResource> tunnel,
+        params IEnumerable<string> recipients)
+    {
+        ArgumentNullException.ThrowIfNull(tunnel);
+        ArgumentNullException.ThrowIfNull(recipients);
+
+        var existing = tunnel.Resource.Annotations
+            .OfType<CloudflareQuickTunnelAllowedMailAnnotation>()
+            .SingleOrDefault()?.Rules ?? [];
+        return tunnel.WithAnnotation(
+            new CloudflareQuickTunnelAllowedMailAnnotation(
+                CloudflareQuickTunnelAllowedMail.Merge(existing, recipients)),
+            ResourceAnnotationMutationBehavior.Replace);
+    }
+
+    /// <summary>
     /// Publishes a resource endpoint through a named Cloudflare Tunnel.
     /// </summary>
     /// <typeparam name="T">The target resource type.</typeparam>
@@ -433,6 +472,14 @@ public static class CloudflareTunnelResourceBuilderExtensions
         context.Args.Add($"0.0.0.0:{CloudflareTunnelContainerDefaults.MetricsPort}");
         context.Args.Add("--url");
         context.Args.Add(endpoint);
+
+        foreach (var rule in tunnel.Annotations
+            .OfType<CloudflareQuickTunnelAllowedMailAnnotation>()
+            .SelectMany(annotation => annotation.Rules))
+        {
+            context.Args.Add("--allowed-mail");
+            context.Args.Add(rule);
+        }
     }
 
     private static Task PublishStatesAsync(

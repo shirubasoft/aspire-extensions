@@ -103,7 +103,8 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
                 .WithHttpEndpoint(targetPort: 80);
 
             builder.AddCloudflareQuickTunnel("quick")
-                .WithReference(web);
+                .WithReference(web)
+                .WithAllowedMail("alice@example.com", "*@example.org");
 
             var tunnel = builder.AddCloudflareTunnel("public");
             web.WithCloudflareTunnel(tunnel, "app.example.com", routeName: "web-route");
@@ -135,7 +136,8 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
             "--configuration",
             "Release",
             "--configfile",
-            nugetConfig);
+            nugetConfig,
+            $"-p:RestorePackagesPath={workspace.CreateDirectory("consumer-packages")}");
     }
 
     private static async Task<PackageArtifacts> GetArtifactsAsync(
