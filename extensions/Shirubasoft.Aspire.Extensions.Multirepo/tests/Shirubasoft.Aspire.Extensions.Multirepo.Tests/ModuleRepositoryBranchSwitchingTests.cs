@@ -20,7 +20,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var alpha = await workspace.CloneAsync("alpha", "feature/x");
         var bravo = await workspace.CloneAsync("bravo", "feature/x");
         await GitAsync(bravo.RepositoryPath, "branch", "--track", "feature/x", "origin/feature/x");
-        await workspace.PushCommitAsync("bravo", "feature/x");
         var charlie = await workspace.CloneAsync("charlie");
         var delta = await workspace.CloneAsync("delta", "feature/x");
         await File.WriteAllTextAsync(Path.Combine(delta.RepositoryPath, "notes.txt"), "work in progress", TestContext.Current.CancellationToken);
@@ -30,7 +29,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         {
             inputs[0].Value = "feature/x";
             inputs[3].Value = "main";
-            inputs[^1].Value = bool.TrueString;
         });
 
         var result = await ExecuteAsync(interaction, alpha, bravo, charlie, delta, echo, foxtrot);
@@ -39,12 +37,12 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal("Branch switch complete.", result.Message);
         var inputs = interaction.Inputs!;
         Assert.Equal(
-            ["all", "repository-0", "repository-1", "repository-2", "repository-3", "repository-4", "repository-5", "fast-forward"],
+            ["all", "repository-0", "repository-1", "repository-2", "repository-3", "repository-4", "repository-5"],
             inputs.Select(input => input.Name));
         Assert.Equal(
             [KeyValuePair.Create("main", "main (in 3 of 3)"), KeyValuePair.Create("feature/x", "feature/x (in 2 of 3)")],
             inputs[0].Options);
-        Assert.All(inputs.SkipLast(1), input => Assert.True(input.AllowCustomChoice));
+        Assert.All(inputs, input => Assert.True(input.AllowCustomChoice));
         Assert.Equal("alpha", inputs[1].Label);
         Assert.Equal(
             [KeyValuePair.Create("main", "main (current)"), KeyValuePair.Create("feature/x", "feature/x (from origin)")],
@@ -61,15 +59,18 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             """
             **Will change**
 
-            - **alpha**: `main` → `feature/x`, a new local branch tracking `origin/feature/x`, then fast-forward to upstream
-            - **bravo**: `main` → `feature/x`, then fast-forward to upstream
-            - **charlie**: Stays on `main`, then fast-forward to upstream
+            - **alpha**: `main` → `feature/x`, a new local branch tracking `origin/feature/x`
+            - **bravo**: `main` → `feature/x`
 
             **Skipped**
 
             - **delta**: Has uncommitted changes; commit or stash them first.
             - **echo**: Pinned to revision `v1`; change `RepositoryRevision` to move it.
             - **foxtrot**: Not initialized; run `aspire do initialize` first.
+
+            **Unchanged**
+
+            - **charlie**: On `main`.
             """,
             interaction.ConfirmationMessage,
             ignoreLineEndingDifferences: true);
@@ -78,9 +79,9 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal(CommandResultFormat.Markdown, result.Data.Format);
         Assert.Equal(
             """
-            - **alpha** (done): `main` → `feature/x`, a new local branch tracking `origin/feature/x`, then fast-forward to upstream
-            - **bravo** (done): `main` → `feature/x`, then fast-forward to upstream
-            - **charlie** (done): Stays on `main`, then fast-forward to upstream
+            - **alpha** (done): `main` → `feature/x`, a new local branch tracking `origin/feature/x`
+            - **bravo** (done): `main` → `feature/x`
+            - **charlie** (unchanged): On `main`.
             - **delta** (skipped): Has uncommitted changes; commit or stash them first.
             - **echo** (skipped): Pinned to revision `v1`; change `RepositoryRevision` to move it.
             - **foxtrot** (skipped): Not initialized; run `aspire do initialize` first.
@@ -91,9 +92,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             ignoreLineEndingDifferences: true);
         Assert.Equal("feature/x", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("origin/feature/x", await GitAsync(alpha.RepositoryPath, "rev-parse", "--abbrev-ref", "@{upstream}"));
-        Assert.Equal(
-            await GitAsync(bravo.RepositoryPath, "rev-parse", "origin/feature/x"),
-            await GitAsync(bravo.RepositoryPath, "rev-parse", "HEAD"));
+        Assert.Equal("feature/x", await GitAsync(bravo.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("main", await GitAsync(charlie.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("main", await GitAsync(delta.RepositoryPath, "branch", "--show-current"));
         Assert.True(File.Exists(Path.Combine(delta.RepositoryPath, "notes.txt")));
@@ -151,22 +150,13 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     {
         using var workspace = BranchWorkspace.Create();
         var locked = await workspace.CloneAsync("alpha", "feature/x");
-        var diverged = await workspace.CloneAsync("bravo", "feature/x");
-        await GitAsync(diverged.RepositoryPath, "switch", "--create", "feature/x", "--track", "origin/feature/x");
-        await CommitFileAsync(diverged.RepositoryPath, "local.txt", "local");
-        await GitAsync(diverged.RepositoryPath, "switch", "main");
-        await workspace.PushCommitAsync("bravo", "feature/x");
-        var edited = await workspace.CloneAsync("charlie", "feature/x");
-        var unreadable = await workspace.CloneAsync("delta", "feature/x");
-        var uninspectable = await workspace.CloneAsync("echo", "feature/x");
-        var removed = await workspace.CloneAsync("foxtrot", "feature/x");
+        var edited = await workspace.CloneAsync("bravo", "feature/x");
+        var unreadable = await workspace.CloneAsync("charlie", "feature/x");
+        var uninspectable = await workspace.CloneAsync("delta", "feature/x");
+        var removed = await workspace.CloneAsync("echo", "feature/x");
         await File.WriteAllTextAsync(Path.Combine(uninspectable.RepositoryPath, ".git", "index"), "corrupt", TestContext.Current.CancellationToken);
         var interaction = new ScriptedInteractionService(
-            inputs =>
-            {
-                inputs[0].Value = "feature/x";
-                inputs[^1].Value = bool.TrueString;
-            },
+            inputs => inputs[0].Value = "feature/x",
             onConfirm: () =>
             {
                 File.WriteAllText(Path.Combine(locked.RepositoryPath, ".git", "index.lock"), string.Empty);
@@ -176,22 +166,19 @@ public sealed class ModuleRepositoryBranchSwitchingTests
                 return Task.CompletedTask;
             });
 
-        var result = await ExecuteAsync(interaction, locked, diverged, edited, unreadable, uninspectable, removed);
+        var result = await ExecuteAsync(interaction, locked, edited, unreadable, uninspectable, removed);
 
         Assert.False(result.Success);
         Assert.Equal("Branch switch needs attention.", result.Message);
         var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
         Assert.StartsWith("- **alpha** (needs attention): On `main`. Switch failed: ", details[0], StringComparison.Ordinal);
         Assert.Contains("index.lock", details[0], StringComparison.Ordinal);
-        Assert.StartsWith("- **bravo** (needs attention): On `feature/x`. Fast-forward failed: fatal: ", details[1], StringComparison.Ordinal);
-        Assert.Equal("- **charlie** (needs attention): On `main`. Has uncommitted changes; commit or stash them first.", details[2]);
-        Assert.StartsWith("- **delta** (needs attention): Couldn't read the checkout: ", details[3], StringComparison.Ordinal);
-        Assert.StartsWith("- **echo** (skipped): Couldn't read the checkout: ", details[4], StringComparison.Ordinal);
-        Assert.StartsWith("- **foxtrot** (needs attention): Couldn't read the checkout: ", details[5], StringComparison.Ordinal);
-        Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
+        Assert.Equal("- **bravo** (needs attention): On `main`. Has uncommitted changes; commit or stash them first.", details[1]);
+        Assert.StartsWith("- **charlie** (needs attention): Couldn't read the checkout: ", details[2], StringComparison.Ordinal);
+        Assert.StartsWith("- **delta** (skipped): Couldn't read the checkout: ", details[3], StringComparison.Ordinal);
+        Assert.StartsWith("- **echo** (needs attention): Couldn't read the checkout: ", details[4], StringComparison.Ordinal);
+        Assert.Equal(5, details.Length);
         Assert.Equal("main", await GitAsync(locked.RepositoryPath, "branch", "--show-current"));
-        Assert.Equal("feature/x", await GitAsync(diverged.RepositoryPath, "branch", "--show-current"));
-        Assert.Equal("Add local.txt", await GitAsync(diverged.RepositoryPath, "log", "-1", "--format=%s"));
         Assert.Equal("main", await GitAsync(edited.RepositoryPath, "branch", "--show-current"));
         Assert.True(File.Exists(Path.Combine(edited.RepositoryPath, "draft.txt")));
     }
@@ -201,21 +188,14 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     {
         using var workspace = BranchWorkspace.Create();
         var alpha = await workspace.CloneAsync("alpha", "feature/x");
-        await GitAsync(alpha.RepositoryPath, "branch", "--track", "feature/x", "origin/feature/x");
-        var moved = await GitAsync(alpha.RepositoryPath, "rev-parse", "feature/x");
-        await workspace.PushCommitAsync("alpha", "feature/x");
         var gate = new ModuleRepositoryBranchSwitchGate();
         ExecuteCommandResult? overlapping = null;
         var interaction = new ScriptedInteractionService(
-            inputs =>
-            {
-                inputs[0].Value = "main";
-                inputs[^1].Value = bool.TrueString;
-            },
+            inputs => inputs[0].Value = "feature/x",
             onConfirm: async () =>
             {
                 overlapping = await ExecuteAsync(new ScriptedInteractionService(null), gate, alpha);
-                await GitAsync(alpha.RepositoryPath, "switch", "feature/x");
+                await GitAsync(alpha.RepositoryPath, "switch", "--create", "other");
             });
 
         var result = await ExecuteAsync(interaction, gate, alpha);
@@ -225,43 +205,27 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal("A branch switch is already in progress.", overlapping.Message);
         Assert.False(result.Success);
         Assert.Equal(
-            "- **alpha** (needs attention): On `feature/x`. Was on `main` when you reviewed the plan, so nothing changed.",
+            "- **alpha** (needs attention): On `other`. Was on `main` when you reviewed the plan, so nothing changed.",
             result.Data?.Value);
-        Assert.Equal(moved, await GitAsync(alpha.RepositoryPath, "rev-parse", "HEAD"));
+        Assert.Equal("other", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
         Assert.True((await ExecuteAsync(new ScriptedInteractionService(null), gate, alpha)).Canceled);
     }
 
     [Fact]
-    public async Task Outcomes_report_the_checkout_that_hooks_leave_behind()
+    public async Task Outcomes_report_where_hooks_leave_the_checkout()
     {
         using var workspace = BranchWorkspace.Create();
         var failing = await workspace.CloneAsync("alpha", "feature/x");
         await InstallPostCheckoutHookAsync(failing.RepositoryPath, "echo post-checkout failed >&2; exit 1");
-        var editing = await workspace.CloneAsync("bravo", "feature/x");
-        await GitAsync(editing.RepositoryPath, "branch", "--track", "feature/x", "origin/feature/x");
-        var reviewed = await GitAsync(editing.RepositoryPath, "rev-parse", "feature/x");
-        await workspace.PushCommitAsync("bravo", "feature/x");
-        await GitAsync(editing.RepositoryPath, "config", "merge.autoStash", "true");
-        await InstallPostCheckoutHookAsync(editing.RepositoryPath, "echo hook >> README.md");
-        var interaction = new ScriptedInteractionService(inputs =>
-        {
-            inputs[0].Value = "feature/x";
-            inputs[^1].Value = bool.TrueString;
-        });
+        var interaction = new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x");
 
-        var result = await ExecuteAsync(interaction, failing, editing);
+        var result = await ExecuteAsync(interaction, failing);
 
         Assert.False(result.Success);
         var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
         Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `feature/x`\. Switch failed: .*post-checkout failed$", details[0]);
-        Assert.Equal(
-            "- **bravo** (needs attention): On `feature/x`. Fast-forward skipped. Has uncommitted changes; commit or stash them first.",
-            details[1]);
         Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
         Assert.Equal("feature/x", await GitAsync(failing.RepositoryPath, "branch", "--show-current"));
-        Assert.Equal(reviewed, await GitAsync(editing.RepositoryPath, "rev-parse", "HEAD"));
-        Assert.Equal("M README.md", await GitAsync(editing.RepositoryPath, "status", "--porcelain"));
-        Assert.Empty(await GitAsync(editing.RepositoryPath, "stash", "list"));
     }
 
     [Fact]
@@ -297,36 +261,20 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     public async Task Ignored_files_that_the_selected_branch_tracks_are_kept()
     {
         using var workspace = BranchWorkspace.Create();
-        var switching = await workspace.CloneAsync("alpha");
-        await CommitFileAsync(switching.RepositoryPath, ".gitignore", "local.env\n");
-        await GitAsync(switching.RepositoryPath, "switch", "--create", "feature/x");
-        await CommitFileAsync(switching.RepositoryPath, "local.env", "tracked");
-        await GitAsync(switching.RepositoryPath, "push", "origin", "main", "feature/x");
-        await GitAsync(switching.RepositoryPath, "switch", "main");
-        var updating = await workspace.CloneAsync("bravo");
-        await CommitFileAsync(updating.RepositoryPath, ".gitignore", "local.env\n");
-        var reviewed = await GitAsync(updating.RepositoryPath, "rev-parse", "HEAD");
-        await CommitFileAsync(updating.RepositoryPath, "local.env", "tracked");
-        await GitAsync(updating.RepositoryPath, "push", "origin", "main");
-        await GitAsync(updating.RepositoryPath, "reset", "--hard", reviewed);
-        string[] localFiles = [Path.Combine(switching.RepositoryPath, "local.env"), Path.Combine(updating.RepositoryPath, "local.env")];
-        await Task.WhenAll(localFiles.Select(file => File.WriteAllTextAsync(file, "local work", TestContext.Current.CancellationToken)));
-        var interaction = new ScriptedInteractionService(inputs =>
-        {
-            inputs[1].Value = "feature/x";
-            inputs[2].Value = "main";
-            inputs[^1].Value = bool.TrueString;
-        });
+        var alpha = await workspace.CloneAsync("alpha");
+        await CommitFileAsync(alpha.RepositoryPath, ".gitignore", "local.env\n");
+        await GitAsync(alpha.RepositoryPath, "switch", "--create", "feature/x");
+        await CommitFileAsync(alpha.RepositoryPath, "local.env", "tracked");
+        await GitAsync(alpha.RepositoryPath, "switch", "main");
+        var localFile = Path.Combine(alpha.RepositoryPath, "local.env");
+        await File.WriteAllTextAsync(localFile, "local work", TestContext.Current.CancellationToken);
 
-        var result = await ExecuteAsync(interaction, switching, updating);
+        var result = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x"), alpha);
 
         Assert.False(result.Success);
-        var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
-        Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): .*Switch failed: .*local\.env", details[0]);
-        Assert.Matches(@"^- \*\*bravo\*\* \(needs attention\): .*Fast-forward failed: .*local\.env", details[1]);
-        Assert.Equal("main", await GitAsync(switching.RepositoryPath, "branch", "--show-current"));
-        Assert.Equal(reviewed, await GitAsync(updating.RepositoryPath, "rev-parse", "HEAD"));
-        Assert.All(localFiles, file => Assert.Equal("local work", File.ReadAllText(file)));
+        Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `main`\. Switch failed: .*local\.env", result.Data?.Value);
+        Assert.Equal("main", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal("local work", await File.ReadAllTextAsync(localFile, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -339,25 +287,19 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var onMain = new ModuleRepositoryBranchStatus(requirement, "main", ["main"], ["main", "feature/x"], "On `main`.");
         var detached = onMain with { CurrentBranch = null, Location = "Detached HEAD." };
 
-        Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, null, fastForward: true).Change);
-        Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, "main", fastForward: false).Change);
-        var update = ModuleRepositoryBranchSwitching.Plan(onMain, "main", fastForward: true);
-        Assert.Equal((ModuleRepositoryBranchChange.Change, "Stays on `main`, then fast-forward to upstream", 0), (update.Change, update.Summary, update.SwitchArguments.Count));
-        var track = ModuleRepositoryBranchSwitching.Plan(detached, "feature/x", fastForward: false);
+        Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, null).Change);
+        Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, "main").Change);
+        var track = ModuleRepositoryBranchSwitching.Plan(detached, "feature/x");
         Assert.Equal("Detached HEAD → `feature/x`, a new local branch tracking `origin/feature/x`", track.Summary);
         Assert.Equal(["switch", "--no-overwrite-ignore", "--create", "feature/x", "--track", "origin/feature/x"], track.SwitchArguments);
-        Assert.Equal(["switch", "--no-overwrite-ignore", "main"], ModuleRepositoryBranchSwitching.Plan(detached, "main", fastForward: false).SwitchArguments);
-        Assert.Equal("No `feature/y` branch locally or on origin.", ModuleRepositoryBranchSwitching.Plan(onMain, "feature/y", fastForward: false).Summary);
+        Assert.Equal(["switch", "--no-overwrite-ignore", "main"], ModuleRepositoryBranchSwitching.Plan(detached, "main").SwitchArguments);
+        Assert.Equal("No `feature/y` branch locally or on origin.", ModuleRepositoryBranchSwitching.Plan(onMain, "feature/y").Summary);
     }
 
     [Fact]
     public async Task Selection_requires_at_least_one_branch()
     {
-        var inputs = new[]
-        {
-            new InteractionInput { Name = ModuleRepositoryBranchSwitching.AllInputName, InputType = InputType.Choice },
-            new InteractionInput { Name = ModuleRepositoryBranchSwitching.FastForwardInputName, InputType = InputType.Boolean, Value = bool.TrueString }
-        };
+        var inputs = new[] { new InteractionInput { Name = ModuleRepositoryBranchSwitching.AllInputName, InputType = InputType.Choice } };
 
         Assert.True(await HasValidationErrorsAsync(ModuleRepositoryBranchSwitching.ValidateSelection, inputs));
         inputs[0].Value = "main";

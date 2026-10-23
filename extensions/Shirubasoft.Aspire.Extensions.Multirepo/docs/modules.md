@@ -110,7 +110,6 @@ Nothing changes until you confirm the plan the command shows:
 - A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it. Submodules then move to the commits the branch records.
 - Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
 - Just before changing a repository, the command checks again that it is on the reviewed branch and has no uncommitted changes. Git refuses to overwrite untracked or ignored files.
-- **Fast-forward to upstream** then fast-forwards each chosen branch if its checkout is still clean. It never creates merge commits, rebases, stashes, or discards work.
 
 The result lists each repository's outcome and where its checkout ended up. Restart or rebuild the resources from changed repositories to run their new source.
 

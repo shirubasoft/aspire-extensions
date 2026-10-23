@@ -35,8 +35,7 @@ internal sealed record ModuleRepositoryBranchPlanItem(
     ModuleRepositoryBranchStatus Repository,
     ModuleRepositoryBranchChange Change,
     string Summary,
-    IReadOnlyList<string> SwitchArguments,
-    bool FastForward = false);
+    IReadOnlyList<string>? SwitchArguments = null);
 
 internal sealed record ModuleRepositoryBranchOutcome(string Repository, string Status, string Detail, bool Changed = false);
 
@@ -54,7 +53,6 @@ internal static class ModuleRepositoryBranchSwitching
 {
     internal const string CommandName = "switch-module-branches";
     internal const string AllInputName = "all";
-    internal const string FastForwardInputName = "fast-forward";
     internal const string DirtyBlocker = "Has uncommitted changes; commit or stash them first.";
 
     private const string AttentionStatus = "needs attention";
@@ -129,7 +127,7 @@ internal static class ModuleRepositoryBranchSwitching
         {
             return CommandResults.Failure(
                 "No module repository can switch branches.",
-                CreateDetails(FormatPlan(repositories.Select(repository => Plan(repository, null, fastForward: false)))));
+                CreateDetails(FormatPlan(repositories.Select(repository => Plan(repository, null)))));
         }
 
         var selection = await interaction.PromptInputsAsync(
@@ -176,16 +174,7 @@ internal static class ModuleRepositoryBranchSwitching
                         $"{group.Key} (in {group.Count()} of {switchable.Length})"))
                     .ToArray()
             },
-            .. repositories.Select(CreateRepositoryInput),
-            new InteractionInput
-            {
-                Name = FastForwardInputName,
-                Label = "Fast-forward to upstream",
-                Description = "After switching, fast-forwards each branch to its upstream. " +
-                    "Never creates merge commits, rebases, stashes, or discards work.",
-                InputType = InputType.Boolean,
-                Value = bool.FalseString
-            }
+            .. repositories.Select(CreateRepositoryInput)
         ];
     }
 
@@ -224,7 +213,7 @@ internal static class ModuleRepositoryBranchSwitching
 
     internal static Task ValidateSelection(InputsDialogValidationContext context)
     {
-        if (context.Inputs.All(input => input.InputType != InputType.Choice || string.IsNullOrEmpty(input.Value)))
+        if (context.Inputs.All(input => string.IsNullOrEmpty(input.Value)))
         {
             context.AddValidationError(
                 AllInputName,
@@ -239,48 +228,30 @@ internal static class ModuleRepositoryBranchSwitching
         InteractionInputCollection inputs)
     {
         var all = GetSelectedBranch(inputs, AllInputName);
-        _ = bool.TryParse(inputs[FastForwardInputName].Value, out var fastForward);
         return repositories
-            .Select((repository, index) => Plan(
-                repository,
-                GetSelectedBranch(inputs, GetRepositoryInputName(index)) ?? all,
-                fastForward))
+            .Select((repository, index) => Plan(repository, GetSelectedBranch(inputs, GetRepositoryInputName(index)) ?? all))
             .ToArray();
     }
 
     private static string? GetSelectedBranch(InteractionInputCollection inputs, string name) =>
         string.IsNullOrWhiteSpace(inputs[name].Value) ? null : inputs[name].Value!.Trim();
 
-    internal static ModuleRepositoryBranchPlanItem Plan(
-        ModuleRepositoryBranchStatus repository,
-        string? branch,
-        bool fastForward) =>
-        IsUnchanged(repository, branch, fastForward)
-            ? new(repository, ModuleRepositoryBranchChange.Keep, repository.Description, [])
+    internal static ModuleRepositoryBranchPlanItem Plan(ModuleRepositoryBranchStatus repository, string? branch) =>
+        IsUnchanged(repository, branch)
+            ? new(repository, ModuleRepositoryBranchChange.Keep, repository.Description)
             : repository.Blocker is null
-                ? PlanChange(repository, branch, fastForward)
-                : new(repository, ModuleRepositoryBranchChange.Skip, repository.Blocker, []);
+                ? PlanChange(repository, branch)
+                : new(repository, ModuleRepositoryBranchChange.Skip, repository.Blocker);
 
-    private static bool IsUnchanged(
-        ModuleRepositoryBranchStatus repository,
-        [NotNullWhen(false)] string? branch,
-        bool fastForward) =>
-        branch is null || (IsCurrent(repository, branch) && !fastForward);
+    private static bool IsUnchanged(ModuleRepositoryBranchStatus repository, [NotNullWhen(false)] string? branch) =>
+        branch is null || IsCurrent(repository, branch);
 
-    private static ModuleRepositoryBranchPlanItem PlanChange(
-        ModuleRepositoryBranchStatus repository,
-        string branch,
-        bool fastForward)
+    private static ModuleRepositoryBranchPlanItem PlanChange(ModuleRepositoryBranchStatus repository, string branch)
     {
-        if (IsCurrent(repository, branch))
-        {
-            return Change(repository, $"Stays on `{branch}`", [], fastForward);
-        }
-
         var from = FormatBranch(repository.CurrentBranch);
         return repository.LocalBranches.Contains(branch, StringComparer.Ordinal)
-            ? Change(repository, $"{from} → `{branch}`", ["switch", "--no-overwrite-ignore", branch], fastForward)
-            : PlanTrackingBranch(repository, branch, from, fastForward);
+            ? Change(repository, $"{from} → `{branch}`", [branch])
+            : PlanTrackingBranch(repository, branch, from);
     }
 
     private static string FormatBranch(string? branch) => branch is null ? "Detached HEAD" : $"`{branch}`";
@@ -288,27 +259,19 @@ internal static class ModuleRepositoryBranchSwitching
     private static ModuleRepositoryBranchPlanItem PlanTrackingBranch(
         ModuleRepositoryBranchStatus repository,
         string branch,
-        string from,
-        bool fastForward) =>
+        string from) =>
         repository.RemoteBranches.Contains(branch, StringComparer.Ordinal)
             ? Change(
                 repository,
                 $"{from} → `{branch}`, a new local branch tracking `origin/{branch}`",
-                ["switch", "--no-overwrite-ignore", "--create", branch, "--track", $"origin/{branch}"],
-                fastForward)
-            : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.", []);
+                ["--create", branch, "--track", $"origin/{branch}"])
+            : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.");
 
     private static ModuleRepositoryBranchPlanItem Change(
         ModuleRepositoryBranchStatus repository,
         string summary,
-        IReadOnlyList<string> switchArguments,
-        bool fastForward) =>
-        new(
-            repository,
-            ModuleRepositoryBranchChange.Change,
-            fastForward ? $"{summary}, then fast-forward to upstream" : summary,
-            switchArguments,
-            fastForward);
+        string[] arguments) =>
+        new(repository, ModuleRepositoryBranchChange.Change, summary, ["switch", "--no-overwrite-ignore", .. arguments]);
 
     private static string FormatPlan(IEnumerable<ModuleRepositoryBranchPlanItem> plan) =>
         string.Join(
@@ -384,9 +347,6 @@ internal static class ModuleRepositoryBranchSwitching
             ["GIT_TERMINAL_PROMPT"] = "0",
             ["GCM_INTERACTIVE"] = "never"
         };
-
-        private static readonly string[] FastForwardArguments =
-            ["merge", "--ff-only", "--no-autostash", "--no-overwrite-ignore", "@{upstream}"];
 
         public CancellationToken CancellationToken => cancellationToken;
 
@@ -505,37 +465,14 @@ internal static class ModuleRepositoryBranchSwitching
                 ? null
                 : $"Was on {FormatBranch(item.Repository.CurrentBranch)} when you reviewed the plan, so nothing changed.");
 
-        private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
-        {
-            var error = await RunStepAsync(item.Repository.Requirement, "Switch", item.SwitchArguments)
-                .ConfigureAwait(false);
-            return error ?? await FastForwardAsync(item).ConfigureAwait(false);
-        }
-
-        private async Task<string?> FastForwardAsync(ModuleRepositoryBranchPlanItem item)
-        {
-            if (!item.FastForward)
-            {
-                return null;
-            }
-
-            // Hooks can edit the checkout after the switch, so check it again right before merging.
-            var state = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
-            return state.Blocker is null
-                ? await RunStepAsync(item.Repository.Requirement, "Fast-forward", FastForwardArguments).ConfigureAwait(false)
-                : $"Fast-forward skipped. {state.Blocker}";
-        }
+        private Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item) =>
+            RunStepAsync(item.Repository.Requirement, "Switch", item.SwitchArguments!);
 
         private async Task<string?> RunStepAsync(
             ModuleRepositoryRequirement requirement,
             string step,
             IReadOnlyList<string> arguments)
         {
-            if (arguments.Count == 0)
-            {
-                return null;
-            }
-
             // Move submodules to the commits the new HEAD records, the same way initialization does.
             var error = FormatFailure(
                 step,
