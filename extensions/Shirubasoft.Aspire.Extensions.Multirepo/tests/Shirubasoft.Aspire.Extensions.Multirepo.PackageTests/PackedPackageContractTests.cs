@@ -411,7 +411,7 @@ public sealed class PackedPackageContractTests
         Assert.Contains("partial class InventoryModule", source, StringComparison.Ordinal);
         Assert.Contains("public const string Name = \"inventory\";", source, StringComparison.Ordinal);
         Assert.Contains("Version = \"1\"", source, StringComparison.Ordinal);
-        Assert.Contains("module.AddContainer(ApiResourceName, \"nginx\", \"alpine\")", source, StringComparison.Ordinal);
+        Assert.Contains("module.AddContainer(ApiResourceName, \"docker.io/library/nginx\", \"alpine\")", source, StringComparison.Ordinal);
         Assert.Contains("targetPort: 80", source, StringComparison.Ordinal);
         Assert.DoesNotContain("catalog-module-name", source, StringComparison.Ordinal);
 

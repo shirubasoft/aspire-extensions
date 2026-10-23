@@ -74,7 +74,7 @@ public static partial class AppHostAModule
                     .WithExplicitStart());
 #pragma warning restore ASPIRECSHARPAPPS001
 
-            module.AddContainer(StaticResourceName, "busybox", "1.38")
+            module.AddContainer(StaticResourceName, "docker.io/library/busybox", "1.38")
                 .Configure((context, container) =>
                 {
                     var message = context.GetResource<ParameterResource>(MessageResourceName);
