@@ -71,6 +71,8 @@ public sealed class PackedPackageContractTests
         {
             var metadata = ReadMetadata(packagePath);
             Assert.Equal("MIT", metadata.LicenseExpression);
+            Assert.Equal("icon.png", metadata.Icon);
+            Assert.True(ContainsEntry(packagePath, "icon.png"));
             Assert.Equal("https://github.com/Shirubasoft/aspire-extensions.git", metadata.RepositoryUrl);
             Assert.False(string.IsNullOrWhiteSpace(metadata.RepositoryCommit));
         }
@@ -532,9 +534,11 @@ public sealed class PackedPackageContractTests
         var document = XDocument.Load(stream);
         var metadata = Assert.Single(document.Descendants(), element => element.Name.LocalName == "metadata");
         var license = Assert.Single(metadata.Elements(), element => element.Name.LocalName == "license");
+        var icon = Assert.Single(metadata.Elements(), element => element.Name.LocalName == "icon");
         var repository = Assert.Single(metadata.Elements(), element => element.Name.LocalName == "repository");
         return new PackageMetadata(
             license.Value,
+            icon.Value,
             (string?)repository.Attribute("url") ?? string.Empty,
             (string?)repository.Attribute("commit") ?? string.Empty);
     }
@@ -804,6 +808,7 @@ public sealed class PackedPackageContractTests
 
     private sealed record PackageMetadata(
         string LicenseExpression,
+        string Icon,
         string RepositoryUrl,
         string RepositoryCommit);
 }
