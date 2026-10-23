@@ -381,7 +381,7 @@ internal static class ModuleRepositoryBranchSwitching
     private sealed class GitSession(ModuleRepositoryInitializationSettings settings, CancellationToken cancellationToken)
     {
         private static readonly string[] FastForwardArguments =
-            ["merge", "--ff-only", "--no-overwrite-ignore", "@{upstream}"];
+            ["merge", "--ff-only", "--no-autostash", "--no-overwrite-ignore", "@{upstream}"];
 
         public CancellationToken CancellationToken => cancellationToken;
 
@@ -499,10 +499,21 @@ internal static class ModuleRepositoryBranchSwitching
         {
             var error = await RunStepAsync(item.Repository.Requirement, "Switch", item.SwitchArguments)
                 .ConfigureAwait(false);
-            return error ?? await RunStepAsync(
-                item.Repository.Requirement,
-                "Fast-forward",
-                item.FastForward ? FastForwardArguments : []).ConfigureAwait(false);
+            return error ?? await FastForwardAsync(item).ConfigureAwait(false);
+        }
+
+        private async Task<string?> FastForwardAsync(ModuleRepositoryBranchPlanItem item)
+        {
+            if (!item.FastForward)
+            {
+                return null;
+            }
+
+            // Hooks can edit the checkout after the switch, so check it again right before merging.
+            var state = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
+            return state.Blocker is null
+                ? await RunStepAsync(item.Repository.Requirement, "Fast-forward", FastForwardArguments).ConfigureAwait(false)
+                : $"Fast-forward skipped. {state.Blocker}";
         }
 
         private async Task<string?> RunStepAsync(

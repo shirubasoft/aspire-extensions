@@ -219,14 +219,31 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         using var workspace = BranchWorkspace.Create();
         var failing = await workspace.CloneAsync("alpha", "feature/x");
         await InstallPostCheckoutHookAsync(failing.RepositoryPath, "echo post-checkout failed >&2; exit 1");
+        var editing = await workspace.CloneAsync("bravo", "feature/x");
+        await GitAsync(editing.RepositoryPath, "branch", "--track", "feature/x", "origin/feature/x");
+        var reviewed = await GitAsync(editing.RepositoryPath, "rev-parse", "feature/x");
+        await workspace.PushCommitAsync("bravo", "feature/x");
+        await GitAsync(editing.RepositoryPath, "config", "merge.autoStash", "true");
+        await InstallPostCheckoutHookAsync(editing.RepositoryPath, "echo hook >> README.md");
+        var interaction = new ScriptedInteractionService(inputs =>
+        {
+            inputs[0].Value = "feature/x";
+            inputs[^1].Value = bool.TrueString;
+        });
 
-        var result = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x"), failing);
+        var result = await ExecuteAsync(interaction, failing, editing);
 
         Assert.False(result.Success);
         var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
         Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `feature/x`\. Switch failed: .*post-checkout failed$", details[0]);
+        Assert.Equal(
+            "- **bravo** (needs attention): On `feature/x`. Fast-forward skipped. Has uncommitted changes; commit or stash them first.",
+            details[1]);
         Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
         Assert.Equal("feature/x", await GitAsync(failing.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal(reviewed, await GitAsync(editing.RepositoryPath, "rev-parse", "HEAD"));
+        Assert.Equal("M README.md", await GitAsync(editing.RepositoryPath, "status", "--porcelain"));
+        Assert.Empty(await GitAsync(editing.RepositoryPath, "stash", "list"));
     }
 
     [Fact]
