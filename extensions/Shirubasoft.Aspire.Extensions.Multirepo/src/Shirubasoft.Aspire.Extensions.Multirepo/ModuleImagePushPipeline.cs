@@ -70,20 +70,13 @@ internal static class ModuleImagePushPipeline
         ];
     }
 
-    private static bool ShouldSkipPushStep(IResource resource)
-    {
-        if (resource.IsExcludedFromPublish())
-        {
-            return true;
-        }
+    private static bool ShouldSkipPushStep(IResource resource) =>
+        resource.IsExcludedFromPublish() || (HasNoModulePushTarget(resource) && RejectPushTargets(resource));
 
-        var skip = !resource.Annotations.OfType<ModuleImagePublisherAnnotation>().Any()
-            || RequiresBuildOrHasNoPushTarget(resource);
-        return skip && RejectPushTargets(resource);
-    }
-
-    private static bool RequiresBuildOrHasNoPushTarget(IResource resource) =>
-        resource.RequiresImageBuildAndPush() || !ModuleEffectiveImageResolver.HasPushTarget(resource);
+    private static bool HasNoModulePushTarget(IResource resource) =>
+        !resource.Annotations.OfType<ModuleImagePublisherAnnotation>().Any() ||
+        resource.RequiresImageBuildAndPush() ||
+        !ModuleEffectiveImageResolver.HasPushTarget(resource);
 
     private static bool RejectPushTargets(IResource resource)
     {
