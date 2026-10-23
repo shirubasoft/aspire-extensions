@@ -60,8 +60,9 @@ internal static class TigerBeetleAddresses
     private static bool IsHostAndPort(string[] parts, AddressFamily family) =>
         parts.Length == 2 && IsHostAndPort(parts[0], parts[1], family);
 
+    // IPAddress.TryParse accepts a bracketed IPv6 host, so reject brackets left inside the host.
     private static bool IsHostAndPort(string host, string port, AddressFamily family) =>
-        IsIPAddress(host, family) && IsPort(port);
+        !host.AsSpan().ContainsAny('[', ']') && IsIPAddress(host, family) && IsPort(port);
 
     private static bool IsIPAddress(string host, AddressFamily family) =>
         IPAddress.TryParse(host, out var address) && address.AddressFamily == family;

@@ -513,12 +513,16 @@ public sealed class TigerBeetleResourceTests
     [InlineData("3000,")]
     [InlineData(",3000")]
     [InlineData("3000,,3001")]
+    [InlineData("[[2001:db8::1]]:3000")]
+    [InlineData("[2001:db8::1]]:3000")]
+    [InlineData("[[2001:db8::1]:3000")]
     public void WithAddressesRejectsDnsNamesAndInvalidPorts(string value)
     {
         var builder = DistributedApplication.CreateBuilder();
         var tigerBeetle = builder.AddTigerBeetle("tigerbeetle");
 
         Assert.Throws<ArgumentException>(() => tigerBeetle.WithAddresses(value));
+        Assert.Throws<ArgumentException>(() => tigerBeetle.WithClientAddresses(value));
     }
 
     [Theory]
