@@ -103,7 +103,7 @@ Repository values can come from `WithRepository(...)`, `DistributedApplicationMo
 
 ### Switch repository branches
 
-During `aspire run`, every module resource that uses an initialized repository has a **Switch branches** dashboard command. It fetches `origin` for each repository the AppHost initializes, then shows each checkout's current branch with its local and `origin` branches. Choose one branch under **All repositories**, override it for individual repositories, or both.
+During `aspire run`, every module resource that uses an initialized repository has a **Switch module branches** dashboard command. It fetches `origin` for each repository the AppHost initializes, then shows each checkout's current branch with its local and `origin` branches. Choose one branch under **All repositories**, override it for individual repositories, or both.
 
 Nothing changes until you confirm the plan the command shows:
 

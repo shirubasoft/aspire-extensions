@@ -21,7 +21,7 @@ Initialization verifies Git, clones the remote to the sibling `<workspace>/spire
 
 The `notification-service` resource becomes healthy and exposes `/notifications` through the dashboard.
 
-To try [branch switching](../../docs/modules.md#switch-repository-branches), open the `notification-service` actions in the dashboard and choose **Switch branches**. Select `test` for all repositories, review the plan, and confirm it. The checkout gets a local `test` branch that tracks `origin/test`. Run the command again with `main` to switch back.
+To try [branch switching](../../docs/modules.md#switch-repository-branches), open the `notification-service` actions in the dashboard and choose **Switch module branches**. Select `test` for all repositories, review the plan, and confirm it. The checkout gets a local `test` branch that tracks `origin/test`. Run the command again with `main` to switch back.
 
 ## What the sample demonstrates
 

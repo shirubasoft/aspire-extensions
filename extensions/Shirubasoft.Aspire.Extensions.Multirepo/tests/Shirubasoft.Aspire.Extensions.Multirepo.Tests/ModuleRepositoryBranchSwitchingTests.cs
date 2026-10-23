@@ -261,7 +261,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var command = Assert.Single(
             run.Resources.Single(resource => resource.Name == "orders-api").Annotations.OfType<ResourceCommandAnnotation>(),
             annotation => annotation.Name == ModuleRepositoryBranchSwitching.CommandName);
-        Assert.Equal("Switch branches", command.DisplayName);
+        Assert.Equal("Switch module branches", command.DisplayName);
         Assert.DoesNotContain(
             run.Resources.Single(resource => resource.Name == "independent-api").Annotations.OfType<ResourceCommandAnnotation>(),
             annotation => annotation.Name == ModuleRepositoryBranchSwitching.CommandName);

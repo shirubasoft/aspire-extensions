@@ -39,7 +39,7 @@ internal sealed record ModuleRepositoryBranchPlanItem(
 
 internal static class ModuleRepositoryBranchSwitching
 {
-    internal const string CommandName = "switch-branches";
+    internal const string CommandName = "switch-module-branches";
     internal const string AllInputName = "all";
     internal const string FastForwardInputName = "fast-forward";
     internal const string DirtyBlocker = "Has uncommitted changes; commit or stash them first.";
@@ -65,7 +65,7 @@ internal static class ModuleRepositoryBranchSwitching
 
         resource.WithCommand(
             CommandName,
-            "Switch branches",
+            "Switch module branches",
             context => ExecuteAsync(
                 context,
                 registry.RepositoryPlans!.Requirements,
