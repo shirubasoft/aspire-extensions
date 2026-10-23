@@ -404,6 +404,47 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Equal("push-orders-api", Assert.Single(await CreatePushStepsAsync(container)).Name);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Push_prerequisites_check_push_targets_only_when_a_publisher_declares_them(bool declaresPushTargets)
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            var container = definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build")
+                {
+                    ImageRegistry = "registry.example.test"
+                });
+            if (declaresPushTargets)
+            {
+                container.WithImagePushTarget("mirror.example.test/acme/orders-api");
+            }
+        });
+        builder.AddModule(module);
+        string[] validationDependents = [];
+        builder.Pipeline.AddPipelineConfiguration(context =>
+        {
+            validationDependents =
+            [
+                .. context.Steps
+                    .Single(step => step.Name == ModuleImagePushPipeline.ValidationStepName)
+                    .RequiredBySteps
+            ];
+            return Task.CompletedTask;
+        });
+
+        await RunPushPrerequisitesAsync(builder);
+
+        string[] expected = declaresPushTargets
+            ? [WellKnownPipelineSteps.PushPrereq, ModuleImageWorkflowPipeline.StepName]
+            : [];
+        Assert.Equal(expected, validationDependents);
+    }
+
     [Fact]
     public void Push_targets_are_rejected_on_a_native_image_publisher()
     {

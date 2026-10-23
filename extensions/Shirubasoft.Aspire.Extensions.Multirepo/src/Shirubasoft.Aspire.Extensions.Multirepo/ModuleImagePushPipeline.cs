@@ -36,20 +36,34 @@ internal static class ModuleImagePushPipeline
             new EventId(4, nameof(LogPushTarget)),
             "Publishing image push target {Target} for resource {Resource}.");
 
+    internal const string ValidationStepName = "validate-image-push-targets";
+
     public static void Configure(IDistributedApplicationBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.Pipeline.AddStep(new PipelineStep
         {
-            Name = "validate-image-push-targets",
+            Name = ValidationStepName,
             Description = "Rejects image push targets that a module image publisher cannot push.",
             Action = context =>
             {
                 ValidatePushTargets(context.Model.Resources);
                 return Task.CompletedTask;
-            },
-            RequiredBySteps = [WellKnownPipelineSteps.PushPrereq, ModuleImageWorkflowPipeline.StepName]
+            }
         });
+        builder.Pipeline.AddPipelineConfiguration(RequireValidationForDeclaredPushTargets);
+    }
+
+    private static Task RequireValidationForDeclaredPushTargets(PipelineConfigurationContext context)
+    {
+        if (context.Model.Resources.Any(PublisherDeclaresPushTargets))
+        {
+            var validation = context.Steps.Single(step => step.Name == ValidationStepName);
+            validation.RequiredBy(WellKnownPipelineSteps.PushPrereq);
+            validation.RequiredBy(ModuleImageWorkflowPipeline.StepName);
+        }
+
+        return Task.CompletedTask;
     }
 
     public static void AddPushStep(IResourceBuilder<ContainerResource> container)
