@@ -116,7 +116,7 @@ public sealed class TailscaleResourceBuilderExtensionsTests
         var image = Assert.Single(sidecar.Annotations.OfType<ContainerImageAnnotation>());
         Assert.Equal("docker.io", image.Registry);
         Assert.Equal("tailscale/tailscale", image.Image);
-        Assert.Equal("v1.102.5", image.Tag);
+        Assert.Equal("v1.104.2", image.Tag);
         Assert.Equal("/bin/sh", sidecar.Entrypoint);
         Assert.Contains(
             sidecar.Annotations.OfType<ResourceRelationshipAnnotation>(),

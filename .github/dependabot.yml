@@ -26,6 +26,21 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: npm
+    directories:
+      - /extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/samples/TigerBeetle.TypeScript
+      - /extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/samples/TigerBeetle.TypeScript/client
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      tiger-beetle-samples:
+        patterns:
+          - "*"
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

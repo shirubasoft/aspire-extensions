@@ -145,6 +145,6 @@ public static class KafkaResourceBuilderExtensions
     {
         public const string Registry = "docker.io";
         public const string Image = "confluentinc/cp-schema-registry";
-        public const string Tag = "8.1.0";
+        public const string Tag = "8.3.2";
     }
 }

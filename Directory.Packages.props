@@ -4,13 +4,14 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="ActionsToolkit.Core" Version="1.0.0" />
-    <PackageVersion Include="Aspire.Hosting" Version="13.6.1" />
-    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.6.1" />
-    <PackageVersion Include="Aspire.Hosting.Kafka" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.Kafka" Version="13.6.3" />
     <!-- Preview-only package, used by the CloudflareTunnels tests. eng/update-aspire.sh does not
          move preview pins, so Dependabot or a manual edit moves it with each Aspire update. -->
-    <PackageVersion Include="Aspire.Hosting.Kubernetes" Version="13.6.1-preview.1.26506.6" />
-    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.Kubernetes" Version="13.6.3-preview.1.26521.2" />
+    <PackageVersion Include="Aspire.Hosting.RabbitMQ" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.3" />
     <PackageVersion Include="CliWrap" Version="3.10.5" />
     <PackageVersion Include="Confluent.Kafka" Version="2.16.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" />
@@ -22,10 +23,12 @@
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.1" />
     <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.12.1" />
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
+    <PackageVersion Include="RabbitMQ.Client" Version="7.2.2" />
     <PackageVersion Include="Shirubasoft.Spire.Sample.ModuleContract"
                     Version="$(SpireContractPackageVersion)"
                     Condition="'$(SpireContractPackageVersion)' != ''" />
     <PackageVersion Include="System.CommandLine" Version="2.0.13" />
+    <PackageVersion Include="TigerBeetle" Version="0.17.9" />
     <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.2" />
   </ItemGroup>
 </Project>

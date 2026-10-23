@@ -233,7 +233,7 @@ public sealed class CloudflareTunnelResourceBuilderExtensionsTests
         var image = Assert.Single(resource.Annotations.OfType<ContainerImageAnnotation>());
         Assert.Equal("docker.io", image.Registry);
         Assert.Equal("cloudflare/cloudflared", image.Image);
-        Assert.Equal("2026.10.0", image.Tag);
+        Assert.Equal("2026.10.3", image.Tag);
 
         var endpoint = Assert.Single(resource.Annotations.OfType<EndpointAnnotation>());
         Assert.Equal("metrics", endpoint.Name);

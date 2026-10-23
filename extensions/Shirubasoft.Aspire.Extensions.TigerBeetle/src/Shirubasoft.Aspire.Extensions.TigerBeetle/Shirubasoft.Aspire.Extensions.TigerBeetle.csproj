@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Title>Shirubasoft Aspire TigerBeetle integration</Title>
+    <Authors>Shirubasoft</Authors>
+    <Description>Runs TigerBeetle and its RabbitMQ change data capture job as Aspire container resources with polyglot APIs, persistence, health checks, and deployment manifest support.</Description>
+    <AssemblyName>Shirubasoft.Aspire.Hosting.TigerBeetle</AssemblyName>
+    <RootNamespace>Aspire.Hosting</RootNamespace>
+    <PackageId>Shirubasoft.Aspire.Hosting.TigerBeetle</PackageId>
+    <PackageTags>aspire;apphost;tigerbeetle;database;distributed-systems;container;cdc;rabbitmq</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Shirubasoft/aspire-extensions</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Shirubasoft/aspire-extensions.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <EnableAspireIntegrationAnalyzers>true</EnableAspireIntegrationAnalyzers>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shirubasoft.Aspire.Extensions.TigerBeetle.Tests" />
+  </ItemGroup>
+</Project>

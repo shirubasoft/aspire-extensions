@@ -10,7 +10,7 @@ Add the package to an Aspire AppHost:
 dotnet add package Shirubasoft.Aspire.Extensions.ResourceGroups
 ```
 
-The package targets .NET 10 and Aspire 13.5.3 or later within the Aspire 13.5 line.
+The package targets .NET 10 and the Aspire version pinned in the repository's [Directory.Packages.props](https://github.com/Shirubasoft/aspire-extensions/blob/main/Directory.Packages.props). Each release's NuGet dependencies list the exact Aspire version it requires.
 
 ## Group resources
 

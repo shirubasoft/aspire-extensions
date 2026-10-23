@@ -8,7 +8,7 @@ Expose Aspire resources privately on a Tailscale tailnet with HTTPS. Each expose
 dotnet add package Shirubasoft.Aspire.Tailscale
 ```
 
-The package targets .NET 10 and Aspire 13.6.1 or later within the Aspire 13.6 line.
+The package targets .NET 10 and the Aspire version pinned in the repository's [Directory.Packages.props](https://github.com/Shirubasoft/aspire-extensions/blob/main/Directory.Packages.props). Each release's NuGet dependencies list the exact Aspire version it requires.
 
 ## Usage
 

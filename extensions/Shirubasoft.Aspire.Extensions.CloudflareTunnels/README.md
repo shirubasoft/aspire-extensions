@@ -8,7 +8,7 @@ Add named Cloudflare Tunnels and account-free Quick Tunnels to an Aspire AppHost
 dotnet add package Shirubasoft.Aspire.CloudflareTunnels
 ```
 
-The package targets .NET 10 and Aspire 13.5.3 or later within the Aspire 13.5 line.
+The package targets .NET 10 and the Aspire version pinned in the repository's [Directory.Packages.props](https://github.com/Shirubasoft/aspire-extensions/blob/main/Directory.Packages.props). Each release's NuGet dependencies list the exact Aspire version it requires.
 
 ## Quick Tunnels
 
@@ -19,7 +19,7 @@ using Aspire.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-var web = builder.AddContainer("web", "nginx", "1.29-alpine")
+var web = builder.AddContainer("web", "nginx", "1.31-alpine")
     .WithHttpEndpoint(targetPort: 80);
 
 builder.AddCloudflareQuickTunnel("web-tunnel")
@@ -63,10 +63,10 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 var tunnel = builder.AddCloudflareTunnel("development");
 
-var api = builder.AddContainer("api", "nginx", "1.29-alpine")
+var api = builder.AddContainer("api", "nginx", "1.31-alpine")
     .WithHttpEndpoint(targetPort: 80);
 
-var frontend = builder.AddContainer("frontend", "nginx", "1.29-alpine")
+var frontend = builder.AddContainer("frontend", "nginx", "1.31-alpine")
     .WithHttpEndpoint(targetPort: 80);
 
 api.WithCloudflareTunnel(tunnel, "api.example.com");
