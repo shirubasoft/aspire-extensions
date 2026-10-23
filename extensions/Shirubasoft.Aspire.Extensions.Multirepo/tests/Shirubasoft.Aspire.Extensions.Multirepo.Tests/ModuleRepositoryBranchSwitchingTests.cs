@@ -106,13 +106,23 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var alpha = await workspace.CloneAsync("alpha");
         await GitAsync(alpha.RepositoryPath, "switch", "--create", "(feature)");
         await GitAsync(alpha.RepositoryPath, "remote", "set-url", "origin", Path.Combine(workspace.Path, "missing.git"));
-        var interaction = new ScriptedInteractionService(inputs => inputs[0].Value = "(feature)");
+        var bravo = await workspace.CloneAsync("bravo");
+        await GitAsync(bravo.RepositoryPath, "switch", "--create", "(detached)");
+        var charlie = await workspace.CloneAsync("charlie");
+        await GitAsync(charlie.RepositoryPath, "switch", "--detach");
+        var interaction = new ScriptedInteractionService(inputs =>
+        {
+            inputs[1].Value = "(feature)";
+            inputs[2].Value = "(detached)";
+        });
 
-        var result = await ExecuteAsync(interaction, alpha);
+        var result = await ExecuteAsync(interaction, alpha, bravo, charlie);
 
         Assert.True(result.Success, result.Message);
         Assert.Equal("Nothing to switch.", result.Message);
-        Assert.Equal("**Unchanged**\n\n- **alpha**: On `(feature)`.", result.Data?.Value.ReplaceLineEndings("\n"));
+        Assert.Equal(
+            "**Unchanged**\n\n- **alpha**: On `(feature)`.\n- **bravo**: On `(detached)`.\n- **charlie**: Detached HEAD.",
+            result.Data?.Value.ReplaceLineEndings("\n"));
         Assert.Null(interaction.ConfirmationMessage);
         Assert.Contains("Couldn't fetch from origin", interaction.Inputs![1].Description, StringComparison.Ordinal);
     }

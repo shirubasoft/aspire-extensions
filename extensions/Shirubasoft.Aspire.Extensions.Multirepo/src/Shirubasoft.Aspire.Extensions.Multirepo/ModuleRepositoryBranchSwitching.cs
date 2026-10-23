@@ -421,11 +421,19 @@ internal static class ModuleRepositoryBranchSwitching
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             return status.IsSuccess
                 ? new CheckoutState(
-                    GetHeader(lines, "head", "(detached)"),
+                    await GetBranchAsync(requirement, lines).ConfigureAwait(false),
                     GetHeader(lines, "oid", "(initial)"),
                     lines.Any(line => !line.StartsWith('#')) ? DirtyBlocker : null)
                 : new CheckoutState(null, null, $"Couldn't read the checkout: {FormatError(status)}");
         }
+
+        // Status prints "(detached)" for a detached HEAD and for a branch with that name, so git tells them apart.
+        private async Task<string?> GetBranchAsync(ModuleRepositoryRequirement requirement, string[] lines) =>
+            GetHeader(lines, "head", "(detached)") ?? await RepositoryInspector.TryGetBranchAsync(
+                requirement.RepositoryPath,
+                settings.GitExecutablePath,
+                settings.CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
 
         // Porcelain v2 headers are "# branch.head <name>" and "# branch.oid <commit>", with the placeholders
         // "(detached)" for a detached HEAD and "(initial)" for an unborn branch.
