@@ -397,6 +397,15 @@ public sealed class ModuleImagePushPipelineTests
     }
 
     [Fact]
+    public Task Push_targets_that_all_succeed_complete_the_push() =>
+        ModuleImagePushPipeline.PushTargetsAsync(
+            new ContainerResource("orders-api"),
+            ["first.example.test/api:1", "second.example.test/api:1"],
+            (_, _) => Task.CompletedTask,
+            NullLogger.Instance,
+            TestContext.Current.CancellationToken);
+
+    [Fact]
     public async Task Canceling_a_push_skips_the_remaining_targets()
     {
         using var cancellation = new CancellationTokenSource();
