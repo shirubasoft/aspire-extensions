@@ -3,7 +3,7 @@ using Microsoft.Extensions.Configuration;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-var web = builder.AddContainer("web", "nginx", "1.31-alpine")
+var web = builder.AddContainer("web", "docker.io/library/nginx", "1.31-alpine")
     .WithHttpEndpoint(targetPort: 80);
 
 if (builder.ExecutionContext.IsPublishMode &&
@@ -11,6 +11,13 @@ if (builder.ExecutionContext.IsPublishMode &&
 {
     var tunnel = builder.AddCloudflareTunnelConnector("web-tunnel");
     web.WithCloudflareTunnel(tunnel, "web.example.com");
+}
+else if (builder.Configuration["Cloudflare:Hostname"] is { Length: > 0 } hostname)
+{
+    builder.AddDockerComposeEnvironment("compose");
+
+    var tunnel = builder.AddCloudflareTunnel("web-tunnel");
+    web.WithCloudflareTunnel(tunnel, hostname);
 }
 else
 {

@@ -308,6 +308,17 @@ Cloudflare__AllowedMail__1='*@example.org' \
   aspire run --project samples/CloudflareTunnels.AppHost/CloudflareTunnels.AppHost.csproj
 ```
 
+Set `Cloudflare:Hostname` to publish the sample through a named tunnel instead. Aspire prompts for the `web-tunnel-account-id` and `web-tunnel-api-token` parameters, creates or reuses the Cloudflare tunnel `web-tunnel`, and routes the hostname to nginx:
+
+```bash
+Cloudflare__Hostname='app.example.com' \
+  aspire run --project samples/CloudflareTunnels.AppHost/CloudflareTunnels.AppHost.csproj
+```
+
+In this mode the sample also declares a Docker Compose environment, so `aspire deploy` runs the tunnel connector and nginx with Compose. Deployment also needs the tunnel's connector token in the `web-tunnel-tunnel-token` parameter.
+
+`samples/test-live-cloudflare.sh` checks all three paths against Cloudflare: a Quick Tunnel, the named tunnel in run mode, and a Compose deployment. It reads `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_TEST_HOSTNAME`, and fetches the connector token from the Cloudflare API. CI runs it with the repository's Cloudflare secrets and the `CLOUDFLARE_TEST_HOSTNAME` variable. Dependabot and fork pull requests skip it.
+
 ## Package contents
 
 The NuGet package includes the runtime assembly, XML API documentation, this README, repository metadata, Source Link data, and a matching `.snupkg` symbol package.
