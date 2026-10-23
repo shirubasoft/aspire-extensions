@@ -488,14 +488,14 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             Directory.CreateDirectory(seed);
             await GitAsync(seed, "init", "--initial-branch", "main");
             await CommitFileAsync(seed, "README.md", name);
-            await GitAsync(Path, "init", "--bare", "--initial-branch", "main", GetOrigin(name));
             foreach (var branch in branches)
             {
-                await CommitAsync(seed, branch, "branch.txt", "--create", branch);
+                await GitAsync(seed, "switch", "--create", branch);
+                await CommitFileAsync(seed, "branch.txt", branch);
+                await GitAsync(seed, "switch", "main");
             }
 
-            await GitAsync(seed, "remote", "add", "origin", GetOrigin(name));
-            await GitAsync(seed, ["push", "origin", "main", .. branches]);
+            await GitAsync(Path, "clone", "--bare", seed, GetOrigin(name));
             var requirement = Register(name);
             await GitAsync(Path, "clone", GetOrigin(name), requirement.RepositoryPath);
             return requirement;
@@ -508,13 +508,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             await GitAsync(System.IO.Path.Combine(requirement.RepositoryPath, "child"), "checkout", "--detach", commit);
             await GitAsync(requirement.RepositoryPath, "commit", "--all", "-m", "Pin child");
             return requirement;
-        }
-
-        private static async Task CommitAsync(string seed, string branch, string file, params string[] switchArguments)
-        {
-            await GitAsync(seed, ["switch", .. switchArguments]);
-            await CommitFileAsync(seed, file, branch);
-            await GitAsync(seed, "switch", "main");
         }
 
         public void Dispose() => directory.Dispose();
