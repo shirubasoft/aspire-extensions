@@ -219,80 +219,65 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     }
 
     [Fact]
-    public async Task Repositories_whose_submodules_change_are_skipped_with_their_local_files_intact()
+    public async Task Submodules_stay_as_they_are_and_repositories_whose_submodules_change_are_skipped()
     {
         using var workspace = BranchWorkspace.Create();
-        var (pinned, latest) = await workspace.CreateChildAsync();
+        var child = (await workspace.CloneAsync("child")).RepositoryPath;
+        await CommitFileAsync(child, ".gitignore", "local.env\n");
+        var pinned = await GitAsync(child, "rev-parse", "HEAD");
+        await CommitFileAsync(child, "local.env", "tracked");
+        var latest = await GitAsync(child, "rev-parse", "HEAD");
+        await GitAsync(child, "push", "origin", "main");
         var replaced = await workspace.CloneWithChildAsync("alpha", pinned);
         var linked = await workspace.CloneWithChildAsync("bravo", pinned);
         var deinitialized = await workspace.CloneWithChildAsync("charlie", pinned);
+        var plain = await workspace.CloneWithChildAsync("delta", pinned);
+        var hidden = await workspace.CloneWithChildAsync("echo", latest);
+        var moved = await workspace.CloneWithChildAsync("foxtrot", pinned);
         await BranchWithEntryAsync(replaced.RepositoryPath, "feature/x", "100644", "child");
         await BranchWithEntryAsync(linked.RepositoryPath, "feature/x", "120000", "child");
         await BranchWithEntryAsync(deinitialized.RepositoryPath, "feature/x", "160000", "child", latest);
         await GitAsync(deinitialized.RepositoryPath, "submodule", "deinit", "child");
-        var localFiles = await WriteLocalFilesAsync(replaced, linked, deinitialized);
-
-        var result = await ExecuteAsync(
-            new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x"),
-            replaced,
-            linked,
-            deinitialized);
-
-        Assert.Equal("Nothing to switch.", result.Message);
-        Assert.Equal(
-            """
-            **Skipped**
-
-            - **alpha**: Submodules differ between `main` and `feature/x` (`child`). Switch this repository yourself so you can check the submodules' local files first.
-            - **bravo**: Submodules differ between `main` and `feature/x` (`child`). Switch this repository yourself so you can check the submodules' local files first.
-            - **charlie**: Submodules differ between `main` and `feature/x` (`child`). Switch this repository yourself so you can check the submodules' local files first.
-            """,
-            result.Data?.Value,
-            ignoreLineEndingDifferences: true);
-        Assert.All(localFiles, file => Assert.Equal("local work", File.ReadAllText(file)));
-    }
-
-    [Fact]
-    public async Task Submodules_recorded_the_same_on_both_branches_stay_as_they_are()
-    {
-        using var workspace = BranchWorkspace.Create();
-        var (pinned, latest) = await workspace.CreateChildAsync();
-        var plain = await workspace.CloneWithChildAsync("alpha", pinned);
-        var hidden = await workspace.CloneWithChildAsync("bravo", latest);
-        var moved = await workspace.CloneWithChildAsync("charlie", pinned);
         foreach (var repository in new[] { plain, hidden, moved })
         {
             await BranchWithEntryAsync(repository.RepositoryPath, "feature/x", "100644", "feature.txt");
         }
 
         await BranchWithEntryAsync(moved.RepositoryPath, "feature/moved", "160000", "child", latest);
-        // bravo's child sits at an older commit than both branches record, which ignore=all hides from status,
+        // echo's child sits at an older commit than both branches record, which ignore=all hides from status,
         // and keeps an ignored file there that the recorded commit tracks.
         await GitAsync(Path.Combine(hidden.RepositoryPath, "child"), "checkout", "--detach", pinned);
         await GitAsync(hidden.RepositoryPath, "config", "submodule.child.ignore", "all");
-        var localFiles = await WriteLocalFilesAsync(plain, hidden, moved);
+        ModuleRepositoryRequirement[] repositories = [replaced, linked, deinitialized, plain, hidden, moved];
+        var localFiles = repositories.Select(repository => Path.Combine(repository.RepositoryPath, "child", "local.env")).ToArray();
+        await Task.WhenAll(localFiles.Select(file => File.WriteAllTextAsync(file, "local work", TestContext.Current.CancellationToken)));
         var interaction = new ScriptedInteractionService(
             inputs => inputs[0].Value = "feature/x",
             onConfirm: () => GitAsync(moved.RepositoryPath, "branch", "--force", "feature/x", "feature/moved"));
 
-        var result = await ExecuteAsync(interaction, plain, hidden, moved);
+        var result = await ExecuteAsync(interaction, repositories);
 
+        const string Differ = "Submodules differ between `main` and `feature/x` (`child`). " +
+            "Switch this repository yourself so you can check the submodules' local files first.";
         Assert.Equal(
-            """
-            - **alpha** (done): `main` → `feature/x`
-            - **bravo** (done): `main` → `feature/x`
-            - **charlie** (needs attention): On `main`. Submodules differ between `main` and `feature/x` (`child`). Switch this repository yourself so you can check the submodules' local files first.
+            $"""
+            - **alpha** (skipped): {Differ}
+            - **bravo** (skipped): {Differ}
+            - **charlie** (skipped): {Differ}
+            - **delta** (done): `main` → `feature/x`
+            - **echo** (done): `main` → `feature/x`
+            - **foxtrot** (needs attention): On `main`. {Differ}
 
             Restart or rebuild resources from the changed repositories to run their new source.
             """,
             result.Data?.Value,
             ignoreLineEndingDifferences: true);
+        Assert.All(localFiles, file => Assert.Equal("local work", File.ReadAllText(file)));
         foreach (var repository in new[] { plain, hidden, moved })
         {
             Assert.Equal(pinned, await GitAsync(Path.Combine(repository.RepositoryPath, "child"), "rev-parse", "HEAD"));
         }
 
-        Assert.All(localFiles, file => Assert.Equal("local work", File.ReadAllText(file)));
         Assert.Empty(await GitAsync(plain.RepositoryPath, "status", "--porcelain"));
     }
 
@@ -442,13 +427,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         await GitAsync(repository, "branch", branch, await GitAsync(repository, "commit-tree", tree, "-p", "HEAD", "-m", branch));
     }
 
-    private static async Task<string[]> WriteLocalFilesAsync(params ModuleRepositoryRequirement[] repositories)
-    {
-        var files = repositories.Select(repository => Path.Combine(repository.RepositoryPath, "child", "local.env")).ToArray();
-        await Task.WhenAll(files.Select(file => File.WriteAllTextAsync(file, "local work", TestContext.Current.CancellationToken)));
-        return files;
-    }
-
     private static async Task InstallPostCheckoutHookAsync(string repository, string script)
     {
         var hook = Path.Combine(repository, ".git", "hooks", "post-checkout");
@@ -511,17 +489,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             var requirement = Register(name);
             await GitAsync(Path, "clone", GetOrigin(name), requirement.RepositoryPath);
             return requirement;
-        }
-
-        // The child repository ignores local.env at its first commit and tracks it at its second.
-        public async Task<(string Pinned, string Latest)> CreateChildAsync()
-        {
-            var child = (await CloneAsync("child")).RepositoryPath;
-            await CommitFileAsync(child, ".gitignore", "local.env\n");
-            var pinned = await GitAsync(child, "rev-parse", "HEAD");
-            await CommitFileAsync(child, "local.env", "tracked");
-            await GitAsync(child, "push", "origin", "main");
-            return (pinned, await GitAsync(child, "rev-parse", "HEAD"));
         }
 
         public async Task<ModuleRepositoryRequirement> CloneWithChildAsync(string name, string commit)
