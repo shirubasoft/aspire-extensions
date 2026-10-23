@@ -12,6 +12,13 @@ if (builder.ExecutionContext.IsPublishMode &&
     var tunnel = builder.AddCloudflareTunnelConnector("web-tunnel");
     web.WithCloudflareTunnel(tunnel, "web.example.com");
 }
+else if (builder.Configuration["Cloudflare:Hostname"] is { Length: > 0 } hostname)
+{
+    builder.AddDockerComposeEnvironment("compose");
+
+    var tunnel = builder.AddCloudflareTunnel("web-tunnel");
+    web.WithCloudflareTunnel(tunnel, hostname);
+}
 else
 {
     var quickTunnel = builder.AddCloudflareQuickTunnel("web-tunnel")
