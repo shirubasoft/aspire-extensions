@@ -329,17 +329,9 @@ public sealed class ModuleImagePushPipelineTests
                 return Task.CompletedTask;
             },
             requiredBy: WellKnownPipelineSteps.BeforeStart);
-        var resolutions = new List<string[]>();
-        builder.Pipeline.AddPipelineConfiguration(context =>
-        {
-            resolutions.Add(context.Steps.Select(step => step.Name).ToArray());
-            return Task.CompletedTask;
-        });
 
         await RunPushPrerequisitesAsync(builder);
 
-        Assert.DoesNotContain("push-orders-api", resolutions[0]);
-        Assert.Contains("push-orders-api", resolutions[^1]);
         var resolved = await ModuleEffectiveImageResolver.ResolveAsync(
             container,
             TestContext.Current.CancellationToken);
@@ -409,7 +401,7 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Contains("'orders-api' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
         Assert.Contains("WithContainerRegistry", exception.Message, StringComparison.Ordinal);
         var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
-        Assert.Empty(await CreatePushStepsAsync(container));
+        Assert.Equal("push-orders-api", Assert.Single(await CreatePushStepsAsync(container)).Name);
     }
 
     [Fact]

@@ -93,8 +93,13 @@ internal static class ModuleImagePushPipeline
             return true;
         }
 
-        return RequiresBuildOrHasNoPushTarget(resource);
+        return RequiresBuildOrHasNothingToPush(resource);
     }
+
+    private static bool RequiresBuildOrHasNothingToPush(IResource resource) =>
+        resource.RequiresImageBuildAndPush() ||
+        (!ModuleEffectiveImageResolver.HasPushTarget(resource) &&
+            !resource.Annotations.OfType<ModuleImagePushTargetAnnotation>().Any());
 
     private static bool RequiresBuildOrHasNoPushTarget(IResource resource) =>
         resource.RequiresImageBuildAndPush() || !ModuleEffectiveImageResolver.HasPushTarget(resource);

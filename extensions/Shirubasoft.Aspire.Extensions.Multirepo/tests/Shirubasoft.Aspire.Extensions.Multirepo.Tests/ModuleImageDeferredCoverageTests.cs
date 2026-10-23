@@ -782,6 +782,40 @@ public sealed class ModuleImageDeferredCoverageTests
     }
 
     [Fact]
+    public async Task Push_step_of_a_publisher_without_a_registry_reports_the_registry_before_pushing()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = ["--publisher", "manifest"],
+            DisableDashboard = true
+        });
+        ModuleImageWorkflowPipeline.Configure(builder);
+        ModuleImagePushPipeline.Configure(builder);
+        var recipe = CreateRecipe();
+        var container = builder
+            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
+            .WithAnnotation(CreatePublisher(recipe))
+            .WithImagePushTarget("mirror.example.test/team/api");
+        ModuleImageBuildPipeline.AddBuildStep(container);
+        ModuleImagePushPipeline.AddPushStep(container);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            PipelineStepRunner.RunAsync(builder, "push-api"));
+
+        Assert.StartsWith(
+            "Step 'validate-image-push-targets' failed: Resource 'api' declares WithImagePushTarget",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(runtime.Invocations, invocation => invocation.StartsWith("push ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Workflow_pipeline_step_writes_and_logs_the_prepared_document()
     {
         using var output = TemporaryDirectory.Create();
