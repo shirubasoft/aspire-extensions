@@ -555,9 +555,22 @@ internal static class ModuleRepositoryBranchSwitching
                 return null;
             }
 
-            var result = await RunAsync(requirement, step, arguments).ConfigureAwait(false);
-            return result.IsSuccess ? null : $"{step} failed: {FormatError(result)}";
+            // Move submodules to the commits the new HEAD records, the same way initialization does.
+            var error = FormatFailure(step, await RunAsync(requirement, step, arguments).ConfigureAwait(false));
+            return error ?? FormatFailure(
+                "Submodule update",
+                await RunAsync(
+                    requirement,
+                    "Submodule update",
+                    RepositorySynchronizer.CreateSubmoduleUpdateCommand(
+                        requirement.RepositoryPath,
+                        settings.GitExecutablePath,
+                        settings.GitHubCliPath,
+                        requirement.Repository).Arguments).ConfigureAwait(false));
         }
+
+        private static string? FormatFailure(string step, ModuleCliResult result) =>
+            result.IsSuccess ? null : $"{step} failed: {FormatError(result)}";
 
         private static string FormatError(ModuleCliResult result) =>
             string.Join(

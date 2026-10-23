@@ -283,6 +283,35 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     }
 
     [Fact]
+    public async Task Submodules_follow_the_selected_branch()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var child = await workspace.CloneAsync("child");
+        await workspace.PushCommitAsync("child", "main");
+        var alpha = await workspace.CloneAsync("alpha");
+        var submodule = Path.Combine(alpha.RepositoryPath, "child");
+        await GitAsync(alpha.RepositoryPath, "-c", "protocol.file.allow=always", "submodule", "add", child.Repository, "child");
+        var latest = await GitAsync(submodule, "rev-parse", "HEAD");
+        await GitAsync(submodule, "checkout", "--detach", "HEAD~1");
+        var pinned = await GitAsync(submodule, "rev-parse", "HEAD");
+        await GitAsync(alpha.RepositoryPath, "commit", "--all", "-m", "Pin child");
+        await GitAsync(alpha.RepositoryPath, "switch", "--create", "feature/x");
+        await GitAsync(submodule, "checkout", "--detach", latest);
+        await GitAsync(alpha.RepositoryPath, "commit", "--all", "-m", "Update child");
+        await GitAsync(alpha.RepositoryPath, "switch", "main");
+        await GitAsync(alpha.RepositoryPath, "submodule", "update");
+
+        foreach (var (branch, commit) in new[] { ("feature/x", latest), ("main", pinned) })
+        {
+            var result = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = branch), alpha);
+
+            Assert.True(result.Success, result.Data?.Value);
+            Assert.Equal(commit, await GitAsync(submodule, "rev-parse", "HEAD"));
+            Assert.Empty(await GitAsync(alpha.RepositoryPath, "status", "--porcelain"));
+        }
+    }
+
+    [Fact]
     public async Task Ignored_files_that_the_selected_branch_tracks_are_kept()
     {
         using var workspace = BranchWorkspace.Create();

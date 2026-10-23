@@ -1079,7 +1079,7 @@ internal static class RepositorySynchronizer
             repository));
     }
 
-    private static RepositorySyncCommand CreateSubmoduleUpdateCommand(
+    internal static RepositorySyncCommand CreateSubmoduleUpdateCommand(
         string repositoryPath,
         string gitExecutablePath,
         string githubCliPath,
