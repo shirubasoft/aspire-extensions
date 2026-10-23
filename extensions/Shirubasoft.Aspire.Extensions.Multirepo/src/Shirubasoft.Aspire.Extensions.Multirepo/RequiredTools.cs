@@ -375,7 +375,7 @@ internal sealed class RequiredToolHealthCheck(RequiredToolResource resource) : I
         var resolvedPath = RequiredToolPathResolver.Resolve(resource.Command);
         return Task.FromResult(resolvedPath is null
             ? HealthCheckResult.Unhealthy(
-                $"Required tool command '{resource.Command}' was not found on PATH.")
+                $"Required tool command '{resource.Command}' was not found.")
             : HealthCheckResult.Healthy(
                 $"Required tool command '{resource.Command}' resolved to '{resolvedPath}'."));
     }
@@ -572,7 +572,7 @@ internal static class RequiredToolOperations
         {
             throw new InvalidOperationException(
                 $"Installation command for required tool '{resource.Name}' succeeded, but command " +
-                $"'{resource.Command}' is still unavailable on PATH.");
+                $"'{resource.Command}' is still unavailable.");
         }
 
         return resolvedPath;

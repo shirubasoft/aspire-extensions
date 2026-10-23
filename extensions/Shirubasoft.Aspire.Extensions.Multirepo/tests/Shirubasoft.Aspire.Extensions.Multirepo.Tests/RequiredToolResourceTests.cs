@@ -96,7 +96,7 @@ public sealed class RequiredToolResourceTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains(resource.Command, result.Description, StringComparison.Ordinal);
+        Assert.Equal($"Required tool command '{resource.Command}' was not found.", result.Description);
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
@@ -175,8 +175,10 @@ public sealed class RequiredToolResourceTests
                 NullLogger.Instance,
                 TestContext.Current.CancellationToken));
 
-        Assert.Contains("succeeded", exception.Message, StringComparison.Ordinal);
-        Assert.Contains(resource.Command, exception.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            $"Installation command for required tool 'missing-tool' succeeded, but command " +
+            $"'{resource.Command}' is still unavailable.",
+            exception.Message);
     }
 
     [Fact]
