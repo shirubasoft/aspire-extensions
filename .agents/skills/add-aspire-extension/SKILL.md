@@ -74,8 +74,8 @@ Run all of these from the repository root:
 
 ```bash
 ./build.sh --extension extensions/Shirubasoft.Aspire.Extensions.<Name>
-npm ci --prefix .github/release
-npm test --prefix .github/release
+npm ci --prefix eng/release
+npm test --prefix eng/release
 ```
 
 Collect coverage for the extension's unit-test project and run `tools/CrapScore` with `--maximum-exclusive 5`. The gate is strict: a score of 5 fails.

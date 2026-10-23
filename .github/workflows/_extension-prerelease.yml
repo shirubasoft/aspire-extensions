@@ -50,12 +50,12 @@ jobs:
           node-version: 24
 
       - name: Install locked release tooling
-        run: npm ci --prefix .github/release
+        run: npm ci --prefix eng/release
 
       - name: Validate prerelease version
         env:
           PRERELEASE_VERSION: ${{ inputs.version }}
-        run: node .github/release/validate-prerelease-version.mjs "$PRERELEASE_VERSION"
+        run: node eng/release/validate-prerelease-version.mjs "$PRERELEASE_VERSION"
 
       - name: Validate, test, and pack
         shell: bash
@@ -82,5 +82,5 @@ jobs:
         shell: bash
         run: |
           package_specs="${PACKAGE_SPECS:-$PACKAGE_ID:symbols}"
-          bash .github/release/publish-release-assets.sh \
+          bash eng/release/publish-release-assets.sh \
             "$PRERELEASE_VERSION" "$PACKAGE_ID" "$package_specs"

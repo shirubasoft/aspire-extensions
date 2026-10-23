@@ -44,7 +44,7 @@ public sealed class WorkflowDocumentationTests
         Assert.Contains("cancel-in-progress: false", sharedWorkflow, StringComparison.Ordinal);
         Assert.Contains("PRERELEASE_VERSION: ${{ inputs.version }}", sharedWorkflow, StringComparison.Ordinal);
         Assert.Contains(
-            "node .github/release/validate-prerelease-version.mjs \"$PRERELEASE_VERSION\"",
+            "node eng/release/validate-prerelease-version.mjs \"$PRERELEASE_VERSION\"",
             sharedWorkflow,
             StringComparison.Ordinal);
         Assert.Contains(
