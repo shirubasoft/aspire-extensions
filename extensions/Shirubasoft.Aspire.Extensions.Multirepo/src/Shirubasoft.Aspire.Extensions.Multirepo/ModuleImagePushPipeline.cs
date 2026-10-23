@@ -212,36 +212,27 @@ internal static class ModuleImagePushPipeline
         ArgumentNullException.ThrowIfNull(targets);
         ArgumentNullException.ThrowIfNull(pushTargetAsync);
         ArgumentNullException.ThrowIfNull(logger);
-        var failures = new List<PushTargetFailure>();
+        var failures = new List<(string Target, Exception Exception)>();
         foreach (var target in targets)
         {
             LogPushTarget(logger, target, resource.Name, null);
-            failures.AddRange(await TryPushTargetAsync(target, pushTargetAsync, cancellationToken).ConfigureAwait(false));
+            try
+            {
+                await pushTargetAsync(target, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                failures.Add((target, exception));
+            }
         }
 
         ThrowIfAnyPushTargetFailed(resource, targets.Count, failures);
     }
 
-    private static async Task<PushTargetFailure[]> TryPushTargetAsync(
-        string target,
-        Func<string, CancellationToken, Task> pushTargetAsync,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await pushTargetAsync(target, cancellationToken).ConfigureAwait(false);
-            return [];
-        }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            return [new PushTargetFailure(target, exception)];
-        }
-    }
-
     private static void ThrowIfAnyPushTargetFailed(
         IResource resource,
         int targetCount,
-        List<PushTargetFailure> failures)
+        List<(string Target, Exception Exception)> failures)
     {
         if (failures.Count == 0)
         {
@@ -570,6 +561,4 @@ internal static class ModuleImagePushPipeline
                     .TrimEnd());
         }
     }
-
-    private sealed record PushTargetFailure(string Target, Exception Exception);
 }
