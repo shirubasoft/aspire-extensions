@@ -8,7 +8,7 @@ Run executable Microsoft.Testing.Platform test projects against resources owned 
 | ---: | ---: | ---: | ---: |
 | 12 | 1 | 2 | 15 |
 
-The package targets .NET 10 and the repository's pinned Aspire 13.5.3 APIs. Supported test projects are single-target MTP executables with a compatible `Microsoft.Testing.Extensions.TrxReport` package. Classic VSTest projects are outside this package's support boundary.
+The package targets .NET 10 and the Aspire version pinned in the repository's [Directory.Packages.props](https://github.com/Shirubasoft/aspire-extensions/blob/main/Directory.Packages.props). Supported test projects are single-target MTP executables with a compatible `Microsoft.Testing.Extensions.TrxReport` package. Classic VSTest projects are outside this package's support boundary.
 
 ## Register a test project
 
