@@ -263,7 +263,7 @@ internal static class ModuleRepositoryBranchSwitching
 
         var from = FormatBranch(repository.CurrentBranch);
         return repository.LocalBranches.Contains(branch, StringComparer.Ordinal)
-            ? Change(repository, $"{from} → `{branch}`", ["switch", branch], fastForward)
+            ? Change(repository, $"{from} → `{branch}`", ["switch", "--no-overwrite-ignore", branch], fastForward)
             : PlanTrackingBranch(repository, branch, from, fastForward);
     }
 
@@ -278,7 +278,7 @@ internal static class ModuleRepositoryBranchSwitching
             ? Change(
                 repository,
                 $"{from} → `{branch}`, a new local branch tracking `origin/{branch}`",
-                ["switch", "--create", branch, "--track", $"origin/{branch}"],
+                ["switch", "--no-overwrite-ignore", "--create", branch, "--track", $"origin/{branch}"],
                 fastForward)
             : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.", []);
 
@@ -379,7 +379,8 @@ internal static class ModuleRepositoryBranchSwitching
 
     private sealed class GitSession(ModuleRepositoryInitializationSettings settings, CancellationToken cancellationToken)
     {
-        private static readonly string[] FastForwardArguments = ["merge", "--ff-only", "@{upstream}"];
+        private static readonly string[] FastForwardArguments =
+            ["merge", "--ff-only", "--no-overwrite-ignore", "@{upstream}"];
 
         public CancellationToken CancellationToken => cancellationToken;
 

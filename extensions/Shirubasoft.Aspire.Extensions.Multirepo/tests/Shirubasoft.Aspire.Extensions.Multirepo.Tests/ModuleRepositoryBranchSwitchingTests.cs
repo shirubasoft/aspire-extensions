@@ -206,6 +206,50 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     }
 
     [Fact]
+    public async Task Ignored_files_that_the_selected_branch_tracks_are_kept()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var switching = await workspace.CloneAsync("alpha");
+        await CommitFileAsync(switching.RepositoryPath, ".gitignore", "local.env\n");
+        await GitAsync(switching.RepositoryPath, "switch", "--create", "feature/x");
+        await CommitFileAsync(switching.RepositoryPath, "local.env", "tracked");
+        await GitAsync(switching.RepositoryPath, "push", "origin", "main", "feature/x");
+        await GitAsync(switching.RepositoryPath, "switch", "main");
+        await GitAsync(switching.RepositoryPath, "branch", "--delete", "--force", "feature/x");
+        var updating = await workspace.CloneAsync("bravo");
+        await CommitFileAsync(updating.RepositoryPath, ".gitignore", "local.env\n");
+        var reviewed = await GitAsync(updating.RepositoryPath, "rev-parse", "HEAD");
+        await CommitFileAsync(updating.RepositoryPath, "local.env", "tracked");
+        await GitAsync(updating.RepositoryPath, "push", "origin", "main");
+        await GitAsync(updating.RepositoryPath, "reset", "--hard", reviewed);
+        foreach (var repository in new[] { switching, updating })
+        {
+            await File.WriteAllTextAsync(Path.Combine(repository.RepositoryPath, "local.env"), "local work", TestContext.Current.CancellationToken);
+        }
+
+        var result = await ExecuteAsync(
+            new ScriptedInteractionService(inputs =>
+            {
+                inputs[1].Value = "feature/x";
+                inputs[2].Value = "main";
+                inputs[^1].Value = bool.TrueString;
+            }),
+            switching,
+            updating);
+
+        Assert.False(result.Success);
+        var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
+        Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): .*Switch failed: .*local\.env", details[0]);
+        Assert.Matches(@"^- \*\*bravo\*\* \(needs attention\): .*Fast-forward failed: .*local\.env", details[1]);
+        Assert.Equal("main", await GitAsync(switching.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal(reviewed, await GitAsync(updating.RepositoryPath, "rev-parse", "HEAD"));
+        foreach (var repository in new[] { switching, updating })
+        {
+            Assert.Equal("local work", await File.ReadAllTextAsync(Path.Combine(repository.RepositoryPath, "local.env"), TestContext.Current.CancellationToken));
+        }
+    }
+
+    [Fact]
     public void Plan_keeps_unselected_repositories_and_describes_each_change()
     {
         using var workspace = TemporaryDirectory.Create();
@@ -221,8 +265,8 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal((ModuleRepositoryBranchChange.Change, "Stays on `main`, then fast-forward to upstream", 0), (update.Change, update.Summary, update.SwitchArguments.Count));
         var track = ModuleRepositoryBranchSwitching.Plan(detached, "feature/x", fastForward: false);
         Assert.Equal("Detached HEAD → `feature/x`, a new local branch tracking `origin/feature/x`", track.Summary);
-        Assert.Equal(["switch", "--create", "feature/x", "--track", "origin/feature/x"], track.SwitchArguments);
-        Assert.Equal(["switch", "main"], ModuleRepositoryBranchSwitching.Plan(detached, "main", fastForward: false).SwitchArguments);
+        Assert.Equal(["switch", "--no-overwrite-ignore", "--create", "feature/x", "--track", "origin/feature/x"], track.SwitchArguments);
+        Assert.Equal(["switch", "--no-overwrite-ignore", "main"], ModuleRepositoryBranchSwitching.Plan(detached, "main", fastForward: false).SwitchArguments);
     }
 
     [Fact]
@@ -323,6 +367,13 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             Logger = NullLogger.Instance,
             Arguments = new InteractionInputCollection([])
         };
+
+    private static async Task CommitFileAsync(string repository, string file, string content)
+    {
+        await File.WriteAllTextAsync(Path.Combine(repository, file), content, TestContext.Current.CancellationToken);
+        await GitAsync(repository, "add", "--force", file);
+        await GitAsync(repository, "commit", "-m", $"Add {file}");
+    }
 
     private static async Task<string> GitAsync(string workingDirectory, params string[] arguments)
     {
