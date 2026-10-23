@@ -142,7 +142,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
 
         Assert.False(result.Success);
         Assert.Equal("No module repository can switch branches.", result.Message);
-        Assert.Contains("- **bravo** (skipped): Not initialized", result.Data?.Value, StringComparison.Ordinal);
+        Assert.Contains("- **bravo**: Not initialized", result.Data?.Value, StringComparison.Ordinal);
         Assert.Null(interaction.Inputs);
     }
 
@@ -590,48 +590,22 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             return confirm ? InteractionResult.Ok(true) : InteractionResult.Cancel<bool>();
         }
 
-        public Task<InteractionResult<bool>> PromptMessageBoxAsync(
-            string title,
-            string message,
-            MessageBoxInteractionOptions? options = null,
-            CancellationToken cancellationToken = default) =>
+        public Task<InteractionResult<bool>> PromptMessageBoxAsync(string title, string message, MessageBoxInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<InteractionResult<InteractionInput>> PromptInputAsync(
-            string title,
-            string? message,
-            string inputLabel,
-            string placeHolder,
-            InputsDialogInteractionOptions? options = null,
-            CancellationToken cancellationToken = default) =>
+        public Task<InteractionResult<InteractionInput>> PromptInputAsync(string title, string? message, string inputLabel, string placeHolder, InputsDialogInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<InteractionResult<InteractionInput>> PromptInputAsync(
-            string title,
-            string? message,
-            InteractionInput input,
-            InputsDialogInteractionOptions? options = null,
-            CancellationToken cancellationToken = default) =>
+        public Task<InteractionResult<InteractionInput>> PromptInputAsync(string title, string? message, InteractionInput input, InputsDialogInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<InteractionResult<bool>> PromptNotificationAsync(
-            string title,
-            string message,
-            NotificationInteractionOptions? options = null,
-            CancellationToken cancellationToken = default) =>
+        public Task<InteractionResult<bool>> PromptNotificationAsync(string title, string message, NotificationInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<InteractionResult<bool>> PromptProgressAsync(
-            string message,
-            ProgressInteractionOptions? options = null,
-            CancellationToken cancellationToken = default) =>
+        public Task<InteractionResult<bool>> PromptProgressAsync(string message, ProgressInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<InteractionResult<bool>> PromptTerminalAsync(
-            string message,
-            AspireTerminal terminal,
-            TerminalInteractionOptions? options = null,
-            CancellationToken cancellationToken = default) =>
+        public Task<InteractionResult<bool>> PromptTerminalAsync(string message, AspireTerminal terminal, TerminalInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 }

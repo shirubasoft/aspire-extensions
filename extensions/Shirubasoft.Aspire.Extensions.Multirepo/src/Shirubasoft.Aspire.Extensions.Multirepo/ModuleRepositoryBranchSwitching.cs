@@ -127,15 +127,9 @@ internal static class ModuleRepositoryBranchSwitching
     {
         if (repositories.All(repository => repository.Blocker is not null))
         {
-            return CreateResult(
-                success: false,
+            return CommandResults.Failure(
                 "No module repository can switch branches.",
-                repositories
-                    .Select(repository => new ModuleRepositoryBranchOutcome(
-                        repository.Name,
-                        PlanStatuses[(int)ModuleRepositoryBranchChange.Skip],
-                        repository.Description))
-                    .ToArray());
+                CreateDetails(FormatPlan(repositories.Select(repository => Plan(repository, null, fastForward: false)))));
         }
 
         var selection = await interaction.PromptInputsAsync(
@@ -188,7 +182,7 @@ internal static class ModuleRepositoryBranchSwitching
                 Name = FastForwardInputName,
                 Label = "Fast-forward to upstream",
                 Description = "After switching, fast-forwards each branch to its upstream. " +
-                    "Never merges, rebases, or discards commits.",
+                    "Never creates merge commits, rebases, stashes, or discards work.",
                 InputType = InputType.Boolean,
                 Value = bool.FalseString
             }
@@ -333,11 +327,7 @@ internal static class ModuleRepositoryBranchSwitching
     {
         if (plan.All(item => item.Change != ModuleRepositoryBranchChange.Change))
         {
-            return CommandResults.Success(
-                "Nothing to switch.",
-                FormatPlan(plan),
-                CommandResultFormat.Markdown,
-                displayImmediately: true);
+            return CommandResults.Success("Nothing to switch.", CreateDetails(FormatPlan(plan)));
         }
 
         var confirmation = await interaction.PromptConfirmationAsync(
@@ -371,33 +361,18 @@ internal static class ModuleRepositoryBranchSwitching
 
     private static ExecuteCommandResult CreateResult(IReadOnlyCollection<ModuleRepositoryBranchOutcome> outcomes)
     {
-        var success = outcomes.All(outcome => outcome.Status != AttentionStatus);
-        return CreateResult(
-            success,
-            success ? "Branch switch complete." : "Branch switch needs attention.",
-            outcomes);
+        var details = CreateDetails(
+            string.Join('\n', outcomes.Select(outcome => $"- **{outcome.Repository}** ({outcome.Status}): {outcome.Detail}")) +
+            (outcomes.Any(outcome => outcome.Changed)
+                ? "\n\nRestart or rebuild resources from the changed repositories to run their new source."
+                : string.Empty));
+        return outcomes.All(outcome => outcome.Status != AttentionStatus)
+            ? CommandResults.Success("Branch switch complete.", details)
+            : CommandResults.Failure("Branch switch needs attention.", details);
     }
 
-    private static ExecuteCommandResult CreateResult(
-        bool success,
-        string message,
-        IReadOnlyCollection<ModuleRepositoryBranchOutcome> outcomes)
-    {
-        var details = new CommandResultData
-        {
-            Value = string.Join(
-                '\n',
-                outcomes.Select(outcome => $"- **{outcome.Repository}** ({outcome.Status}): {outcome.Detail}")) +
-                (outcomes.Any(outcome => outcome.Changed)
-                    ? "\n\nRestart or rebuild resources from the changed repositories to run their new source."
-                    : string.Empty),
-            Format = CommandResultFormat.Markdown,
-            DisplayImmediately = true
-        };
-        return success
-            ? CommandResults.Success(message, details)
-            : CommandResults.Failure(message, details);
-    }
+    private static CommandResultData CreateDetails(string markdown) =>
+        new() { Value = markdown, Format = CommandResultFormat.Markdown, DisplayImmediately = true };
 
     private sealed class GitSession(ModuleRepositoryInitializationSettings settings, CancellationToken cancellationToken)
     {
