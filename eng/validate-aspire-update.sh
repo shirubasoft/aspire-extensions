@@ -3,6 +3,8 @@ set -uo pipefail
 
 script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(git -C "$script_path" rev-parse --show-toplevel)"
+# shellcheck source=eng/typescript-apphosts.sh
+source "$script_path/typescript-apphosts.sh"
 report_path="${1:?Usage: eng/validate-aspire-update.sh <report-path> [log-path]}"
 log_path="${2:-${RUNNER_TEMP:-$(mktemp -d)}/aspire-update-build.log}"
 warnings_path="${log_path}.warnings"
@@ -10,9 +12,22 @@ build_command="${ASPIRE_UPDATE_BUILD_COMMAND:-$repository_root/build.sh}"
 
 mkdir -p "$(dirname "$log_path")"
 
+# ./build.sh covers the .NET projects. A TypeScript AppHost also compiles against the SDK that the
+# updated Aspire CLI generates, using the aspire:build script from Aspire's TypeScript template.
+build_typescript_apphosts() {
+  local apphost=""
+
+  while IFS= read -r apphost; do
+    printf 'Building TypeScript AppHost %s\n' "$apphost"
+    npm ci --prefix "$apphost" --ignore-scripts --no-audit --no-fund || return
+    dotnet tool run aspire -- restore --apphost "$apphost" --non-interactive || return
+    npm run aspire:build --prefix "$apphost" || return
+  done < <(typescript_apphost_directories "$repository_root")
+}
+
 (
   cd "$repository_root" || exit 1
-  "$build_command"
+  "$build_command" && build_typescript_apphosts
 ) 2>&1 | tee "$log_path"
 build_exit_code="${PIPESTATUS[0]}"
 
@@ -32,7 +47,7 @@ read -r warning_count _ < <(wc -l "$warnings_path")
   else
     printf -- "- Result: \`failed with exit code %s\`\n" "$build_exit_code"
   fi
-  printf -- "- Command: \`./build.sh\`\n"
+  printf -- "- Commands: \`./build.sh\`, then \`npm run aspire:build\` for each TypeScript AppHost\n"
 
   if [[ "$warning_count" -gt 0 ]]; then
     printf '\n<details>\n'

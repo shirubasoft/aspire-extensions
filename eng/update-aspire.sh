@@ -6,6 +6,8 @@ repository_root="$(git -C "$script_path" rev-parse --show-toplevel)"
 global_json="$repository_root/global.json"
 packages_props="$repository_root/Directory.Packages.props"
 tools_manifest="$repository_root/.config/dotnet-tools.json"
+# shellcheck source=eng/typescript-apphosts.sh
+source "$script_path/typescript-apphosts.sh"
 sdk_pin_pattern='("Aspire\.AppHost\.Sdk"[[:space:]]*:[[:space:]]*")([^"]+)(")'
 
 if [[ -n "$(git -C "$repository_root" status --porcelain --untracked-files=all)" ]]; then
@@ -37,6 +39,10 @@ aspire_version_pins() {
     sed -nE "s|.*\"(Aspire\\.[^\"]+)\"[[:space:]]*:[[:space:]]*\"([^\"]+)\".*|${config}:\\1 \\2|p" \
       "$repository_root/$config"
   done < <(git -C "$repository_root" ls-files -- '*aspire.config.json')
+  local apphost=""
+  while IFS= read -r apphost; do
+    package_runtime_dependencies "$repository_root/$apphost/package.json" | sed "s|^|$apphost/package.json:|"
+  done < <(typescript_apphost_directories "$repository_root")
 }
 
 start_log_group() {
@@ -287,6 +293,60 @@ keep_apphost_config_pins() {
   )
 }
 
+major_version() {
+  sed -nE 's/^[^0-9]*([0-9]+).*/\1/p' <<<"$1"
+}
+
+# A TypeScript AppHost runs the SDK that aspire restore generates, and that SDK imports runtime
+# packages such as vscode-jsonrpc. Dependabot proposes minor and patch updates for them; move a
+# TypeScript AppHost to a new major only when Aspire's own TypeScript template requires it.
+align_typescript_apphost_dependencies() {
+  local apphosts=()
+  local template_path="$scratch_path/typescript-template"
+  local name=""
+  local range=""
+  local apphost=""
+  local current=""
+  local version=""
+
+  mapfile -t apphosts < <(typescript_apphost_directories "$repository_root")
+  if [[ ${#apphosts[@]} -eq 0 ]]; then
+    return
+  fi
+
+  rm -rf "$template_path"
+  (
+    cd "$config_path"
+    NO_COLOR=1 "$aspire" new aspire-ts-empty \
+      --name aspire-typescript-template \
+      --output "$template_path" \
+      --channel stable \
+      --suppress-agent-init \
+      --skill-locations none \
+      --non-interactive \
+      --nologo >/dev/null
+  )
+
+  while read -r name range; do
+    printf "Aspire's TypeScript template requires %s %s.\n" "$name" "$range"
+    for apphost in "${apphosts[@]}"; do
+      current="$(package_runtime_dependencies "$repository_root/$apphost/package.json" | sed -n "s|^$name ||p")"
+      if [[ -z "$current" || "$(major_version "$current")" == "$(major_version "$range")" ]]; then
+        continue
+      fi
+
+      version="$(npm view "$name@$range" version --json | node -e '
+        const versions = [JSON.parse(require("fs").readFileSync(0, "utf8"))].flat();
+        console.log(versions.at(-1));
+      ')"
+      printf 'Moving %s in %s from %s to %s.\n' "$name" "$apphost" "$current" "$version"
+      npm install --prefix "$repository_root/$apphost" \
+        --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund \
+        "$name@$version"
+    done
+  done < <(package_runtime_dependencies "$template_path/package.json")
+}
+
 # Logs whether the repository needed an update, so a run that changes nothing is
 # distinguishable from one that failed to detect a release.
 report_update_decision() {
@@ -350,4 +410,5 @@ report_update_decision() {
 }
 
 keep_version_decisions
+align_typescript_apphost_dependencies
 report_update_decision

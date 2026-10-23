@@ -30,6 +30,12 @@ updates:
     directories:
       - /extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/samples/TigerBeetle.TypeScript
       - /extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/samples/TigerBeetle.TypeScript/client
+    ignore:
+      # Aspire's generated TypeScript SDK imports vscode-jsonrpc. eng/update-aspire.sh moves its major
+      # when Aspire's TypeScript template does; Dependabot keeps proposing minor and patch updates.
+      - dependency-name: vscode-jsonrpc
+        update-types:
+          - version-update:semver-major
     schedule:
       interval: weekly
       day: monday
