@@ -23,7 +23,7 @@ public sealed class KafkaResourceBuilderExtensionsTests
         var image = Assert.Single(registry.Resource.Annotations.OfType<ContainerImageAnnotation>());
         Assert.Equal("docker.io", image.Registry);
         Assert.Equal("confluentinc/cp-schema-registry", image.Image);
-        Assert.Equal("8.1.0", image.Tag);
+        Assert.Equal("8.3.2", image.Tag);
         var endpoint = Assert.Single(registry.Resource.Annotations.OfType<EndpointAnnotation>());
         Assert.Equal("http", endpoint.Name);
         Assert.Equal(18081, endpoint.Port);

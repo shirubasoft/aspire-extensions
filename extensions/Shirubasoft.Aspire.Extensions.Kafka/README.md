@@ -32,7 +32,7 @@ builder.AddProject<Projects.Worker>("worker")
 await builder.Build().RunAsync();
 ```
 
-`AddSchemaRegistry` runs `confluentinc/cp-schema-registry:8.1.0`, waits for Kafka, and reports healthy after `GET /subjects` succeeds. Pass `port` to bind a fixed host port. Standard container builder methods can replace the image or add persistent configuration.
+`AddSchemaRegistry` runs `confluentinc/cp-schema-registry:8.3.2`, waits for Kafka, and reports healthy after `GET /subjects` succeeds. Pass `port` to bind a fixed host port. Standard container builder methods can replace the image or add persistent configuration.
 
 The Schema Registry `WithReference` overload injects all of these values into the destination:
 
