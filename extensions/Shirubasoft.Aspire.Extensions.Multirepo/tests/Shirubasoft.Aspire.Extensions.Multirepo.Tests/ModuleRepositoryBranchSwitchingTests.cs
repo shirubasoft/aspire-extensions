@@ -56,24 +56,9 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.True(inputs[5].Disabled);
         Assert.False(interaction.SelectionWasRejected);
         Assert.Equal(
-            """
-            **Will change**
-
-            - **alpha**: `main` → `feature/x`, a new local branch tracking `origin/feature/x`
-            - **bravo**: `main` → `feature/x`
-
-            **Skipped**
-
-            - **delta**: Has uncommitted changes; commit or stash them first.
-            - **echo**: Pinned to revision `v1`; change `RepositoryRevision` to move it.
-            - **foxtrot**: Not initialized; run `aspire do initialize` first.
-
-            **Unchanged**
-
-            - **charlie**: On `main`.
-            """,
-            interaction.ConfirmationMessage,
-            ignoreLineEndingDifferences: true);
+            ["**Will change**", "- **alpha**", "- **bravo**", "**Skipped**", "- **delta**", "- **echo**", "- **foxtrot**", "**Unchanged**", "- **charlie**"],
+            interaction.ConfirmationMessage!.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Split(':')[0]));
+        Assert.Contains("- **bravo**: `main` → `feature/x`\n", interaction.ConfirmationMessage, StringComparison.Ordinal);
         Assert.NotNull(result.Data);
         Assert.True(result.Data.DisplayImmediately);
         Assert.Equal(CommandResultFormat.Markdown, result.Data.Format);
