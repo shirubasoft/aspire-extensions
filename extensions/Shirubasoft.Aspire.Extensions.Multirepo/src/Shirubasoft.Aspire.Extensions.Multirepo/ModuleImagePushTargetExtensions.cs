@@ -37,6 +37,7 @@ public static partial class DistributedApplicationModuleExtensions
     /// Also pushes the declared container's image to <paramref name="remoteImageReference"/> after its registry target
     /// when <c>aspire do push</c> runs. Call this method once for each target. The container needs a registry and an
     /// image publish command, such as <see cref="IDistributedApplicationModuleContainerBuilder.WithImagePublishCommand"/>.
+    /// A reference without a tag reuses the local image's tag, and registry settings never rewrite the reference.
     /// </summary>
     public static IDistributedApplicationModuleContainerBuilder WithImagePushTarget(
         this IDistributedApplicationModuleContainerBuilder resource,
@@ -51,6 +52,7 @@ public static partial class DistributedApplicationModuleExtensions
     /// Also pushes the resource's image to <paramref name="remoteImageReference"/> after its registry target when
     /// <c>aspire do push</c> runs. Call this method once for each target. The resource must be a module container with
     /// a registry and an image publish command.
+    /// A reference without a tag reuses the local image's tag, and registry settings never rewrite the reference.
     /// </summary>
     public static IResourceBuilder<TResource> WithImagePushTarget<TResource>(
         this IResourceBuilder<TResource> resource,
