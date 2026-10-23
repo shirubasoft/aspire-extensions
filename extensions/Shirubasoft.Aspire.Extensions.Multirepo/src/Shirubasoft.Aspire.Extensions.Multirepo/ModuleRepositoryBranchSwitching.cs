@@ -437,21 +437,21 @@ internal static class ModuleRepositoryBranchSwitching
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             return status.IsSuccess
                 ? new CheckoutState(
-                    GetHeader(lines, "head"),
-                    GetHeader(lines, "oid"),
+                    GetHeader(lines, "head", "(detached)"),
+                    GetHeader(lines, "oid", "(initial)"),
                     lines.Any(line => !line.StartsWith('#')) ? DirtyBlocker : null)
                 : new CheckoutState(null, null, $"Couldn't read the checkout: {FormatError(status)}");
         }
 
-        // Porcelain v2 headers are "# branch.head <name>" and "# branch.oid <commit>"; a detached HEAD
-        // or an unborn branch reports a parenthesized placeholder instead.
-        private static string? GetHeader(IEnumerable<string> lines, string name)
+        // Porcelain v2 headers are "# branch.head <name>" and "# branch.oid <commit>", with the placeholders
+        // "(detached)" for a detached HEAD and "(initial)" for an unborn branch.
+        private static string? GetHeader(IEnumerable<string> lines, string name, string placeholder)
         {
             var prefix = $"# branch.{name} ";
             return lines
                 .Where(line => line.StartsWith(prefix, StringComparison.Ordinal))
                 .Select(line => line[prefix.Length..])
-                .FirstOrDefault(value => !value.StartsWith('('));
+                .FirstOrDefault(value => !string.Equals(value, placeholder, StringComparison.Ordinal));
         }
 
         public async Task<ModuleRepositoryBranchOutcome> SwitchAsync(ModuleRepositoryBranchPlanItem item)

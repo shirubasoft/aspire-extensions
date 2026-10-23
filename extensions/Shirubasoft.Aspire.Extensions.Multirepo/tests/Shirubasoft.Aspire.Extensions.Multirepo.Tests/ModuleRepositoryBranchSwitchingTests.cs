@@ -119,14 +119,15 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     {
         using var workspace = BranchWorkspace.Create();
         var alpha = await workspace.CloneAsync("alpha");
+        await GitAsync(alpha.RepositoryPath, "switch", "--create", "(feature)");
         await GitAsync(alpha.RepositoryPath, "remote", "set-url", "origin", Path.Combine(workspace.Path, "missing.git"));
-        var interaction = new ScriptedInteractionService(inputs => inputs[0].Value = "main");
+        var interaction = new ScriptedInteractionService(inputs => inputs[0].Value = "(feature)");
 
         var result = await ExecuteAsync(interaction, alpha);
 
         Assert.True(result.Success, result.Message);
         Assert.Equal("Nothing to switch.", result.Message);
-        Assert.Equal("**Unchanged**\n\n- **alpha**: On `main`.", result.Data?.Value.ReplaceLineEndings("\n"));
+        Assert.Equal("**Unchanged**\n\n- **alpha**: On `(feature)`.", result.Data?.Value.ReplaceLineEndings("\n"));
         Assert.Null(interaction.ConfirmationMessage);
         Assert.Contains("Couldn't fetch from origin", interaction.Inputs![1].Description, StringComparison.Ordinal);
     }
