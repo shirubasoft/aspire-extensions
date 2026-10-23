@@ -73,6 +73,8 @@ public sealed class PackedPackageContractTests
             Assert.Equal("MIT", metadata.LicenseExpression);
             Assert.Equal("icon.png", metadata.Icon);
             Assert.True(ContainsEntry(packagePath, "icon.png"));
+            // A prerelease has no GitHub release to link.
+            Assert.Null(metadata.ReleaseNotes);
             Assert.Equal("https://github.com/Shirubasoft/aspire-extensions.git", metadata.RepositoryUrl);
             Assert.False(string.IsNullOrWhiteSpace(metadata.RepositoryCommit));
         }
@@ -539,6 +541,7 @@ public sealed class PackedPackageContractTests
         return new PackageMetadata(
             license.Value,
             icon.Value,
+            metadata.Elements().SingleOrDefault(element => element.Name.LocalName == "releaseNotes")?.Value,
             (string?)repository.Attribute("url") ?? string.Empty,
             (string?)repository.Attribute("commit") ?? string.Empty);
     }
@@ -809,6 +812,7 @@ public sealed class PackedPackageContractTests
     private sealed record PackageMetadata(
         string LicenseExpression,
         string Icon,
+        string? ReleaseNotes,
         string RepositoryUrl,
         string RepositoryCommit);
 }

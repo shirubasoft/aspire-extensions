@@ -49,6 +49,9 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
         Assert.Equal("MIT", ChildValue(metadata, "license"));
         Assert.Equal("README.md", ChildValue(metadata, "readme"));
         Assert.Equal("icon.png", ChildValue(metadata, "icon"));
+        Assert.Equal(
+            $"https://github.com/Shirubasoft/aspire-extensions/releases/tag/kafka-v{PackageVersion}",
+            ChildValue(metadata, "releaseNotes"));
         var repository = metadata.Elements().Single(element => element.Name.LocalName == "repository");
         Assert.Equal("git", repository.Attribute("type")?.Value);
         Assert.Equal("https://github.com/Shirubasoft/aspire-extensions.git", repository.Attribute("url")?.Value);

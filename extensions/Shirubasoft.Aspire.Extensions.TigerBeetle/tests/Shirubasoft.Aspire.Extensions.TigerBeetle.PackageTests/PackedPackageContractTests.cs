@@ -54,6 +54,9 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
         Assert.Equal("MIT", ChildValue(metadata, "license"));
         Assert.Equal("README.md", ChildValue(metadata, "readme"));
         Assert.Equal("icon.png", ChildValue(metadata, "icon"));
+        Assert.Equal(
+            $"https://github.com/Shirubasoft/aspire-extensions/releases/tag/tiger-beetle-v{PackageVersion}",
+            ChildValue(metadata, "releaseNotes"));
 
         var repository = metadata
             .Elements()
