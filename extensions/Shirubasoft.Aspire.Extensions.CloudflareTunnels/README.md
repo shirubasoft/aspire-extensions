@@ -8,7 +8,7 @@ Add named Cloudflare Tunnels and account-free Quick Tunnels to an Aspire AppHost
 dotnet add package Shirubasoft.Aspire.CloudflareTunnels
 ```
 
-The package targets .NET 10 and Aspire 13.5.3 or later within the Aspire 13.5 line.
+The package targets .NET 10 and the Aspire version pinned in the repository's [Directory.Packages.props](https://github.com/Shirubasoft/aspire-extensions/blob/main/Directory.Packages.props). Each release's NuGet dependencies list the exact Aspire version it requires.
 
 ## Quick Tunnels
 
