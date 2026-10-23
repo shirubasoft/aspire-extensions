@@ -123,7 +123,7 @@ internal static class ModuleImagePushPipeline
             resolved.PushTargetKind,
             resource,
             resolved.PushReference!,
-            (reference, token) => PushWithRuntimeAsync(runtime, reference, context, resourceLogger, token),
+            (reference, token) => PushWithRuntimeAsync(runtime, reference, resourceLogger, token),
             imageManager.PushImageAsync,
             transferTimeout,
             context.CancellationToken).ConfigureAwait(false);
@@ -192,7 +192,6 @@ internal static class ModuleImagePushPipeline
     private static Task PushWithRuntimeAsync(
         IContainerRuntime? runtime,
         string reference,
-        PipelineStepContext context,
         ILogger resourceLogger,
         CancellationToken cancellationToken)
     {
@@ -200,7 +199,6 @@ internal static class ModuleImagePushPipeline
         return RunContainerRuntimeAsync(
             ModuleImageRecipeOperations.GetContainerRuntimeExecutableName(runtime.Name),
             CreatePushArguments(runtime.Name, reference),
-            context,
             resourceLogger,
             cancellationToken);
     }
@@ -228,7 +226,7 @@ internal static class ModuleImagePushPipeline
             $"Branch image tag for resource '{resource.Name}'",
             context.CancellationToken).ConfigureAwait(false);
         await ModuleOperationTimeout.RunAsync(
-            token => PushBranchAliasAsync(runtime, branchAlias, context, resourceLogger, token),
+            token => PushBranchAliasAsync(runtime, branchAlias, resourceLogger, token),
             transferTimeout,
             $"Branch image push for resource '{resource.Name}'",
             context.CancellationToken).ConfigureAwait(false);
@@ -256,13 +254,11 @@ internal static class ModuleImagePushPipeline
     private static Task PushBranchAliasAsync(
         IContainerRuntime runtime,
         string branchAlias,
-        PipelineStepContext context,
         ILogger resourceLogger,
         CancellationToken cancellationToken) =>
         RunContainerRuntimeAsync(
             ModuleImageRecipeOperations.GetContainerRuntimeExecutableName(runtime.Name),
             CreatePushArguments(runtime.Name, branchAlias),
-            context,
             resourceLogger,
             cancellationToken);
 
@@ -420,15 +416,16 @@ internal static class ModuleImagePushPipeline
     private static bool IsLoopbackAddress(string host) =>
         IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
 
-    private static async Task RunContainerRuntimeAsync(
+    internal static async Task RunContainerRuntimeAsync(
         string runtime,
         IReadOnlyList<string> arguments,
-        PipelineStepContext context,
         ILogger resourceLogger,
         CancellationToken cancellationToken)
     {
-        await CliCommand.Wrap(runtime)
+        var lastError = string.Empty;
+        var result = await CliCommand.Wrap(runtime)
             .WithArguments(arguments)
+            .WithValidation(CommandResultValidation.None)
             .WithStandardOutputPipe(PipeTarget.ToDelegate(line =>
                 LogContainerRuntimeOutput(
                     resourceLogger,
@@ -436,12 +433,17 @@ internal static class ModuleImagePushPipeline
                     line,
                     null)))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(line =>
-                LogContainerRuntimeOutput(
-                    resourceLogger,
-                    runtime,
-                    line,
-                    null)))
+            {
+                LogContainerRuntimeOutput(resourceLogger, runtime, line, null);
+                lastError = string.IsNullOrWhiteSpace(line) ? lastError : line.Trim();
+            }))
             .ExecuteAsync(cancellationToken)
             .ConfigureAwait(false);
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Container runtime command '{runtime} {arguments[0]}' failed with exit code {result.ExitCode}. {lastError}"
+                    .TrimEnd());
+        }
     }
 }
