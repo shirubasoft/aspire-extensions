@@ -30,23 +30,14 @@ jobs:
           global-json-file: global.json
 
       - name: Update Aspire AppHosts and integrations
+        id: update
         env:
           ASPIRE_UPDATE_REPORT: ${{ runner.temp }}/aspire-update-pr.md
         run: ./eng/update-aspire.sh "$ASPIRE_UPDATE_REPORT"
 
-      - name: Check for updates
-        id: changes
-        shell: bash
-        run: |
-          if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Validate updates
         id: validation
-        if: steps.changes.outputs.found == 'true'
+        if: steps.update.outputs.updated == 'true'
         continue-on-error: true
         env:
           ASPIRE_UPDATE_REPORT: ${{ runner.temp }}/aspire-update-pr.md
@@ -68,6 +59,6 @@ jobs:
 
       - name: Fail when validation failed
         if: >-
-          steps.changes.outputs.found == 'true' &&
+          steps.update.outputs.updated == 'true' &&
           steps.validation.outcome == 'failure'
         run: exit 1
