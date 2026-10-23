@@ -41,8 +41,16 @@ public sealed class RequiredToolResourceTests
             .InitialSnapshot;
         Assert.Equal("Required Tool", snapshot.ResourceType);
         Assert.Equal(KnownResourceStates.Waiting, snapshot.State);
-        Assert.Contains(snapshot.Properties, property =>
-            property.Name == "tool.command" && Equals(property.Value, "dotnet"));
+        Assert.Equal(
+            [
+                new ResourcePropertySnapshot("tool.command", "dotnet")
+                {
+                    DisplayName = "Command",
+                    IsHighlighted = true
+                },
+                new ResourcePropertySnapshot("resource.source", "dotnet")
+            ],
+            snapshot.Properties);
         var health = Assert.Single(tool.Resource.Annotations.OfType<HealthCheckAnnotation>());
         Assert.Equal(RequiredToolHealthCheck.GetKey(tool.Resource), health.Key);
         Assert.DoesNotContain(tool.Resource.Annotations, annotation => annotation is RequiredCommandAnnotation);

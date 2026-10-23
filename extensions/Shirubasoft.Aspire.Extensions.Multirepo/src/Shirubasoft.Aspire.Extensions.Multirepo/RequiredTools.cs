@@ -117,6 +117,11 @@ public static class RequiredToolResourceExtensions
                 Properties =
                 [
                     new ResourcePropertySnapshot("tool.command", resource.Command)
+                    {
+                        DisplayName = "Command",
+                        IsHighlighted = true
+                    },
+                    new ResourcePropertySnapshot("resource.source", resource.Command)
                 ]
             })
             .WithHealthCheck(healthCheckKey)
