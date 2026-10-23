@@ -5,7 +5,6 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting;
 using Aspire.Hosting.Pipelines;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -306,7 +305,7 @@ public sealed class ModuleImagePushPipelineTests
     public async Task Push_targets_use_a_deployment_target_registry_that_before_start_attaches()
     {
         using var repository = CreateProject();
-        var builder = CreatePushPrerequisiteBuilder(repository.Path);
+        var builder = CreatePublishBuilder(repository.Path);
         var module = builder.ExportModule("orders", definition =>
         {
             definition.WithRepository(repository.Path);
@@ -354,7 +353,7 @@ public sealed class ModuleImagePushPipelineTests
     public async Task Consumer_running_an_external_image_ignores_the_producer_push_targets()
     {
         using var repository = CreateProject();
-        var builder = CreatePushPrerequisiteBuilder(repository.Path);
+        var builder = CreatePublishBuilder(repository.Path);
         builder.ConfigureModularAppHosts(options =>
         {
             options.Modules["orders"] = new DistributedApplicationModuleOptions
@@ -395,7 +394,7 @@ public sealed class ModuleImagePushPipelineTests
     public async Task Push_prerequisites_reject_push_targets_on_a_publisher_without_a_registry_target()
     {
         using var repository = CreateProject();
-        var builder = CreatePushPrerequisiteBuilder(repository.Path);
+        var builder = CreatePublishBuilder(repository.Path);
         var module = builder.ExportModule("orders", definition =>
         {
             definition.WithRepository(repository.Path);
@@ -610,36 +609,8 @@ public sealed class ModuleImagePushPipelineTests
         return builder;
     }
 
-    private static IDistributedApplicationBuilder CreatePushPrerequisiteBuilder(string projectDirectory)
-    {
-        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
-        {
-            Args =
-            [
-                "--operation", "publish",
-                "--step", WellKnownPipelineSteps.PushPrereq,
-                "--output-path", Path.Combine(projectDirectory, "artifacts")
-            ],
-            DisableDashboard = true,
-            ProjectDirectory = projectDirectory
-        });
-        builder.Configuration[$"{ModularAppHostsOptions.ConfigurationSectionName}:ProjectMode"] =
-            nameof(ModuleProjectMode.Container);
-        return builder;
-    }
-
-    private static async Task RunPushPrerequisitesAsync(IDistributedApplicationBuilder builder)
-    {
-        var reporter = new PipelineCompletionRecorder();
-        builder.Services.AddSingleton<IPipelineActivityReporter>(reporter);
-        await using var application = builder.Build();
-        await application.RunAsync(TestContext.Current.CancellationToken);
-        var completion = Assert.IsType<PublishCompletionOptions>(reporter.Completion);
-        if (completion.CompletionState == CompletionState.CompletedWithError)
-        {
-            throw new InvalidOperationException(completion.CompletionMessage);
-        }
-    }
+    private static Task RunPushPrerequisitesAsync(IDistributedApplicationBuilder builder) =>
+        PipelineStepRunner.RunAsync(builder, WellKnownPipelineSteps.BeforeStart, WellKnownPipelineSteps.PushPrereq);
 
     private static TemporaryDirectory CreateProject()
     {
@@ -652,26 +623,4 @@ public sealed class ModuleImagePushPipelineTests
 
     private static string GetProjectPath(string directory) =>
         Path.Combine(directory, "Orders.Api.csproj");
-
-    private sealed class PipelineCompletionRecorder : IPipelineActivityReporter
-    {
-        public PublishCompletionOptions? Completion { get; private set; }
-
-        public Task<IReportingStep> CreateStepAsync(string title, CancellationToken cancellationToken = default) =>
-            new NullPublishingActivityReporter().CreateStepAsync(title, cancellationToken);
-
-        public Task CompletePublishAsync(
-            PublishCompletionOptions? options = null,
-            CancellationToken cancellationToken = default)
-        {
-            Completion = options;
-            return Task.CompletedTask;
-        }
-
-        public Task CompletePublishAsync(
-            string? completionMessage = null,
-            CompletionState? completionState = null,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-    }
 }
