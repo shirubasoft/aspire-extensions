@@ -30,6 +30,12 @@ internal static class ModuleImagePushPipeline
             new EventId(3, nameof(LogBranchAlias)),
             "Publishing branch image alias {Alias} for resource {Resource}.");
 
+    private static readonly Action<ILogger, string, string, Exception?> LogPushTarget =
+        LoggerMessage.Define<string, string>(
+            LogLevel.Information,
+            new EventId(4, nameof(LogPushTarget)),
+            "Publishing image push target {Target} for resource {Resource}.");
+
     public static void AddPushStep(IResourceBuilder<ContainerResource> container)
     {
         ArgumentNullException.ThrowIfNull(container);
@@ -71,11 +77,35 @@ internal static class ModuleImagePushPipeline
             return true;
         }
 
+        if (!resource.Annotations.OfType<ModuleImagePublisherAnnotation>().Any())
+        {
+            return RejectPushTargetsWithoutPublisher(resource);
+        }
+
         return RequiresBuildOrHasNoPushTarget(resource);
     }
 
+    private static bool RejectPushTargetsWithoutPublisher(IResource resource)
+    {
+        if (HasPushTargets(resource))
+        {
+            throw new InvalidOperationException(
+                $"Resource '{resource.Name}' declares WithImagePushTarget, but push targets require a module image " +
+                "publish command. Configure one with WithImagePublishCommand, ExportAsContainerWithCommand, or the " +
+                "command-oriented AddResource overload, or remove the push target.");
+        }
+
+        return true;
+    }
+
     private static bool RequiresBuildOrHasNoPushTarget(IResource resource) =>
-        resource.RequiresImageBuildAndPush() || !ModuleEffectiveImageResolver.HasPushTarget(resource);
+        resource.RequiresImageBuildAndPush() || !HasAnyPushTarget(resource);
+
+    private static bool HasAnyPushTarget(IResource resource) =>
+        ModuleEffectiveImageResolver.HasPushTarget(resource) || HasPushTargets(resource);
+
+    private static bool HasPushTargets(IResource resource) =>
+        resource.Annotations.OfType<ModuleImagePushTargetAnnotation>().Any();
 
     private static async Task PushAsync(IResource resource, PipelineStepContext context)
     {
@@ -114,10 +144,31 @@ internal static class ModuleImagePushPipeline
         await PreparePublisherAsync(resource, context, resourceLogger, publisher).ConfigureAwait(false);
         var resolved = await ResolvePushTargetAsync(resource, context.CancellationToken)
             .ConfigureAwait(false);
-        var imageManager = context.Services.GetRequiredService<IResourceContainerImageManager>();
         var transferTimeout = context.Services
             .GetRequiredService<IOptions<ModularAppHostsOptions>>()
             .Value.ImageTransferTimeout;
+        await PushRegistryImageIfAvailableAsync(
+            resource,
+            resolved,
+            context,
+            resourceLogger,
+            transferTimeout).ConfigureAwait(false);
+        await PushTargetsAsync(resource, resolved, context, resourceLogger, transferTimeout).ConfigureAwait(false);
+    }
+
+    private static async Task PushRegistryImageIfAvailableAsync(
+        IResource resource,
+        ModuleEffectiveImage resolved,
+        PipelineStepContext context,
+        ILogger resourceLogger,
+        TimeSpan transferTimeout)
+    {
+        if (resolved.PushTargetKind == ModuleImagePushTargetKind.None)
+        {
+            return;
+        }
+
+        var imageManager = context.Services.GetRequiredService<IResourceContainerImageManager>();
         var runtime = await ResolveRuntimeIfNeededAsync(resolved, context).ConfigureAwait(false);
         await PushImageAsync(
             resolved.PushTargetKind,
@@ -134,6 +185,103 @@ internal static class ModuleImagePushPipeline
             context,
             resourceLogger,
             transferTimeout).ConfigureAwait(false);
+    }
+
+    private static async Task PushTargetsAsync(
+        IResource resource,
+        ModuleEffectiveImage resolved,
+        PipelineStepContext context,
+        ILogger resourceLogger,
+        TimeSpan transferTimeout)
+    {
+        var targets = GetPushTargets(resource, resolved.Reference);
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        var runtime = await ResolveRuntimeAsync(context).ConfigureAwait(false);
+        await PushTargetsAsync(
+            resource,
+            targets,
+            (target, token) => TagAndPushAsync(
+                runtime,
+                resolved.Reference,
+                target,
+                "Image",
+                resource,
+                resourceLogger,
+                transferTimeout,
+                token),
+            context.Logger,
+            context.CancellationToken).ConfigureAwait(false);
+    }
+
+    internal static IReadOnlyList<string> GetPushTargets(IResource resource, string localImage)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        var localTag = ModuleImageReference.GetTag(localImage);
+        return resource.Annotations
+            .OfType<ModuleImagePushTargetAnnotation>()
+            .Select(target => ModuleImageReference.WithDefaultTag(target.RemoteImageReference, localTag))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static async Task PushTargetsAsync(
+        IResource resource,
+        IReadOnlyList<string> targets,
+        Func<string, CancellationToken, Task> pushTargetAsync,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ArgumentNullException.ThrowIfNull(targets);
+        ArgumentNullException.ThrowIfNull(pushTargetAsync);
+        ArgumentNullException.ThrowIfNull(logger);
+        var failures = new List<PushTargetFailure>();
+        foreach (var target in targets)
+        {
+            LogPushTarget(logger, target, resource.Name, null);
+            failures.AddRange(await TryPushTargetAsync(target, pushTargetAsync, cancellationToken).ConfigureAwait(false));
+        }
+
+        ThrowIfAnyPushTargetFailed(resource, targets.Count, failures);
+    }
+
+    private static async Task<PushTargetFailure[]> TryPushTargetAsync(
+        string target,
+        Func<string, CancellationToken, Task> pushTargetAsync,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await pushTargetAsync(target, cancellationToken).ConfigureAwait(false);
+            return [];
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return [new PushTargetFailure(target, exception)];
+        }
+    }
+
+    private static void ThrowIfAnyPushTargetFailed(
+        IResource resource,
+        int targetCount,
+        List<PushTargetFailure> failures)
+    {
+        if (failures.Count == 0)
+        {
+            return;
+        }
+
+        var details = failures.Select(failure => $"- {failure.Target}: {failure.Exception.Message}");
+        throw new InvalidOperationException(
+            $"Resource '{resource.Name}' failed to push {failures.Count} of {targetCount} image push targets:" +
+            $"{Environment.NewLine}{string.Join(Environment.NewLine, details)}{Environment.NewLine}" +
+            "Log in to each target registry with the selected container runtime and check each reference, " +
+            "then rerun the push.",
+            new AggregateException(failures.Select(failure => failure.Exception)));
     }
 
     private static async Task PreparePublisherAsync(
@@ -162,8 +310,9 @@ internal static class ModuleImagePushPipeline
         var resolved = await ModuleEffectiveImageResolver.ResolveAsync(
             resource,
             cancellationToken,
+            allowUnqualifiedPullReference: true,
             usePreparedPublisherImage: true).ConfigureAwait(false);
-        if (resolved.PushTargetKind == ModuleImagePushTargetKind.None)
+        if (resolved.PushTargetKind == ModuleImagePushTargetKind.None && !HasPushTargets(resource))
         {
             throw new InvalidOperationException(
                 $"Resource '{resource.Name}' does not have a remote image push target.");
@@ -220,15 +369,14 @@ internal static class ModuleImagePushPipeline
 
         runtime = await ResolveBranchAliasRuntimeAsync(runtime, context).ConfigureAwait(false);
         LogBranchAlias(context.Logger, branchAlias, resource.Name, null);
-        await ModuleOperationTimeout.RunAsync(
-            token => TagBranchAliasAsync(runtime, resolved.Reference, branchAlias, token),
+        await TagAndPushAsync(
+            runtime,
+            resolved.Reference,
+            branchAlias,
+            "Branch image",
+            resource,
+            resourceLogger,
             transferTimeout,
-            $"Branch image tag for resource '{resource.Name}'",
-            context.CancellationToken).ConfigureAwait(false);
-        await ModuleOperationTimeout.RunAsync(
-            token => PushBranchAliasAsync(runtime, branchAlias, resourceLogger, token),
-            transferTimeout,
-            $"Branch image push for resource '{resource.Name}'",
             context.CancellationToken).ConfigureAwait(false);
     }
 
@@ -244,23 +392,27 @@ internal static class ModuleImagePushPipeline
         return resolvers[Convert.ToInt32(runtime is not null)]();
     }
 
-    private static Task TagBranchAliasAsync(
+    private static async Task TagAndPushAsync(
         IContainerRuntime runtime,
         string source,
-        string branchAlias,
-        CancellationToken cancellationToken) =>
-        runtime.TagImageAsync(source, branchAlias, cancellationToken);
-
-    private static Task PushBranchAliasAsync(
-        IContainerRuntime runtime,
-        string branchAlias,
+        string target,
+        string imageKind,
+        IResource resource,
         ILogger resourceLogger,
-        CancellationToken cancellationToken) =>
-        RunContainerRuntimeAsync(
-            ModuleImageRecipeOperations.GetContainerRuntimeExecutableName(runtime.Name),
-            CreatePushArguments(runtime.Name, branchAlias),
-            resourceLogger,
-            cancellationToken);
+        TimeSpan transferTimeout,
+        CancellationToken cancellationToken)
+    {
+        await ModuleOperationTimeout.RunAsync(
+            token => runtime.TagImageAsync(source, target, token),
+            transferTimeout,
+            $"{imageKind} tag for resource '{resource.Name}'",
+            cancellationToken).ConfigureAwait(false);
+        await ModuleOperationTimeout.RunAsync(
+            token => PushWithRuntimeAsync(runtime, target, resourceLogger, token),
+            transferTimeout,
+            $"{imageKind} push for resource '{resource.Name}'",
+            cancellationToken).ConfigureAwait(false);
+    }
 
     internal static Task PushImageAsync(
         ModuleImagePushTargetKind targetKind,
@@ -446,4 +598,6 @@ internal static class ModuleImagePushPipeline
                     .TrimEnd());
         }
     }
+
+    private sealed record PushTargetFailure(string Target, Exception Exception);
 }

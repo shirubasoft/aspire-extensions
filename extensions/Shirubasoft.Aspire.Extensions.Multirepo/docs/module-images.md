@@ -65,6 +65,19 @@ Resources configured with `WithContainerRegistry` use Aspire's registry-aware im
 
 For validated module/resource selection and a workflow document in one AppHost invocation, use [`modular-apphosts images publish`](../src/Shirubasoft.Aspire.Extensions.Multirepo.Tool/README.md#producer-publish-images). It runs a separate `workflow-images` aggregate without changing Aspire's standard `push` behavior.
 
+### Push to more targets
+
+Use `WithImagePushTarget` once per reference to push an image built by a publish command to more registries, repositories, or tags:
+
+```csharp
+module.AddContainer("orders-static", "orders-static")
+    .WithImagePublishCommand(publishOptions)
+    .WithImagePushTarget("ghcr.io/example/orders-static")
+    .WithImagePushTarget("registry.example.com/mirror/orders-static:stable");
+```
+
+`aspire do push-orders-static` pushes the registry target and branch alias when the resource has them, then tags the same local image as each push target and pushes it with Aspire's selected container runtime. Push targets are used as written: `WithContainerRegistry`, deployment-target registries, `ImageRegistry`, and remote-image callbacks shape only the registry target, and a push target without a tag reuses the local image's tag. The step tries every push target, then fails with each failed reference and its runtime error.
+
 ### Pull from another reference
 
 Use `WithImagePullMapping` when the pull source differs from the resource's local image:

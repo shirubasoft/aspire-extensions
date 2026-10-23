@@ -141,6 +141,9 @@ Aspire.Hosting.DistributedApplicationModuleResourceAnnotation.PackageId.get -> s
 Aspire.Hosting.ModuleImagePullMappingAnnotation
 Aspire.Hosting.ModuleImagePullMappingAnnotation.ModuleImagePullMappingAnnotation(string! remoteImageReference) -> void
 Aspire.Hosting.ModuleImagePullMappingAnnotation.RemoteImageReference.get -> string!
+Aspire.Hosting.ModuleImagePushTargetAnnotation
+Aspire.Hosting.ModuleImagePushTargetAnnotation.ModuleImagePushTargetAnnotation(string! remoteImageReference) -> void
+Aspire.Hosting.ModuleImagePushTargetAnnotation.RemoteImageReference.get -> string!
 Aspire.Hosting.IDistributedApplicationModuleBuilder.Configuration.get -> Microsoft.Extensions.Configuration.IConfiguration!
 Aspire.Hosting.IDistributedApplicationModuleBuilder.ConfigurationSection.get -> Microsoft.Extensions.Configuration.IConfigurationSection!
 Aspire.Hosting.IDistributedApplicationModuleBuilder.GetOptions<TOptions>() -> Microsoft.Extensions.Options.IOptions<TOptions!>!
@@ -194,6 +197,8 @@ const Aspire.Hosting.ModuleImageCommandOptions.ImageRepositoryPlaceholder = "{im
 static Aspire.Hosting.DistributedApplicationModuleExtensions.GetModuleConfigurationKey(string! moduleName) -> string!
 static Aspire.Hosting.DistributedApplicationModuleExtensions.WithImagePullMapping(this Aspire.Hosting.IDistributedApplicationModuleContainerBuilder! resource, string! remoteImageReference) -> Aspire.Hosting.IDistributedApplicationModuleContainerBuilder!
 static Aspire.Hosting.DistributedApplicationModuleExtensions.WithImagePullMapping<TResource>(this Aspire.Hosting.ApplicationModel.IResourceBuilder<TResource!>! resource, string! remoteImageReference) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<TResource!>!
+static Aspire.Hosting.DistributedApplicationModuleExtensions.WithImagePushTarget(this Aspire.Hosting.IDistributedApplicationModuleContainerBuilder! resource, string! remoteImageReference) -> Aspire.Hosting.IDistributedApplicationModuleContainerBuilder!
+static Aspire.Hosting.DistributedApplicationModuleExtensions.WithImagePushTarget<TResource>(this Aspire.Hosting.ApplicationModel.IResourceBuilder<TResource!>! resource, string! remoteImageReference) -> Aspire.Hosting.ApplicationModel.IResourceBuilder<TResource!>!
 static Aspire.Hosting.ModuleImageIdentityValidation.IsValidDigest(string! value) -> bool
 static Aspire.Hosting.ModuleImageIdentityValidation.IsValidTag(string! value) -> bool
 static Aspire.Hosting.ModuleImageWorkflowDocument.LoadAsync(string! path, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Aspire.Hosting.ModuleImageWorkflowDocument!>!

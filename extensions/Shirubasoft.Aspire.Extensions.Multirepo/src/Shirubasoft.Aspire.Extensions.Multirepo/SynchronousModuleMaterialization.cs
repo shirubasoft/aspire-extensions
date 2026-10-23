@@ -1410,6 +1410,7 @@ public static partial class DistributedApplicationModuleExtensions
         ApplyImageSHA256(container, configured?.ImageSHA256);
         ApplyImagePullPolicy(container, configured?.ImagePullPolicy);
         ModuleImagePullPipeline.AddPullStep(container);
+        ModuleImagePushPipeline.AddPushStep(container);
         ConfigurePublishedContainerImage(builder, container, publisher);
     }
 
@@ -1436,7 +1437,6 @@ public static partial class DistributedApplicationModuleExtensions
         container.WithAnnotation(publisher);
         container.WithImagePushOptions(context => ApplyPublisherPushDefaults(context, publisher));
         ModuleImageBuildPipeline.AddBuildStep(container);
-        ModuleImagePushPipeline.AddPushStep(container);
         ConfigureRunImagePreparation(builder, container, publisher);
     }
 

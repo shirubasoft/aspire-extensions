@@ -731,6 +731,62 @@ public sealed class ModuleImageDeferredCoverageTests
         Assert.Contains("remote image push target", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Push_step_tags_and_pushes_every_push_target_with_the_selected_runtime()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
+        var (step, application, canonicalImage) = await CreatePushTargetStepAsync(
+            "first.example.test/acme/api",
+            "second.example.test/team/api:stable");
+        await using var _ = application;
+
+        await ExecutePipelineStepAsync(application, step);
+
+        var canonicalTag = ModuleImageReference.GetTag(canonicalImage);
+        Assert.Equal(
+            [
+                $"tag {canonicalImage} first.example.test/acme/api:{canonicalTag}",
+                $"push first.example.test/acme/api:{canonicalTag}",
+                $"tag {canonicalImage} second.example.test/team/api:stable",
+                "push second.example.test/team/api:stable"
+            ],
+            runtime.Invocations);
+    }
+
+    [Fact]
+    public async Task Push_step_tries_every_push_target_and_reports_each_runtime_failure()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Failure, configured: true);
+        var (step, application, canonicalImage) = await CreatePushTargetStepAsync(
+            "first.example.test/acme/api:stable",
+            "second.example.test/team/api:stable");
+        await using var _ = application;
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ExecutePipelineStepAsync(application, step));
+
+        Assert.Equal(
+            [
+                $"tag {canonicalImage} first.example.test/acme/api:stable",
+                $"tag {canonicalImage} second.example.test/team/api:stable"
+            ],
+            runtime.Invocations);
+        Assert.Contains("failed to push 2 of 2 image push targets", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("- first.example.test/acme/api:stable: ", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("- second.example.test/team/api:stable: ", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("exit code 7", exception.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(FakeRuntimeMode.Success)]
     [InlineData(FakeRuntimeMode.Failure)]
@@ -998,6 +1054,31 @@ public sealed class ModuleImageDeferredCoverageTests
         }
 
         return steps.Where(step => step.Tags.Contains(tag)).ToArray();
+    }
+
+    private static async Task<(PipelineStep Step, DistributedApplication Application, string CanonicalImage)>
+        CreatePushTargetStepAsync(params string[] targets)
+    {
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = ["--publisher", "manifest"],
+            DisableDashboard = true
+        });
+        var recipe = CreateRecipe(new ModuleImageCommandOptions("acme/api", "dotnet", "--version"));
+        var publisher = CreatePublisher(recipe);
+        var container = builder
+            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
+            .WithAnnotation(publisher);
+        foreach (var target in targets)
+        {
+            container.WithImagePushTarget(target);
+        }
+
+        ModuleImagePushPipeline.AddPushStep(container);
+        var step = Assert.Single(await CreatePipelineStepsAsync(
+            container.Resource,
+            WellKnownPipelineTags.PushContainerImage));
+        return (step, builder.Build(), CreatePreparedImage(recipe).CanonicalImageReference);
     }
 
     private static async Task ExecutePipelineStepAsync(

@@ -295,6 +295,181 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Null(ModuleImagePushPipeline.GetBranchAliasReference(resource, resolved));
     }
 
+    [Fact]
+    public async Task Image_publisher_without_a_registry_pushes_only_when_it_declares_push_targets()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        var module = builder.ExportModule("assets", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            definition.AddContainer("local-only", "assets/local-only", "candidate")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("assets/local-only", "docker", "build"));
+            definition.AddContainer("mirrored", "assets/mirrored", "candidate")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("assets/mirrored", "docker", "build"))
+                .WithImagePushTarget("first.example.test/assets/mirrored")
+                .WithImagePushTarget(" second.example.test/assets/mirrored:stable ");
+        });
+
+        builder.AddModule(module);
+
+        var localOnly = builder.Resources.OfType<ContainerResource>().Single(resource => resource.Name == "local-only");
+        var mirrored = builder.Resources.OfType<ContainerResource>().Single(resource => resource.Name == "mirrored");
+        Assert.Empty(await CreatePushStepsAsync(localOnly));
+        Assert.Equal("push-mirrored", Assert.Single(await CreatePushStepsAsync(mirrored)).Name);
+        Assert.Equal(
+            ["first.example.test/assets/mirrored", "second.example.test/assets/mirrored:stable"],
+            mirrored.Annotations.OfType<ModuleImagePushTargetAnnotation>().Select(target => target.RemoteImageReference));
+    }
+
+    [Fact]
+    public void Resource_builder_push_targets_are_repeatable()
+    {
+        var container = DistributedApplication.CreateBuilder()
+            .AddContainer("orders-api", "acme/orders-api", "candidate")
+            .WithImagePushTarget("first.example.test/acme/orders-api")
+            .WithImagePushTarget("second.example.test/acme/orders-api:stable")
+            .Resource;
+
+        Assert.Equal(
+            ["first.example.test/acme/orders-api", "second.example.test/acme/orders-api:stable"],
+            container.Annotations.OfType<ModuleImagePushTargetAnnotation>().Select(target => target.RemoteImageReference));
+    }
+
+    [Fact]
+    public async Task Push_target_without_an_image_publish_command_is_rejected()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            definition.AddContainer("orders-api", "ghcr.io/acme/orders-api", "1.0")
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+        });
+
+        builder.AddModule(module);
+
+        var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreatePushStepsAsync(container));
+        Assert.Contains("'orders-api' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("WithImagePublishCommand", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("registry.example.test/acme/api@sha256:0123456789abcdef")]
+    [InlineData(" ")]
+    public void Push_target_requires_a_tag_reference(string reference)
+    {
+        Assert.ThrowsAny<ArgumentException>(() => new ModuleImagePushTargetAnnotation(reference));
+    }
+
+    [Fact]
+    public void Push_targets_are_used_as_written_and_reuse_the_local_tag_when_it_is_omitted()
+    {
+        var container = DistributedApplication.CreateBuilder()
+            .AddContainer("orders-api", "acme/orders-api", "candidate")
+            .WithImagePushTarget("mirror.example.test/acme/orders-api")
+            .WithImagePushTarget("localhost:5000/acme/orders-api")
+            .WithImagePushTarget("mirror.example.test/acme/orders-api:stable")
+            .WithImagePushTarget("mirror.example.test/acme/orders-api:main-0123456789ab")
+            .Resource;
+
+        var targets = ModuleImagePushPipeline.GetPushTargets(
+            container,
+            "registry.example.test/acme/orders-api:main-0123456789ab");
+
+        Assert.Equal(
+            [
+                "mirror.example.test/acme/orders-api:main-0123456789ab",
+                "localhost:5000/acme/orders-api:main-0123456789ab",
+                "mirror.example.test/acme/orders-api:stable"
+            ],
+            targets);
+    }
+
+    [Fact]
+    public async Task Registry_configuration_shapes_only_the_registry_target()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        var registry = builder.AddContainerRegistry("registry", "registry.example.test", "acme");
+        var container = builder
+            .AddContainer("orders-api", "orders-api", "candidate")
+            .WithContainerRegistry(registry)
+            .WithRemoteImageName("remote-api")
+            .WithRemoteImageTag("remote-tag")
+            .WithImagePushTarget("mirror.example.test/team/orders-api")
+            .Resource;
+
+        var resolved = await ModuleEffectiveImageResolver.ResolveAsync(
+            container,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("registry.example.test/acme/remote-api:remote-tag", resolved.PushReference);
+        Assert.Equal(
+            "mirror.example.test/team/orders-api:candidate",
+            Assert.Single(ModuleImagePushPipeline.GetPushTargets(container, resolved.Reference)));
+    }
+
+    [Fact]
+    public async Task Every_push_target_is_attempted_before_failures_are_reported()
+    {
+        var resource = new ContainerResource("orders-api");
+        var errors = new Dictionary<string, string>
+        {
+            ["first.example.test/api:1"] = "denied by first",
+            ["third.example.test/api:1"] = "denied by third"
+        };
+        var attempted = new List<string>();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ModuleImagePushPipeline.PushTargetsAsync(
+                resource,
+                ["first.example.test/api:1", "second.example.test/api:1", "third.example.test/api:1"],
+                (target, _) =>
+                {
+                    attempted.Add(target);
+                    return errors.TryGetValue(target, out var error)
+                        ? Task.FromException(new InvalidOperationException(error))
+                        : Task.CompletedTask;
+                },
+                NullLogger.Instance,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(["first.example.test/api:1", "second.example.test/api:1", "third.example.test/api:1"], attempted);
+        Assert.StartsWith(
+            "Resource 'orders-api' failed to push 2 of 3 image push targets:",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains("- first.example.test/api:1: denied by first", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("- third.example.test/api:1: denied by third", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("second.example.test", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Log in to each target registry", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(2, Assert.IsType<AggregateException>(exception.InnerException).InnerExceptions.Count);
+    }
+
+    [Fact]
+    public async Task Canceling_a_push_skips_the_remaining_targets()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var attempted = new List<string>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            ModuleImagePushPipeline.PushTargetsAsync(
+                new ContainerResource("orders-api"),
+                ["first.example.test/api:1", "second.example.test/api:1"],
+                (target, token) =>
+                {
+                    attempted.Add(target);
+                    cancellation.Cancel();
+                    return Task.FromCanceled(token);
+                },
+                NullLogger.Instance,
+                cancellation.Token));
+
+        Assert.Equal(["first.example.test/api:1"], attempted);
+    }
+
     private static async Task<IReadOnlyList<PipelineStep>> CreatePushStepsAsync(IResource resource)
     {
         var steps = new List<PipelineStep>();
