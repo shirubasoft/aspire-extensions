@@ -732,7 +732,7 @@ public sealed class ModuleImageDeferredCoverageTests
     }
 
     [Fact]
-    public async Task Push_step_pushes_every_push_target_and_reports_a_failed_push()
+    public async Task Push_step_pushes_the_registry_target_and_branch_alias_then_tries_every_push_target()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -751,6 +751,9 @@ public sealed class ModuleImageDeferredCoverageTests
         var mirror = $"mirror.example.test/team/api:{ModuleImageReference.GetTag(canonicalImage)}";
         Assert.Equal(
             [
+                $"push {canonicalImage}",
+                $"tag {canonicalImage} registry.example.test/acme/api:feature-coverage",
+                "push registry.example.test/acme/api:feature-coverage",
                 $"tag {canonicalImage} unreachable.example.test/acme/api:stable",
                 "push unreachable.example.test/acme/api:stable",
                 $"tag {canonicalImage} {mirror}",
@@ -1041,10 +1044,11 @@ public sealed class ModuleImageDeferredCoverageTests
             Args = ["--publisher", "manifest"],
             DisableDashboard = true
         });
-        var recipe = CreateRecipe(new ModuleImageCommandOptions("acme/api", "dotnet", "--version"));
+        var recipe = CreateRecipe();
         var publisher = CreatePublisher(recipe);
         var container = builder
             .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
+            .WithImageRegistry(recipe.Options.ImageRegistry)
             .WithAnnotation(publisher);
         foreach (var target in targets)
         {

@@ -77,35 +77,28 @@ internal static class ModuleImagePushPipeline
             return true;
         }
 
-        if (!resource.Annotations.OfType<ModuleImagePublisherAnnotation>().Any())
-        {
-            return RejectPushTargetsWithoutPublisher(resource);
-        }
-
-        return RequiresBuildOrHasNoPushTarget(resource);
+        var skip = !resource.Annotations.OfType<ModuleImagePublisherAnnotation>().Any()
+            || RequiresBuildOrHasNoPushTarget(resource);
+        return skip && RejectPushTargets(resource);
     }
 
-    private static bool RejectPushTargetsWithoutPublisher(IResource resource)
+    private static bool RequiresBuildOrHasNoPushTarget(IResource resource) =>
+        resource.RequiresImageBuildAndPush() || !ModuleEffectiveImageResolver.HasPushTarget(resource);
+
+    private static bool RejectPushTargets(IResource resource)
     {
-        if (HasPushTargets(resource))
+        if (resource.Annotations.OfType<ModuleImagePushTargetAnnotation>().Any())
         {
             throw new InvalidOperationException(
-                $"Resource '{resource.Name}' declares WithImagePushTarget, but push targets require a module image " +
-                "publish command. Configure one with WithImagePublishCommand, ExportAsContainerWithCommand, or the " +
-                "command-oriented AddResource overload, or remove the push target.");
+                $"Resource '{resource.Name}' declares WithImagePushTarget, but push targets add to a module image's " +
+                "registry target. Give the resource an image publish command (WithImagePublishCommand, " +
+                "ExportAsContainerWithCommand, or the command-oriented AddResource overload) and a registry " +
+                "(WithContainerRegistry, ImageRegistry, or a deployment target registry), which can be one of the " +
+                "push targets.");
         }
 
         return true;
     }
-
-    private static bool RequiresBuildOrHasNoPushTarget(IResource resource) =>
-        resource.RequiresImageBuildAndPush() || !HasAnyPushTarget(resource);
-
-    private static bool HasAnyPushTarget(IResource resource) =>
-        ModuleEffectiveImageResolver.HasPushTarget(resource) || HasPushTargets(resource);
-
-    private static bool HasPushTargets(IResource resource) =>
-        resource.Annotations.OfType<ModuleImagePushTargetAnnotation>().Any();
 
     private static async Task PushAsync(IResource resource, PipelineStepContext context)
     {
@@ -144,31 +137,10 @@ internal static class ModuleImagePushPipeline
         await PreparePublisherAsync(resource, context, resourceLogger, publisher).ConfigureAwait(false);
         var resolved = await ResolvePushTargetAsync(resource, context.CancellationToken)
             .ConfigureAwait(false);
+        var imageManager = context.Services.GetRequiredService<IResourceContainerImageManager>();
         var transferTimeout = context.Services
             .GetRequiredService<IOptions<ModularAppHostsOptions>>()
             .Value.ImageTransferTimeout;
-        await PushRegistryImageIfAvailableAsync(
-            resource,
-            resolved,
-            context,
-            resourceLogger,
-            transferTimeout).ConfigureAwait(false);
-        await PushTargetsAsync(resource, resolved, context, resourceLogger, transferTimeout).ConfigureAwait(false);
-    }
-
-    private static async Task PushRegistryImageIfAvailableAsync(
-        IResource resource,
-        ModuleEffectiveImage resolved,
-        PipelineStepContext context,
-        ILogger resourceLogger,
-        TimeSpan transferTimeout)
-    {
-        if (resolved.PushTargetKind == ModuleImagePushTargetKind.None)
-        {
-            return;
-        }
-
-        var imageManager = context.Services.GetRequiredService<IResourceContainerImageManager>();
         var runtime = await ResolveRuntimeIfNeededAsync(resolved, context).ConfigureAwait(false);
         await PushImageAsync(
             resolved.PushTargetKind,
@@ -185,6 +157,7 @@ internal static class ModuleImagePushPipeline
             context,
             resourceLogger,
             transferTimeout).ConfigureAwait(false);
+        await PushTargetsAsync(resource, resolved, context, resourceLogger, transferTimeout).ConfigureAwait(false);
     }
 
     private static async Task PushTargetsAsync(
@@ -310,9 +283,8 @@ internal static class ModuleImagePushPipeline
         var resolved = await ModuleEffectiveImageResolver.ResolveAsync(
             resource,
             cancellationToken,
-            allowUnqualifiedPullReference: true,
             usePreparedPublisherImage: true).ConfigureAwait(false);
-        if (resolved.PushTargetKind == ModuleImagePushTargetKind.None && !HasPushTargets(resource))
+        if (resolved.PushTargetKind == ModuleImagePushTargetKind.None)
         {
             throw new InvalidOperationException(
                 $"Resource '{resource.Name}' does not have a remote image push target.");

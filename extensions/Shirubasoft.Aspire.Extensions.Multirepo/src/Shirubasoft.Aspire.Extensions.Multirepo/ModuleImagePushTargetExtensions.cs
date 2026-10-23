@@ -34,9 +34,9 @@ public sealed class ModuleImagePushTargetAnnotation : IResourceAnnotation
 public static partial class DistributedApplicationModuleExtensions
 {
     /// <summary>
-    /// Also pushes the declared container's image to <paramref name="remoteImageReference"/> when <c>aspire do push</c>
-    /// runs. Call this method once for each target. The container needs an image publish command, such as
-    /// <see cref="IDistributedApplicationModuleContainerBuilder.WithImagePublishCommand"/>.
+    /// Also pushes the declared container's image to <paramref name="remoteImageReference"/> after its registry target
+    /// when <c>aspire do push</c> runs. Call this method once for each target. The container needs a registry and an
+    /// image publish command, such as <see cref="IDistributedApplicationModuleContainerBuilder.WithImagePublishCommand"/>.
     /// </summary>
     public static IDistributedApplicationModuleContainerBuilder WithImagePushTarget(
         this IDistributedApplicationModuleContainerBuilder resource,
@@ -48,8 +48,9 @@ public static partial class DistributedApplicationModuleExtensions
     }
 
     /// <summary>
-    /// Also pushes the resource's image to <paramref name="remoteImageReference"/> when <c>aspire do push</c> runs.
-    /// Call this method once for each target. The resource must be a module container with an image publish command.
+    /// Also pushes the resource's image to <paramref name="remoteImageReference"/> after its registry target when
+    /// <c>aspire do push</c> runs. Call this method once for each target. The resource must be a module container with
+    /// a registry and an image publish command.
     /// </summary>
     public static IResourceBuilder<TResource> WithImagePushTarget<TResource>(
         this IResourceBuilder<TResource> resource,

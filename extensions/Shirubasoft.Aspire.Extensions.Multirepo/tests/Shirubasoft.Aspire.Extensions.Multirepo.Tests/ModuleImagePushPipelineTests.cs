@@ -295,31 +295,30 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Null(ModuleImagePushPipeline.GetBranchAliasReference(resource, resolved));
     }
 
-    [Fact]
-    public async Task Image_publisher_without_a_registry_pushes_only_when_it_declares_push_targets()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Push_targets_require_an_image_publisher_with_a_registry_target(bool publishes)
     {
         using var repository = CreateProject();
         var builder = CreatePublishBuilder(repository.Path);
-        var module = builder.ExportModule("assets", definition =>
+        var module = builder.ExportModule("orders", definition =>
         {
             definition.WithRepository(repository.Path);
-            definition.AddContainer("local-only", "assets/local-only", "candidate")
-                .WithImagePublishCommand(new ModuleImageCommandOptions("assets/local-only", "docker", "build"));
-            definition.AddContainer("mirrored", "assets/mirrored", "candidate")
-                .WithImagePublishCommand(new ModuleImageCommandOptions("assets/mirrored", "docker", "build"))
-                .WithImagePushTarget("first.example.test/assets/mirrored")
-                .WithImagePushTarget(" second.example.test/assets/mirrored:stable ");
+            var orders = definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+            if (publishes)
+            {
+                orders.WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build"));
+            }
         });
 
         builder.AddModule(module);
 
-        var localOnly = builder.Resources.OfType<ContainerResource>().Single(resource => resource.Name == "local-only");
-        var mirrored = builder.Resources.OfType<ContainerResource>().Single(resource => resource.Name == "mirrored");
-        Assert.Empty(await CreatePushStepsAsync(localOnly));
-        Assert.Equal("push-mirrored", Assert.Single(await CreatePushStepsAsync(mirrored)).Name);
-        Assert.Equal(
-            ["first.example.test/assets/mirrored", "second.example.test/assets/mirrored:stable"],
-            mirrored.Annotations.OfType<ModuleImagePushTargetAnnotation>().Select(target => target.RemoteImageReference));
+        var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreatePushStepsAsync(container));
+        Assert.Contains("'orders-api' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("WithContainerRegistry", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -334,26 +333,6 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Equal(
             ["first.example.test/acme/orders-api", "second.example.test/acme/orders-api:stable"],
             container.Annotations.OfType<ModuleImagePushTargetAnnotation>().Select(target => target.RemoteImageReference));
-    }
-
-    [Fact]
-    public async Task Push_target_without_an_image_publish_command_is_rejected()
-    {
-        using var repository = CreateProject();
-        var builder = CreatePublishBuilder(repository.Path);
-        var module = builder.ExportModule("orders", definition =>
-        {
-            definition.WithRepository(repository.Path);
-            definition.AddContainer("orders-api", "ghcr.io/acme/orders-api", "1.0")
-                .WithImagePushTarget("mirror.example.test/acme/orders-api");
-        });
-
-        builder.AddModule(module);
-
-        var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreatePushStepsAsync(container));
-        Assert.Contains("'orders-api' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("WithImagePublishCommand", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]

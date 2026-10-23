@@ -71,12 +71,12 @@ Use `WithImagePushTarget` once per reference to push an image built by a publish
 
 ```csharp
 module.AddContainer("orders-static", "orders-static")
-    .WithImagePublishCommand(publishOptions)
-    .WithImagePushTarget("ghcr.io/example/orders-static")
+    .WithImagePublishCommand(publishOptions) // ImageRegistry = "ghcr.io"
+    .WithImagePushTarget("registry.example.com/mirror/orders-static")
     .WithImagePushTarget("registry.example.com/mirror/orders-static:stable");
 ```
 
-`aspire do push-orders-static` pushes the registry target and branch alias when the resource has them, then tags the same local image as each push target and pushes it with Aspire's selected container runtime. Push targets are used as written: `WithContainerRegistry`, deployment-target registries, `ImageRegistry`, and remote-image callbacks shape only the registry target, and a push target without a tag reuses the local image's tag. The step tries every push target, then fails with each failed reference and its runtime error.
+`aspire do push-orders-static` pushes the registry target and branch alias as usual, then tags the same local image as each push target and pushes it with Aspire's selected container runtime. Push targets add to the registry target, so `aspire do` rejects a resource with push targets but no `WithContainerRegistry`, `ImageRegistry`, or deployment-target registry before it pushes anything; one of the mirrors can be that registry. Push targets are used as written: registry settings and remote-image callbacks shape only the registry target, and a push target without a tag reuses the local image's tag. The step tries every push target, then fails with each failed reference and its runtime error.
 
 ### Pull from another reference
 
