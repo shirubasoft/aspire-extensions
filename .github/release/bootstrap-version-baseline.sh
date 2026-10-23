@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tags an extension's initial version when it has no release tag yet. The tag marks the commit
-# before the extension folder first appeared, so semantic-release analyzes only the extension's
-# own history rather than unrelated breaking changes from earlier repository history.
+# Tags an extension's initial version when it has no release tag yet. The tag marks the mainline
+# commit before the extension folder first appeared, so semantic-release analyzes only the
+# extension's own history rather than unrelated breaking changes from earlier mainline history.
 set -euo pipefail
 
 usage="Usage: bootstrap-version-baseline.sh <tag-prefix> <initial-version> <extension-path>"
@@ -13,7 +13,14 @@ if git describe --tags --abbrev=0 --match "$tag_prefix-v[0-9]*" >/dev/null 2>&1;
   exit 0
 fi
 
-first_commit="$(git rev-list --reverse HEAD -- "$extension_path" | head -n 1)"
+if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+  echo "The version baseline needs full history. Fetch with fetch-depth: 0." >&2
+  exit 1
+fi
+
+# Follow first parents so a merged branch is introduced by its merge commit, whose first parent
+# already contains every mainline commit that landed before the merge.
+first_commit="$(git rev-list --first-parent --reverse HEAD -- "$extension_path" | head -n 1)"
 if [[ -z "$first_commit" ]]; then
   echo "No commit reachable from HEAD touches $extension_path." >&2
   exit 1

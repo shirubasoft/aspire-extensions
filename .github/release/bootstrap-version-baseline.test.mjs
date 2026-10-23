@@ -34,7 +34,7 @@ async function repository(t) {
   const bootstrap = async () => (await execFileAsync(
     "bash", [script, "sample", "2.1.0", extensionPath], { cwd, env })).stdout;
   await git("init", "--initial-branch=main", "--object-format=sha1");
-  return { bootstrap, commit, git };
+  return { bootstrap, commit, cwd, env, git };
 }
 
 test("tags the commit before the extension folder first appeared", async (t) => {
@@ -46,6 +46,19 @@ test("tags the commit before the extension folder first appeared", async (t) => 
 
   assert.match(await bootstrap(), /Created sample-v2\.1\.0/u);
   assert.equal(await git("rev-list", "-n", "1", "sample-v2.1.0"), beforeExtension);
+});
+
+test("excludes mainline commits that land before the extension branch merges", async (t) => {
+  const { bootstrap, commit, git } = await repository(t);
+  await commit("README.md", "docs: describe the repository");
+  await git("checkout", "-b", "feature");
+  await commit(`${extensionPath}/source.txt`, "feat(sample): add the extension");
+  await git("checkout", "main");
+  const mainlineBreak = await commit("Directory.Packages.props", "feat!: break every extension");
+  await git("merge", "--no-ff", "feature", "-m", "Merge the extension");
+
+  await bootstrap();
+  assert.equal(await git("rev-list", "-n", "1", "sample-v2.1.0"), mainlineBreak);
 });
 
 test("tags the root commit when the root commit created the extension", async (t) => {
@@ -67,6 +80,19 @@ test("keeps an existing release tag", async (t) => {
   assert.equal(await bootstrap(), "");
   assert.equal(await git("tag", "--list", "sample-v2.1.0"), "");
   assert.equal(await git("rev-list", "-n", "1", "sample-v2.1.1"), released);
+});
+
+test("fails in a shallow clone instead of tagging its boundary", async (t) => {
+  const { commit, cwd, env } = await repository(t);
+  await commit(`${extensionPath}/source.txt`, "feat(sample): add the extension");
+  await commit(`${extensionPath}/source.txt`, "fix(sample): repair the extension");
+  const clone = await mkdtemp(path.join(os.tmpdir(), "bootstrap-version-baseline-shallow-"));
+  t.after(() => rm(clone, { recursive: true, force: true }));
+  await execFileAsync("git", ["clone", "--quiet", "--depth", "1", `file://${cwd}`, clone], { env });
+
+  await assert.rejects(
+    execFileAsync("bash", [script, "sample", "2.1.0", extensionPath], { cwd: clone, env }),
+    /needs full history/u);
 });
 
 test("fails when no commit touches the extension", async (t) => {
