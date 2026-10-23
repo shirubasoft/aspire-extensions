@@ -35,6 +35,7 @@ internal sealed record ModuleRepositoryBranchPlanItem(
     ModuleRepositoryBranchStatus Repository,
     ModuleRepositoryBranchChange Change,
     string Summary,
+    string? Branch = null,
     string? Target = null,
     IReadOnlyList<string>? SwitchArguments = null);
 
@@ -251,7 +252,7 @@ internal static class ModuleRepositoryBranchSwitching
     {
         var from = FormatBranch(repository.CurrentBranch);
         return repository.LocalBranches.Contains(branch, StringComparer.Ordinal)
-            ? Change(repository, $"{from} → `{branch}`", $"refs/heads/{branch}", [branch])
+            ? Change(repository, $"{from} → `{branch}`", branch, $"refs/heads/{branch}", [branch])
             : PlanTrackingBranch(repository, branch, from);
     }
 
@@ -265,6 +266,7 @@ internal static class ModuleRepositoryBranchSwitching
             ? Change(
                 repository,
                 $"{from} → `{branch}`, a new local branch tracking `origin/{branch}`",
+                branch,
                 $"refs/remotes/origin/{branch}",
                 ["--create", branch, "--track", $"origin/{branch}"])
             : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.");
@@ -272,12 +274,14 @@ internal static class ModuleRepositoryBranchSwitching
     private static ModuleRepositoryBranchPlanItem Change(
         ModuleRepositoryBranchStatus repository,
         string summary,
+        string branch,
         string target,
         string[] arguments) =>
         new(
             repository,
             ModuleRepositoryBranchChange.Change,
             summary,
+            branch,
             target,
             ["switch", "--recurse-submodules", "--no-overwrite-ignore", .. arguments]);
 
@@ -431,12 +435,12 @@ internal static class ModuleRepositoryBranchSwitching
             var lines = status.StandardOutput.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            return new CheckoutState(
-                GetHeader(lines, "head"),
-                GetHeader(lines, "oid"),
-                status.IsSuccess
-                    ? lines.Any(line => !line.StartsWith('#')) ? DirtyBlocker : null
-                    : $"Couldn't read the checkout: {FormatError(status)}");
+            return status.IsSuccess
+                ? new CheckoutState(
+                    GetHeader(lines, "head"),
+                    GetHeader(lines, "oid"),
+                    lines.Any(line => !line.StartsWith('#')) ? DirtyBlocker : null)
+                : new CheckoutState(null, null, $"Couldn't read the checkout: {FormatError(status)}");
         }
 
         // Porcelain v2 headers are "# branch.head <name>" and "# branch.oid <commit>"; a detached HEAD
@@ -455,23 +459,32 @@ internal static class ModuleRepositoryBranchSwitching
             var before = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
             var error = CheckReviewedState(item, before) ?? await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
 
-            // A failed git command can still move HEAD, for example when a post-checkout hook fails,
+            // A failed git command can still move HEAD, and a hook can move it again after a successful one,
             // so report the checkout as it is now.
             var after = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
+            var problem = DescribeProblem(item, after, error);
             var changed = !string.Equals(after.Commit, before.Commit, StringComparison.Ordinal);
-            return error is null
+            return problem is null
                 ? new(item.Repository.Name, PlanStatuses[(int)item.Change], item.Summary, changed)
-                : new(
-                    item.Repository.Name,
-                    AttentionStatus,
-                    string.Join(' ', new[] { after.Location, error }.OfType<string>()),
-                    changed);
+                : new(item.Repository.Name, AttentionStatus, problem, changed);
         }
 
         private static string? CheckReviewedState(ModuleRepositoryBranchPlanItem item, CheckoutState state) =>
             state.Blocker ?? (string.Equals(state.Branch, item.Repository.CurrentBranch, StringComparison.Ordinal)
                 ? null
                 : $"Was on {FormatBranch(item.Repository.CurrentBranch)} when you reviewed the plan, so nothing changed.");
+
+        private static string? DescribeProblem(ModuleRepositoryBranchPlanItem item, CheckoutState after, string? error) =>
+            error is null
+                ? CheckSwitchedState(item, after)
+                : string.Join(' ', new[] { after.Location, error }.OfType<string>());
+
+        private static string? CheckSwitchedState(ModuleRepositoryBranchPlanItem item, CheckoutState state) =>
+            state.Commit is null
+                ? state.Blocker
+                : string.Equals(state.Branch, item.Branch, StringComparison.Ordinal)
+                    ? null
+                    : $"Ended on {FormatBranch(state.Branch)} instead of `{item.Branch}`.";
 
         private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
         {

@@ -217,15 +217,19 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         using var workspace = BranchWorkspace.Create();
         var failing = await workspace.CloneAsync("alpha", "feature/x");
         await InstallPostCheckoutHookAsync(failing.RepositoryPath, "echo post-checkout failed >&2; exit 1");
+        var redirecting = await workspace.CloneAsync("bravo", "feature/x");
+        await InstallPostCheckoutHookAsync(redirecting.RepositoryPath, "[ -n \"$REDIRECTED\" ] || REDIRECTED=1 git switch --quiet main");
         var interaction = new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x");
 
-        var result = await ExecuteAsync(interaction, failing);
+        var result = await ExecuteAsync(interaction, failing, redirecting);
 
         Assert.False(result.Success);
         var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
         Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `feature/x`\. Switch failed: .*post-checkout failed$", details[0]);
+        Assert.Equal("- **bravo** (needs attention): Ended on `main` instead of `feature/x`.", details[1]);
         Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
         Assert.Equal("feature/x", await GitAsync(failing.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal("main", await GitAsync(redirecting.RepositoryPath, "branch", "--show-current"));
     }
 
     [Fact]
@@ -298,12 +302,12 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, "main").Change);
         var track = ModuleRepositoryBranchSwitching.Plan(detached, "feature/x");
         Assert.Equal("Detached HEAD → `feature/x`, a new local branch tracking `origin/feature/x`", track.Summary);
-        Assert.Equal("refs/remotes/origin/feature/x", track.Target);
+        Assert.Equal(("feature/x", "refs/remotes/origin/feature/x"), (track.Branch, track.Target));
         Assert.Equal(
             ["switch", "--recurse-submodules", "--no-overwrite-ignore", "--create", "feature/x", "--track", "origin/feature/x"],
             track.SwitchArguments);
         var local = ModuleRepositoryBranchSwitching.Plan(detached, "main");
-        Assert.Equal("refs/heads/main", local.Target);
+        Assert.Equal(("main", "refs/heads/main"), (local.Branch, local.Target));
         Assert.Equal(["switch", "--recurse-submodules", "--no-overwrite-ignore", "main"], local.SwitchArguments);
         Assert.Equal("No `feature/y` branch locally or on origin.", ModuleRepositoryBranchSwitching.Plan(onMain, "feature/y").Summary);
     }

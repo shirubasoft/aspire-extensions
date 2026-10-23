@@ -111,7 +111,7 @@ Nothing changes until you confirm the plan the command shows:
 - Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
 - Just before changing a repository, the command checks again that it is on the reviewed branch and has no uncommitted changes. The repository stays unchanged if switching would overwrite an untracked or ignored file in the checkout or in a submodule, or if a checked-out submodule doesn't have the commit the branch records.
 
-The result lists each repository's outcome and where its checkout ended up. Restart or rebuild the resources from changed repositories to run their new source.
+The result lists each repository's outcome and where its checkout ended up. A checkout that a Git hook moves off the selected branch needs attention. Restart or rebuild the resources from changed repositories to run their new source.
 
 ## Require host tools
 
