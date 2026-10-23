@@ -103,7 +103,7 @@ Repository values can come from `WithRepository(...)`, `DistributedApplicationMo
 
 ### Switch repository branches
 
-During `aspire run`, every module resource that uses an initialized repository has a **Switch module branches** dashboard command. The command covers every repository the AppHost initializes, and only one switch runs at a time. It fetches `origin` for each repository, then shows each checkout's current branch with its local and `origin` branches. `origin` is the remote that initialization cloned from the module's repository URL. The fetch runs without Git credential prompts and stops after 15 seconds; if it fails, the dialog shows the branches from the last fetch with a warning. Choose one branch under **All repositories**, override it for individual repositories, or both.
+During `aspire run`, every module resource that uses an initialized repository has a **Switch module branches** dashboard command. The command covers every repository the AppHost initializes, and only one switch runs at a time. It fetches `origin` for each repository, then shows each checkout's current branch with its local and `origin` branches. `origin` is the remote that initialization cloned from the module's repository URL. The fetch turns off Git's terminal prompts and Git Credential Manager's interactive sign-in, but SSH and askpass programs can still prompt. It stops after 15 seconds, and if it fails, the dialog shows the branches from the last fetch with a warning. Choose one branch under **All repositories**, override it for individual repositories, or both.
 
 Nothing changes until you confirm the plan the command shows:
 
