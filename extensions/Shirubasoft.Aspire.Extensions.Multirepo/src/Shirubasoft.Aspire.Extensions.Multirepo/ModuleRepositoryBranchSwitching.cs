@@ -575,9 +575,9 @@ internal static class ModuleRepositoryBranchSwitching
                     requirement.RepositoryPath,
                     timeout,
                     $"git in {Path.GetFileName(requirement.RepositoryPath)}",
-                    NonInteractive,
                     cancellationToken,
-                    static _ => { }).ConfigureAwait(false);
+                    static _ => { },
+                    NonInteractive).ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is TimeoutException or Win32Exception)
             {
