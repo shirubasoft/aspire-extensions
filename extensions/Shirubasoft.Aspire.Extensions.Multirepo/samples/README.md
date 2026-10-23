@@ -12,7 +12,7 @@ Start the producer from the repository root:
 aspire run --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/AppHostA/ModularSample.AppHostA.csproj
 ```
 
-The default configuration runs `sample-api` as a project, `sample-static` from `busybox:1.37`, and `sample-generated-static` from its advanced Dockerfile publisher. The remaining resources use explicit start so the default run stays focused. See [`AppHostAModule.cs`](ModuleContract/AppHostAModule.cs) for the complete resource graph and generated typed contract.
+The default configuration runs `sample-api` as a project, `sample-static` from `busybox:1.38`, and `sample-generated-static` from its advanced Dockerfile publisher. The remaining resources use explicit start so the default run stays focused. See [`AppHostAModule.cs`](ModuleContract/AppHostAModule.cs) for the complete resource graph and generated typed contract.
 
 Stop AppHost A, then start the consumer:
 
