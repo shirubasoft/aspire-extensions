@@ -164,13 +164,9 @@ internal sealed class ScriptWorkspace : IDisposable
     {
         _runner = runner;
         var binDirectory = _root.CreateSubdirectory("bin");
-        var containerboot = Path.Combine(binDirectory.FullName, "containerboot");
-        File.WriteAllText(containerboot, "#!/bin/sh\nprintf 'containerboot\\n'\nif [ -n \"${TS_STATE_DIR:-}\" ]; then cat \"$TS_STATE_DIR/aspire-tags\"; fi\nexit 42\n");
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(containerboot, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-                | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-        }
+        WriteExecutable(
+            Path.Combine(binDirectory.FullName, "containerboot"),
+            "#!/bin/sh\nprintf 'containerboot\\n'\nif [ -n \"${TS_STATE_DIR:-}\" ]; then cat \"$TS_STATE_DIR/aspire-tags\"; fi\nexit 42\n");
     }
 
     public string RootDirectory => _root.FullName;
@@ -197,6 +193,26 @@ internal sealed class ScriptWorkspace : IDisposable
         _runner.RunAsync(this, tags, withStateDirectory);
 
     public void Dispose() => _root.Delete(recursive: true);
+
+    // Tests run in parallel, and a process that another test forks inherits every file this process
+    // holds open for writing until that child calls exec. Executing such a file fails with ETXTBSY,
+    // which the shell reports as exit code 126. A separate shell writes the stub, so the test
+    // process never holds a writable descriptor to an executable it later runs.
+    private static void WriteExecutable(string path, string contents)
+    {
+        var startInfo = new ProcessStartInfo("sh") { RedirectStandardInput = true };
+        foreach (var argument in new[] { "-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh", path })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start sh.");
+        process.StandardInput.Write(contents);
+        process.StandardInput.Close();
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+    }
 }
 
 internal sealed record ScriptResult(int ExitCode, string StandardOutput, string StandardError);
