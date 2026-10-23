@@ -101,6 +101,18 @@ Initialization records credential-free ownership state under `~/.aspire/deployme
 
 Repository values can come from `WithRepository(...)`, `DistributedApplicationModuleOptions`, or normal .NET configuration. Use `GetRepositoryConfigurationKey(moduleName)` when constructing the configuration key in code.
 
+### Switch repository branches
+
+During `aspire run`, every module resource that uses an initialized repository has a **Switch branches** dashboard command. It fetches `origin` for each repository the AppHost initializes, then shows each checkout's current branch with its local and `origin` branches. Choose one branch under **All repositories**, override it for individual repositories, or both.
+
+Nothing changes until you confirm the plan the command shows:
+
+- A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it.
+- Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
+- **Fast-forward to upstream** fast-forwards each chosen branch after the switch. The command never merges, rebases, stashes, or discards work.
+
+The result lists the outcome for each repository. Restart or rebuild the resources from switched repositories to run their new source.
+
 ## Require host tools
 
 Use a required-tool resource when another resource must wait for a command on the AppHost machine:
