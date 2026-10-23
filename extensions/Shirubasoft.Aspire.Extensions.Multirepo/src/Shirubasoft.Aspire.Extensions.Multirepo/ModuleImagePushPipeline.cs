@@ -36,6 +36,22 @@ internal static class ModuleImagePushPipeline
             new EventId(4, nameof(LogPushTarget)),
             "Publishing image push target {Target} for resource {Resource}.");
 
+    public static void Configure(IDistributedApplicationBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Pipeline.AddStep(new PipelineStep
+        {
+            Name = "validate-image-push-targets",
+            Description = "Rejects image push targets that a module image publisher cannot push.",
+            Action = context =>
+            {
+                ValidatePushTargets(context.Model.Resources);
+                return Task.CompletedTask;
+            },
+            RequiredBySteps = [WellKnownPipelineSteps.PushPrereq, ModuleImageWorkflowPipeline.StepName]
+        });
+    }
+
     public static void AddPushStep(IResourceBuilder<ContainerResource> container)
     {
         ArgumentNullException.ThrowIfNull(container);
@@ -70,17 +86,24 @@ internal static class ModuleImagePushPipeline
         ];
     }
 
-    private static bool ShouldSkipPushStep(IResource resource) =>
-        resource.IsExcludedFromPublish() || (HasNoModulePushTarget(resource) && RejectPushTargets(resource));
-
-    private static bool HasNoModulePushTarget(IResource resource) =>
-        !resource.Annotations.OfType<ModuleImagePublisherAnnotation>().Any() ||
-        resource.RequiresImageBuildAndPush() ||
-        !ModuleEffectiveImageResolver.HasPushTarget(resource);
-
-    private static bool RejectPushTargets(IResource resource)
+    private static bool ShouldSkipPushStep(IResource resource)
     {
-        if (resource.Annotations.OfType<ModuleImagePushTargetAnnotation>().Any())
+        if (resource.IsExcludedFromPublish())
+        {
+            return true;
+        }
+
+        return RequiresBuildOrHasNoPushTarget(resource);
+    }
+
+    private static bool RequiresBuildOrHasNoPushTarget(IResource resource) =>
+        resource.RequiresImageBuildAndPush() || !ModuleEffectiveImageResolver.HasPushTarget(resource);
+
+    internal static void ValidatePushTargets(IEnumerable<IResource> resources)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        var resource = resources.Where(PublisherDeclaresPushTargets).FirstOrDefault(IgnoresPushTargets);
+        if (resource is not null)
         {
             throw new InvalidOperationException(
                 $"Resource '{resource.Name}' declares WithImagePushTarget, but push targets add to a module image's " +
@@ -89,9 +112,15 @@ internal static class ModuleImagePushPipeline
                 "(WithContainerRegistry, ImageRegistry, or a deployment target registry), which can be one of the " +
                 "push targets.");
         }
-
-        return true;
     }
+
+    private static bool PublisherDeclaresPushTargets(IResource resource) =>
+        resource.Annotations.OfType<ModuleImagePushTargetAnnotation>().Any() &&
+        (resource.Annotations.OfType<ModuleImagePublisherAnnotation>().Any() ||
+            resource.Annotations.OfType<ModuleNativeImagePublisherAnnotation>().Any());
+
+    private static bool IgnoresPushTargets(IResource resource) =>
+        !resource.IsExcludedFromPublish() && RequiresBuildOrHasNoPushTarget(resource);
 
     private static async Task PushAsync(IResource resource, PipelineStepContext context)
     {
