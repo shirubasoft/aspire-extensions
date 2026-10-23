@@ -61,13 +61,27 @@ test("excludes mainline commits that land before the extension branch merges", a
   assert.equal(await git("rev-list", "-n", "1", "sample-v2.1.0"), mainlineBreak);
 });
 
-test("tags the root commit when the root commit created the extension", async (t) => {
+test("starts from the current lifetime of an extension folder that was recreated", async (t) => {
   const { bootstrap, commit, git } = await repository(t);
-  const root = await commit(`${extensionPath}/source.txt`, "feat: create the repository");
+  await commit("README.md", "docs: describe the repository");
+  await commit(`${extensionPath}/source.txt`, "feat(sample): add the extension");
+  await git("rm", "-r", "--quiet", extensionPath);
+  await git("commit", "-m", "revert(sample): remove the extension");
+  const mainlineBreak = await commit("Directory.Packages.props", "feat!: break every extension");
+  await commit(`${extensionPath}/source.txt`, "feat(sample): add the extension again");
   await commit(`${extensionPath}/source.txt`, "fix(sample): repair the extension");
 
   await bootstrap();
-  assert.equal(await git("rev-list", "-n", "1", "sample-v2.1.0"), root);
+  assert.equal(await git("rev-list", "-n", "1", "sample-v2.1.0"), mainlineBreak);
+});
+
+test("rejects an extension created by the root commit", async (t) => {
+  const { bootstrap, commit, git } = await repository(t);
+  await commit(`${extensionPath}/source.txt`, "feat(sample): create the repository");
+  await commit(`${extensionPath}/source.txt`, "fix(sample): repair the extension");
+
+  await assert.rejects(bootstrap(), /root commit created/u);
+  assert.equal(await git("tag", "--list"), "");
 });
 
 test("keeps an existing release tag", async (t) => {
@@ -99,5 +113,5 @@ test("fails when no commit touches the extension", async (t) => {
   const { bootstrap, commit } = await repository(t);
   await commit("README.md", "docs: describe the repository");
 
-  await assert.rejects(bootstrap(), /No commit reachable from HEAD touches/u);
+  await assert.rejects(bootstrap(), /No commit reachable from HEAD introduces/u);
 });

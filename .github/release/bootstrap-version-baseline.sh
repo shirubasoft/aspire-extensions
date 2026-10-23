@@ -18,18 +18,30 @@ if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
   exit 1
 fi
 
-# Follow first parents so a merged branch is introduced by its merge commit, whose first parent
-# already contains every mainline commit that landed before the merge.
-# Read the whole list rather than piping to head, which can end rev-list with SIGPIPE under pipefail.
-introducing_commits="$(git rev-list --first-parent --reverse HEAD -- "$extension_path")"
-first_commit="${introducing_commits%%$'\n'*}"
-if [[ -z "$first_commit" ]]; then
-  echo "No commit reachable from HEAD touches $extension_path." >&2
+# Walk first parents from HEAD, so a merged branch is introduced by its merge commit, whose first
+# parent already contains every mainline commit that landed before the merge. The newest commit
+# whose first parent lacks the folder starts the folder's current lifetime, so an extension that
+# was removed and added again does not inherit history from its earlier lifetime.
+introduction=""
+for commit in $(git rev-list --first-parent HEAD -- "$extension_path"); do
+  if ! git cat-file -e "$commit^:$extension_path" 2>/dev/null; then
+    introduction="$commit"
+    break
+  fi
+done
+
+if [[ -z "$introduction" ]]; then
+  echo "No commit reachable from HEAD introduces $extension_path." >&2
   exit 1
 fi
 
-# An extension created by the root commit keeps the root commit as its baseline.
-baseline="$(git rev-parse --verify --quiet "$first_commit^" || printf '%s' "$first_commit")"
+# semantic-release analyzes only commits after the baseline tag, and the root commit has no
+# parent to tag, so an extension created by the root commit needs a manually tagged release.
+if ! baseline="$(git rev-parse --verify --quiet "$introduction^")"; then
+  echo "The root commit created $extension_path. Tag $tag_prefix-v<version> manually." >&2
+  exit 1
+fi
+
 git tag "$tag_prefix-v$initial_version" "$baseline"
-printf 'Created %s-v%s at %s, the commit before %s first appeared.\n' \
+printf 'Created %s-v%s at %s, the commit before %s appeared.\n' \
   "$tag_prefix" "$initial_version" "$baseline" "$extension_path"
