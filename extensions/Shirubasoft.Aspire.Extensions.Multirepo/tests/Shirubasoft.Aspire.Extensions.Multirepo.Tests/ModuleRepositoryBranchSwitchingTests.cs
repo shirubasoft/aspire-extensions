@@ -191,6 +191,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
                 File.WriteAllText(Path.Combine(edited.RepositoryPath, "draft.txt"), "draft");
                 File.WriteAllText(Path.Combine(unreadable.RepositoryPath, ".git", "index"), "corrupt");
                 TemporaryDirectory.DeleteRecursively(removed.RepositoryPath);
+                return Task.CompletedTask;
             });
 
         var result = await ExecuteAsync(interaction, locked, diverged, edited, unreadable, uninspectable, removed);
@@ -211,6 +212,41 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal("Add local.txt", await GitAsync(diverged.RepositoryPath, "log", "-1", "--format=%s"));
         Assert.Equal("main", await GitAsync(edited.RepositoryPath, "branch", "--show-current"));
         Assert.True(File.Exists(Path.Combine(edited.RepositoryPath, "draft.txt")));
+    }
+
+    [Fact]
+    public async Task Overlapping_switches_are_rejected_and_moved_checkouts_are_left_alone()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var alpha = await workspace.CloneAsync("alpha", "feature/x");
+        await GitAsync(alpha.RepositoryPath, "branch", "--track", "feature/x", "origin/feature/x");
+        var moved = await GitAsync(alpha.RepositoryPath, "rev-parse", "feature/x");
+        await workspace.PushCommitAsync("alpha", "feature/x");
+        var gate = new ModuleRepositoryBranchSwitchGate();
+        ExecuteCommandResult? overlapping = null;
+        var interaction = new ScriptedInteractionService(
+            inputs =>
+            {
+                inputs[0].Value = "main";
+                inputs[^1].Value = bool.TrueString;
+            },
+            onConfirm: async () =>
+            {
+                overlapping = await ExecuteAsync(new ScriptedInteractionService(null), gate, alpha);
+                await GitAsync(alpha.RepositoryPath, "switch", "feature/x");
+            });
+
+        var result = await ExecuteAsync(interaction, gate, alpha);
+
+        Assert.NotNull(overlapping);
+        Assert.False(overlapping.Success);
+        Assert.Equal("A branch switch is already in progress.", overlapping.Message);
+        Assert.False(result.Success);
+        Assert.Equal(
+            "- **alpha** (needs attention): On `feature/x`. Was on `main` when you reviewed the plan, so nothing changed.",
+            result.Data?.Value);
+        Assert.Equal(moved, await GitAsync(alpha.RepositoryPath, "rev-parse", "HEAD"));
+        Assert.True((await ExecuteAsync(new ScriptedInteractionService(null), gate, alpha)).Canceled);
     }
 
     [Fact]
@@ -394,10 +430,17 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     private static Task<ExecuteCommandResult> ExecuteAsync(
         ScriptedInteractionService interaction,
         params ModuleRepositoryRequirement[] requirements) =>
+        ExecuteAsync(interaction, new ModuleRepositoryBranchSwitchGate(), requirements);
+
+    private static Task<ExecuteCommandResult> ExecuteAsync(
+        ScriptedInteractionService interaction,
+        ModuleRepositoryBranchSwitchGate gate,
+        params ModuleRepositoryRequirement[] requirements) =>
         ModuleRepositoryBranchSwitching.ExecuteAsync(
             CreateContext(interaction),
             requirements,
-            new ModuleRepositoryInitializationSettings("git", "gh", TimeSpan.FromMinutes(1)));
+            new ModuleRepositoryInitializationSettings("git", "gh", TimeSpan.FromMinutes(1)),
+            gate);
 
     private static ExecuteCommandContext CreateContext(IInteractionService interaction) =>
         new()
@@ -506,7 +549,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     private sealed class ScriptedInteractionService(
         Action<IReadOnlyList<InteractionInput>>? select,
         bool confirm = true,
-        Action? onConfirm = null) : IInteractionService
+        Func<Task>? onConfirm = null) : IInteractionService
     {
         public bool IsAvailable { get; init; } = true;
 
@@ -544,15 +587,15 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             return InteractionResult.Ok(new InteractionInputCollection(inputs));
         }
 
-        public Task<InteractionResult<bool>> PromptConfirmationAsync(
+        public async Task<InteractionResult<bool>> PromptConfirmationAsync(
             string title,
             string message,
             MessageBoxInteractionOptions? options = null,
             CancellationToken cancellationToken = default)
         {
             ConfirmationMessage = message.ReplaceLineEndings("\n");
-            onConfirm?.Invoke();
-            return Task.FromResult(confirm ? InteractionResult.Ok(true) : InteractionResult.Cancel<bool>());
+            await (onConfirm?.Invoke() ?? Task.CompletedTask);
+            return confirm ? InteractionResult.Ok(true) : InteractionResult.Cancel<bool>();
         }
 
         public Task<InteractionResult<bool>> PromptMessageBoxAsync(

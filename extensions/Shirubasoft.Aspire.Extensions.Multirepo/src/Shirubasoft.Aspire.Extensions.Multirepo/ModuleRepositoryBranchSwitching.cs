@@ -40,6 +40,16 @@ internal sealed record ModuleRepositoryBranchPlanItem(
 
 internal sealed record ModuleRepositoryBranchOutcome(string Repository, string Status, string Detail, bool Changed = false);
 
+// One branch switch at a time per AppHost, whichever resource started it.
+internal sealed class ModuleRepositoryBranchSwitchGate
+{
+    private int _active;
+
+    public bool TryEnter() => Interlocked.Exchange(ref _active, 1) == 0;
+
+    public void Exit() => Volatile.Write(ref _active, 0);
+}
+
 internal static class ModuleRepositoryBranchSwitching
 {
     internal const string CommandName = "switch-module-branches";
@@ -72,7 +82,8 @@ internal static class ModuleRepositoryBranchSwitching
                 new ModuleRepositoryInitializationSettings(
                     registry.Options.GitExecutablePath,
                     registry.Options.GitHubCliPath,
-                    registry.Options.RepositoryCommandTimeout)),
+                    registry.Options.RepositoryCommandTimeout),
+                registry.BranchSwitchGate),
             new CommandOptions
             {
                 Description = "Shows the current branch of every module repository and switches them together.",
@@ -83,7 +94,8 @@ internal static class ModuleRepositoryBranchSwitching
     internal static async Task<ExecuteCommandResult> ExecuteAsync(
         ExecuteCommandContext context,
         IEnumerable<ModuleRepositoryRequirement> requirements,
-        ModuleRepositoryInitializationSettings settings)
+        ModuleRepositoryInitializationSettings settings,
+        ModuleRepositoryBranchSwitchGate gate)
     {
         var interaction = context.Services.GetRequiredService<IInteractionService>();
         if (!interaction.IsAvailable)
@@ -91,9 +103,21 @@ internal static class ModuleRepositoryBranchSwitching
             return CommandResults.Failure("Switching branches requires the Aspire dashboard.");
         }
 
-        var git = new GitSession(settings, context.CancellationToken);
-        var repositories = await git.InspectAsync(requirements).ConfigureAwait(false);
-        return await PromptAndSwitchAsync(interaction, repositories, git).ConfigureAwait(false);
+        if (!gate.TryEnter())
+        {
+            return CommandResults.Failure("A branch switch is already in progress.");
+        }
+
+        try
+        {
+            var git = new GitSession(settings, context.CancellationToken);
+            var repositories = await git.InspectAsync(requirements).ConfigureAwait(false);
+            return await PromptAndSwitchAsync(interaction, repositories, git).ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Exit();
+        }
     }
 
     private static async Task<ExecuteCommandResult> PromptAndSwitchAsync(
@@ -480,7 +504,7 @@ internal static class ModuleRepositoryBranchSwitching
         public async Task<ModuleRepositoryBranchOutcome> SwitchAsync(ModuleRepositoryBranchPlanItem item)
         {
             var before = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
-            var error = before.Blocker ?? await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
+            var error = CheckReviewedState(item, before) ?? await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
 
             // A failed git command can still move HEAD, for example when a post-checkout hook fails,
             // so report the checkout as it is now.
@@ -494,6 +518,11 @@ internal static class ModuleRepositoryBranchSwitching
                     string.Join(' ', new[] { after.Location, error }.OfType<string>()),
                     changed);
         }
+
+        private static string? CheckReviewedState(ModuleRepositoryBranchPlanItem item, CheckoutState state) =>
+            state.Blocker ?? (string.Equals(state.Branch, item.Repository.CurrentBranch, StringComparison.Ordinal)
+                ? null
+                : $"Was on {FormatBranch(item.Repository.CurrentBranch)} when you reviewed the plan, so nothing changed.");
 
         private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
         {

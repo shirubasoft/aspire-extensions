@@ -42,6 +42,8 @@ internal sealed class ModuleApplicationRegistry(
 
     internal ModuleProjectModeSwitchingPipeline? ProjectModeSwitching { get; } = projectModeSwitching;
 
+    internal ModuleRepositoryBranchSwitchGate BranchSwitchGate { get; } = new();
+
     public IReadOnlyCollection<IDistributedApplicationModule> Modules => _modules.Values;
 
     public bool TryGetModule(string name, out IDistributedApplicationModule? exportedModule)
