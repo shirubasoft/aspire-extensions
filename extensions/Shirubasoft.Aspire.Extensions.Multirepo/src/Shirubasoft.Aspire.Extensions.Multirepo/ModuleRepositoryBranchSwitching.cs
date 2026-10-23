@@ -44,9 +44,6 @@ internal static class ModuleRepositoryBranchSwitching
     internal const string FastForwardInputName = "fast-forward";
     internal const string DirtyBlocker = "Has uncommitted changes; commit or stash them first.";
 
-    private const string FetchWarning =
-        "Couldn't fetch from origin, so remote branches may be out of date; see the console logs.";
-
     private const string SwitchedSection = "Switched";
     private const string AttentionSection = "Needs attention";
 
@@ -54,14 +51,6 @@ internal static class ModuleRepositoryBranchSwitching
 
     private static readonly string[] SectionOrder =
         [PlanSections[0], SwitchedSection, AttentionSection, PlanSections[1], PlanSections[2]];
-
-    private static readonly string[] FastForwardArguments = ["merge", "--ff-only", "@{upstream}"];
-
-    private static readonly Action<ILogger, string, string, Exception?> LogGitOutput =
-        LoggerMessage.Define<string, string>(
-            LogLevel.Information,
-            new EventId(1, nameof(LogGitOutput)),
-            "Repository {Repository}: {Output}");
 
     public static void AddCommand<TResource>(
         IResourceBuilder<TResource> resource,
@@ -102,119 +91,15 @@ internal static class ModuleRepositoryBranchSwitching
             return CommandResults.Failure("Switching branches requires the Aspire dashboard.");
         }
 
-        var repositories = await InspectAsync(
-            requirements,
-            settings,
-            context.Logger,
-            context.CancellationToken).ConfigureAwait(false);
-        return await PromptAndSwitchAsync(
-            interaction,
-            repositories,
-            settings,
-            context.Logger,
-            context.CancellationToken).ConfigureAwait(false);
+        var git = new GitSession(settings, context.Logger, context.CancellationToken);
+        var repositories = await git.InspectAsync(requirements).ConfigureAwait(false);
+        return await PromptAndSwitchAsync(interaction, repositories, git).ConfigureAwait(false);
     }
-
-    internal static async Task<IReadOnlyList<ModuleRepositoryBranchStatus>> InspectAsync(
-        IEnumerable<ModuleRepositoryRequirement> requirements,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        var repositories = await Task.WhenAll(requirements.Select(requirement =>
-            InspectAsync(requirement, settings, logger, cancellationToken))).ConfigureAwait(false);
-        return repositories
-            .OrderBy(repository => repository.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private static async Task<ModuleRepositoryBranchStatus> InspectAsync(
-        ModuleRepositoryRequirement requirement,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        if (requirement.Revision is not null)
-        {
-            return ModuleRepositoryBranchStatus.Blocked(
-                requirement,
-                $"Pinned to revision `{requirement.Revision}`; change `RepositoryRevision` to move it.");
-        }
-
-        var isGitRepository = await RepositoryInspector.IsGitRepositoryAsync(
-            requirement.RepositoryPath,
-            settings.GitExecutablePath,
-            settings.CommandTimeout,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        return isGitRepository
-            ? await InspectCheckoutAsync(requirement, settings, logger, cancellationToken).ConfigureAwait(false)
-            : ModuleRepositoryBranchStatus.Blocked(requirement, "Not initialized; run `aspire do initialize` first.");
-    }
-
-    private static async Task<ModuleRepositoryBranchStatus> InspectCheckoutAsync(
-        ModuleRepositoryRequirement requirement,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        var path = requirement.RepositoryPath;
-        var fetch = await RunGitAsync(
-            requirement,
-            "Fetch origin",
-            GitHubGitAuthentication.ConfigureCredentialHelper(
-                ["fetch", "--prune", "origin"],
-                requirement.Repository,
-                settings.GitHubCliPath),
-            settings,
-            line => LogGitOutput(logger, requirement.NormalizedRepository, line, null),
-            cancellationToken).ConfigureAwait(false);
-        var refs = await RunGitAsync(
-            requirement,
-            "List branches",
-            ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
-            settings,
-            static _ => { },
-            cancellationToken).ConfigureAwait(false);
-        var branch = await RepositoryInspector.TryGetBranchAsync(
-            path,
-            settings.GitExecutablePath,
-            settings.CommandTimeout,
-            cancellationToken).ConfigureAwait(false);
-        var isDirty = await RepositoryInspector.IsDirtyAsync(
-            path,
-            settings.GitExecutablePath,
-            settings.CommandTimeout,
-            requireSuccessfulInspection: true,
-            cancellationToken).ConfigureAwait(false);
-        var names = refs.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return new ModuleRepositoryBranchStatus(
-            requirement,
-            branch,
-            GetBranches(names, "refs/heads/"),
-            GetBranches(names, "refs/remotes/origin/"),
-            FormatLocation(branch),
-            When(isDirty, DirtyBlocker),
-            When(!fetch.IsSuccess, FetchWarning));
-    }
-
-    private static string FormatLocation(string? branch) =>
-        branch is null ? "Detached HEAD." : $"On `{branch}`.";
-
-    private static string? When(bool condition, string value) => condition ? value : null;
-
-    private static string[] GetBranches(IEnumerable<string> references, string prefix) =>
-        references
-            .Where(reference => reference.StartsWith(prefix, StringComparison.Ordinal))
-            .Select(reference => reference[prefix.Length..])
-            .Where(branch => !string.Equals(branch, "HEAD", StringComparison.Ordinal))
-            .ToArray();
 
     private static async Task<ExecuteCommandResult> PromptAndSwitchAsync(
         IInteractionService interaction,
         IReadOnlyList<ModuleRepositoryBranchStatus> repositories,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
+        GitSession git)
     {
         if (repositories.All(repository => repository.Blocker is not null))
         {
@@ -235,18 +120,14 @@ internal static class ModuleRepositoryBranchSwitching
                 EnableMessageMarkdown = true,
                 ValidationCallback = ValidateSelection
             },
-            cancellationToken).ConfigureAwait(false);
+            git.CancellationToken).ConfigureAwait(false);
         return selection.Canceled
             ? CommandResults.Canceled()
-            : await ConfirmAndSwitchAsync(
-                interaction,
-                CreatePlan(repositories, selection.Data),
-                settings,
-                logger,
-                cancellationToken).ConfigureAwait(false);
+            : await ConfirmAndSwitchAsync(interaction, CreatePlan(repositories, selection.Data), git)
+                .ConfigureAwait(false);
     }
 
-    internal static InteractionInput[] CreateInputs(IReadOnlyList<ModuleRepositoryBranchStatus> repositories)
+    private static InteractionInput[] CreateInputs(IReadOnlyList<ModuleRepositoryBranchStatus> repositories)
     {
         var switchable = repositories.Where(repository => repository.Blocker is null).ToArray();
         return
@@ -333,7 +214,7 @@ internal static class ModuleRepositoryBranchSwitching
         return Task.CompletedTask;
     }
 
-    internal static ModuleRepositoryBranchPlanItem[] CreatePlan(
+    private static ModuleRepositoryBranchPlanItem[] CreatePlan(
         IReadOnlyList<ModuleRepositoryBranchStatus> repositories,
         InteractionInputCollection inputs)
     {
@@ -399,13 +280,9 @@ internal static class ModuleRepositoryBranchSwitching
                 $"{from} → `{branch}`, a new local branch tracking `origin/{branch}`",
                 ["switch", "--create", branch, "--track", $"origin/{branch}"],
                 fastForward)
-            : new(
-                repository,
-                ModuleRepositoryBranchChange.Skip,
-                $"No `{branch}` branch locally or on origin.",
-                []);
+            : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.", []);
 
-    internal static string FormatPlan(IEnumerable<ModuleRepositoryBranchPlanItem> plan) =>
+    private static string FormatPlan(IEnumerable<ModuleRepositoryBranchPlanItem> plan) =>
         FormatSections(plan.Select(item => (
             PlanSections[(int)item.Change],
             item.Repository.Name,
@@ -417,9 +294,7 @@ internal static class ModuleRepositoryBranchSwitching
     private static async Task<ExecuteCommandResult> ConfirmAndSwitchAsync(
         IInteractionService interaction,
         ModuleRepositoryBranchPlanItem[] plan,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
+        GitSession git)
     {
         if (plan.All(item => item.Change != ModuleRepositoryBranchChange.Change))
         {
@@ -440,25 +315,21 @@ internal static class ModuleRepositoryBranchSwitching
                 EnableMessageMarkdown = true,
                 Intent = MessageIntent.Confirmation
             },
-            cancellationToken).ConfigureAwait(false);
+            git.CancellationToken).ConfigureAwait(false);
         return IsConfirmed(confirmation)
-            ? await SwitchAsync(plan, settings, logger, cancellationToken).ConfigureAwait(false)
+            ? await SwitchAsync(plan, git).ConfigureAwait(false)
             : CommandResults.Canceled();
     }
 
     private static bool IsConfirmed(InteractionResult<bool> confirmation) =>
         confirmation is { Canceled: false, Data: true };
 
-    private static async Task<ExecuteCommandResult> SwitchAsync(
-        ModuleRepositoryBranchPlanItem[] plan,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
+    private static async Task<ExecuteCommandResult> SwitchAsync(ModuleRepositoryBranchPlanItem[] plan, GitSession git)
     {
         var outcomes = new List<(string Section, string Repository, string Summary)>();
         foreach (var item in plan)
         {
-            outcomes.Add(await SwitchAsync(item, settings, logger, cancellationToken).ConfigureAwait(false));
+            outcomes.Add(await SwitchAsync(item, git).ConfigureAwait(false));
         }
 
         var failed = outcomes.Count(outcome => outcome.Section == AttentionSection);
@@ -469,6 +340,21 @@ internal static class ModuleRepositoryBranchSwitching
             When(
                 outcomes.Any(outcome => outcome.Section == SwitchedSection),
                 "Restart or rebuild resources from the switched repositories to run their new source."));
+    }
+
+    private static async Task<(string Section, string Repository, string Summary)> SwitchAsync(
+        ModuleRepositoryBranchPlanItem item,
+        GitSession git)
+    {
+        if (!IsChange(item))
+        {
+            return (PlanSections[(int)item.Change], item.Repository.Name, item.Summary);
+        }
+
+        var error = await git.SwitchAsync(item).ConfigureAwait(false);
+        return error is null
+            ? (SwitchedSection, item.Repository.Name, item.Summary + FormatFastForward(item, ", up to date with upstream"))
+            : (AttentionSection, item.Repository.Name, error);
     }
 
     private static string FormatSwitchMessage(int changed, int failed) =>
@@ -482,119 +368,7 @@ internal static class ModuleRepositoryBranchSwitching
     private static string FormatRepositoryCount(int count) =>
         count == 1 ? "1 repository" : $"{count} repositories";
 
-    private static async Task<(string Section, string Repository, string Summary)> SwitchAsync(
-        ModuleRepositoryBranchPlanItem item,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        if (!IsChange(item))
-        {
-            return (PlanSections[(int)item.Change], item.Repository.Name, item.Summary);
-        }
-
-        var error = await SwitchCheckoutAsync(item, settings, logger, cancellationToken).ConfigureAwait(false);
-        return error is null
-            ? (SwitchedSection, item.Repository.Name, item.Summary + FormatFastForward(item, ", up to date with upstream"))
-            : (AttentionSection, item.Repository.Name, error);
-    }
-
-    private static async Task<string?> SwitchCheckoutAsync(
-        ModuleRepositoryBranchPlanItem item,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        var isDirty = await RepositoryInspector.IsDirtyAsync(
-            item.Repository.Requirement.RepositoryPath,
-            settings.GitExecutablePath,
-            settings.CommandTimeout,
-            requireSuccessfulInspection: true,
-            cancellationToken).ConfigureAwait(false);
-        return isDirty
-            ? "Uncommitted changes appeared after review; nothing changed."
-            : await SwitchCleanCheckoutAsync(item, settings, logger, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<string?> SwitchCleanCheckoutAsync(
-        ModuleRepositoryBranchPlanItem item,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        var error = await RunStepAsync(
-            item.Repository,
-            "Switch branch",
-            item.SwitchArguments,
-            "Switch failed; nothing changed",
-            settings,
-            logger,
-            cancellationToken).ConfigureAwait(false);
-        return error ?? await RunStepAsync(
-            item.Repository,
-            "Fast-forward branch",
-            item.FastForward ? FastForwardArguments : [],
-            $"{item.Summary}, but fast-forward failed",
-            settings,
-            logger,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<string?> RunStepAsync(
-        ModuleRepositoryBranchStatus repository,
-        string operation,
-        IReadOnlyList<string> arguments,
-        string failure,
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        if (arguments.Count == 0)
-        {
-            return null;
-        }
-
-        var result = await RunGitAsync(
-            repository.Requirement,
-            operation,
-            arguments,
-            settings,
-            line => LogGitOutput(logger, repository.Requirement.NormalizedRepository, line, null),
-            cancellationToken).ConfigureAwait(false);
-        return result.IsSuccess ? null : $"{failure}: {FormatGitError(result)}";
-    }
-
-    private static string FormatGitError(ModuleCliResult result) =>
-        string.Join(
-            ' ',
-            (string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError)
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-
-    private static async Task<ModuleCliResult> RunGitAsync(
-        ModuleRepositoryRequirement requirement,
-        string operation,
-        IReadOnlyList<string> arguments,
-        ModuleRepositoryInitializationSettings settings,
-        Action<string> progress,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await ModuleCliRunner.RunAsync(
-                settings.GitExecutablePath,
-                arguments,
-                requirement.RepositoryPath,
-                settings.CommandTimeout,
-                $"{operation} in {Path.GetFileName(requirement.RepositoryPath)}",
-                cancellationToken,
-                progress).ConfigureAwait(false);
-        }
-        catch (TimeoutException exception)
-        {
-            progress(exception.Message);
-            return new ModuleCliResult(-1, string.Empty, exception.Message);
-        }
-    }
+    private static string? When(bool condition, string value) => condition ? value : null;
 
     private static ExecuteCommandResult CreateResult(
         bool success,
@@ -622,4 +396,179 @@ internal static class ModuleRepositoryBranchSwitching
                 .Select(group =>
                     $"**{group.Key}**\n\n" +
                     string.Join('\n', group.Select(entry => $"- **{entry.Repository}**: {entry.Summary}"))));
+
+    private sealed class GitSession(
+        ModuleRepositoryInitializationSettings settings,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        private const string FetchWarning =
+            "Couldn't fetch from origin, so remote branches may be out of date; see the console logs.";
+
+        private static readonly string[] FastForwardArguments = ["merge", "--ff-only", "@{upstream}"];
+
+        private static readonly Action<ILogger, string, string, Exception?> LogGitOutput =
+            LoggerMessage.Define<string, string>(
+                LogLevel.Information,
+                new EventId(1, nameof(LogGitOutput)),
+                "Repository {Repository}: {Output}");
+
+        public CancellationToken CancellationToken => cancellationToken;
+
+        public async Task<IReadOnlyList<ModuleRepositoryBranchStatus>> InspectAsync(
+            IEnumerable<ModuleRepositoryRequirement> requirements)
+        {
+            var repositories = await Task.WhenAll(requirements.Select(InspectAsync)).ConfigureAwait(false);
+            return repositories
+                .OrderBy(repository => repository.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private async Task<ModuleRepositoryBranchStatus> InspectAsync(ModuleRepositoryRequirement requirement)
+        {
+            if (requirement.Revision is not null)
+            {
+                return ModuleRepositoryBranchStatus.Blocked(
+                    requirement,
+                    $"Pinned to revision `{requirement.Revision}`; change `RepositoryRevision` to move it.");
+            }
+
+            var isGitRepository = await RepositoryInspector.IsGitRepositoryAsync(
+                requirement.RepositoryPath,
+                settings.GitExecutablePath,
+                settings.CommandTimeout,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return isGitRepository
+                ? await InspectCheckoutAsync(requirement).ConfigureAwait(false)
+                : ModuleRepositoryBranchStatus.Blocked(requirement, "Not initialized; run `aspire do initialize` first.");
+        }
+
+        private async Task<ModuleRepositoryBranchStatus> InspectCheckoutAsync(ModuleRepositoryRequirement requirement)
+        {
+            var fetch = await RunAsync(
+                requirement,
+                "Fetch origin",
+                GitHubGitAuthentication.ConfigureCredentialHelper(
+                    ["fetch", "--prune", "origin"],
+                    requirement.Repository,
+                    settings.GitHubCliPath)).ConfigureAwait(false);
+            var references = await RunAsync(
+                requirement,
+                "List branches",
+                ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
+                static _ => { }).ConfigureAwait(false);
+            var branch = await RepositoryInspector.TryGetBranchAsync(
+                requirement.RepositoryPath,
+                settings.GitExecutablePath,
+                settings.CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+            var isDirty = await IsDirtyAsync(requirement).ConfigureAwait(false);
+            var names = references.StandardOutput.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return new ModuleRepositoryBranchStatus(
+                requirement,
+                branch,
+                GetBranches(names, "refs/heads/"),
+                GetBranches(names, "refs/remotes/origin/"),
+                FormatLocation(branch),
+                When(isDirty, DirtyBlocker),
+                When(!fetch.IsSuccess, FetchWarning));
+        }
+
+        private static string FormatLocation(string? branch) =>
+            branch is null ? "Detached HEAD." : $"On `{branch}`.";
+
+        private static string[] GetBranches(IEnumerable<string> references, string prefix) =>
+            references
+                .Where(reference => reference.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(reference => reference[prefix.Length..])
+                .Where(branch => !string.Equals(branch, "HEAD", StringComparison.Ordinal))
+                .ToArray();
+
+        public async Task<string?> SwitchAsync(ModuleRepositoryBranchPlanItem item)
+        {
+            var isDirty = await IsDirtyAsync(item.Repository.Requirement).ConfigureAwait(false);
+            return isDirty
+                ? "Uncommitted changes appeared after review; nothing changed."
+                : await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
+        }
+
+        private Task<bool> IsDirtyAsync(ModuleRepositoryRequirement requirement) =>
+            RepositoryInspector.IsDirtyAsync(
+                requirement.RepositoryPath,
+                settings.GitExecutablePath,
+                settings.CommandTimeout,
+                requireSuccessfulInspection: true,
+                cancellationToken);
+
+        private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
+        {
+            var error = await RunStepAsync(
+                item.Repository,
+                "Switch branch",
+                item.SwitchArguments,
+                "Switch failed; nothing changed").ConfigureAwait(false);
+            return error ?? await RunStepAsync(
+                item.Repository,
+                "Fast-forward branch",
+                item.FastForward ? FastForwardArguments : [],
+                $"{item.Summary}, but fast-forward failed").ConfigureAwait(false);
+        }
+
+        private async Task<string?> RunStepAsync(
+            ModuleRepositoryBranchStatus repository,
+            string operation,
+            IReadOnlyList<string> arguments,
+            string failure)
+        {
+            if (arguments.Count == 0)
+            {
+                return null;
+            }
+
+            var result = await RunAsync(repository.Requirement, operation, arguments).ConfigureAwait(false);
+            return result.IsSuccess ? null : $"{failure}: {FormatError(result)}";
+        }
+
+        private static string FormatError(ModuleCliResult result) =>
+            string.Join(
+                ' ',
+                (string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        private Task<ModuleCliResult> RunAsync(
+            ModuleRepositoryRequirement requirement,
+            string operation,
+            IReadOnlyList<string> arguments) =>
+            RunAsync(
+                requirement,
+                operation,
+                arguments,
+                line => LogGitOutput(logger, requirement.NormalizedRepository, line, null));
+
+        private async Task<ModuleCliResult> RunAsync(
+            ModuleRepositoryRequirement requirement,
+            string operation,
+            IReadOnlyList<string> arguments,
+            Action<string> progress)
+        {
+            try
+            {
+                return await ModuleCliRunner.RunAsync(
+                    settings.GitExecutablePath,
+                    arguments,
+                    requirement.RepositoryPath,
+                    settings.CommandTimeout,
+                    $"{operation} in {Path.GetFileName(requirement.RepositoryPath)}",
+                    cancellationToken,
+                    progress).ConfigureAwait(false);
+            }
+            catch (TimeoutException exception)
+            {
+                progress(exception.Message);
+                return new ModuleCliResult(-1, string.Empty, exception.Message);
+            }
+        }
+    }
 }
