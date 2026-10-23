@@ -62,6 +62,9 @@ jobs:
             .github/workflows/test-projects-ci.yml
             .github/workflows/test-projects-prerelease.yml
             .github/workflows/test-projects-publish.yml
+            .github/workflows/tiger-beetle-ci.yml
+            .github/workflows/tiger-beetle-prerelease.yml
+            .github/workflows/tiger-beetle-publish.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-a-e2e.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-dispatch.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-workflow-call.yml
@@ -104,13 +107,12 @@ jobs:
       - name: Bootstrap the package version baseline
         shell: bash
         env:
+          EXTENSION_PATH: ${{ inputs.extension_path }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
           INITIAL_VERSION: ${{ inputs.initial_version }}
-        run: |
-          set -euo pipefail
-          if ! git describe --tags --abbrev=0 --match "$TAG_PREFIX-v[0-9]*" >/dev/null 2>&1; then
-            git tag "$TAG_PREFIX-v$INITIAL_VERSION" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
-          fi
+        run: >-
+          bash .github/release/bootstrap-version-baseline.sh
+          "$TAG_PREFIX" "$INITIAL_VERSION" "$EXTENSION_PATH"
 
       - name: Calculate release version
         id: release-version

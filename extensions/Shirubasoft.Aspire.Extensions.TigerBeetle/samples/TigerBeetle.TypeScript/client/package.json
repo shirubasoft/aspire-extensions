@@ -1,0 +1,16 @@
+{
+  "name": "aspire-tigerbeetle-typescript-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "tigerbeetle-node": "0.17.9"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2"
+  }
+}

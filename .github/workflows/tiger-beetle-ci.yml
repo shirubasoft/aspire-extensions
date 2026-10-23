@@ -1,0 +1,89 @@
+name: TigerBeetle CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/tiger-beetle-ci.yml
+      - .github/workflows/tiger-beetle-prerelease.yml
+      - .github/workflows/tiger-beetle-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  pull_request:
+    paths:
+      - extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/**
+      - .github/release/**
+      - .github/workflows/_extension-ci.yml
+      - .github/workflows/_extension-prerelease.yml
+      - .github/workflows/_extension-publish.yml
+      - .github/workflows/aspire-update.yml
+      - .github/workflows/tiger-beetle-ci.yml
+      - .github/workflows/tiger-beetle-prerelease.yml
+      - .github/workflows/tiger-beetle-publish.yml
+      - .config/dotnet-tools.json
+      - .editorconfig
+      - Directory.Build.props
+      - Directory.Packages.props
+      - Aspire.Extensions.Tools.slnx
+      - build.ps1
+      - build.sh
+      - eng/**
+      - global.json
+      - tests/CrapScore.Tests/**
+      - tools/CrapScore/**
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  tiger-beetle:
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/_extension-ci.yml
+    with:
+      artifact_name: tiger-beetle-nuget-packages
+      extension_path: extensions/Shirubasoft.Aspire.Extensions.TigerBeetle
+      initial_version: 2.1.0
+      package_id: Shirubasoft.Aspire.Hosting.TigerBeetle
+      release_config: ./extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/release.config.mjs
+      tag_prefix: tiger-beetle
+
+  samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Run the C# and TypeScript samples
+        run: bash extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/samples/test-samples.sh

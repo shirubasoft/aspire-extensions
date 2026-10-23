@@ -32,6 +32,11 @@ aspire_version_pins() {
     }
   ' "$tools_manifest"
   sed -nE 's/.*<PackageVersion Include="(Aspire\.[^"]+)" Version="([^"]+)".*/\1 \2/p' "$packages_props"
+  local config=""
+  while IFS= read -r config; do
+    sed -nE "s|.*\"(Aspire\\.[^\"]+)\"[[:space:]]*:[[:space:]]*\"([^\"]+)\".*|${config}:\\1 \\2|p" \
+      "$repository_root/$config"
+  done < <(git -C "$repository_root" ls-files -- '*aspire.config.json')
 }
 
 start_log_group() {
@@ -243,6 +248,15 @@ keep_version_decisions() {
   done
 
   for file in "${cli_changes[@]}"; do
+    case "$file" in
+      *aspire.config.json)
+        # aspire update also pins the SDK and replaces project references with the latest
+        # published package. A TypeScript AppHost keeps only its Aspire package versions.
+        keep_apphost_config_pins "$file" "$cli_output_path/$file"
+        continue
+        ;;
+    esac
+
     if [[ "$(semantic_content "$repository_root/$file")" != "$(semantic_content "$cli_output_path/$file")" ]]; then
       printf 'aspire update changed %s beyond package and SDK versions:\n' "$file" >&2
       diff -u "$repository_root/$file" "$cli_output_path/$file" >&2 || true
@@ -257,6 +271,20 @@ keep_version_decisions() {
     rewrite_file "$packages_props" \
       "s|(<PackageVersion Include=\"Aspire\\.[^\"]+\" Version=\")${previous_sdk_version//./\\.}\"|\\1${sdk_version}\"|"
   fi
+}
+
+keep_apphost_config_pins() {
+  local file="$1"
+  local cli_output_file="$2"
+  local name=""
+  local version=""
+
+  while read -r name version; do
+    rewrite_file "$repository_root/$file" \
+      "s|(\"${name//./\\.}\"[[:space:]]*:[[:space:]]*\")[^\"]*\"|\\1${version}\"|"
+  done < <(
+    sed -nE 's|.*"(Aspire\.[^"]+)"[[:space:]]*:[[:space:]]*"([^"]+)".*|\1 \2|p' "$cli_output_file"
+  )
 }
 
 # Logs whether the repository needed an update, so a run that changes nothing is

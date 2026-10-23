@@ -1,0 +1,11 @@
+{
+  "appHost": {
+    "path": "apphost.mts",
+    "language": "typescript/nodejs"
+  },
+  "packages": {
+    "Aspire.Hosting.JavaScript": "13.6.3",
+    "Aspire.Hosting.RabbitMQ": "13.6.3",
+    "Shirubasoft.Aspire.Hosting.TigerBeetle": "../../src/Shirubasoft.Aspire.Extensions.TigerBeetle/Shirubasoft.Aspire.Extensions.TigerBeetle.csproj"
+  }
+}
