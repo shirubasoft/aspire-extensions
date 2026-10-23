@@ -229,24 +229,51 @@ public sealed class ModuleRepositoryBranchSwitchingTests
     }
 
     [Fact]
-    public async Task Submodules_follow_the_selected_branch()
+    public async Task Submodules_follow_the_selected_branch_without_overwriting_ignored_files()
     {
         using var workspace = BranchWorkspace.Create();
         var child = await workspace.CloneAsync("child");
-        await workspace.PushCommitAsync("child", "main");
+        await CommitFileAsync(child.RepositoryPath, ".gitignore", "local.env\n");
+        var pinned = await GitAsync(child.RepositoryPath, "rev-parse", "HEAD");
+        await CommitFileAsync(child.RepositoryPath, "local.env", "tracked");
+        var latest = await GitAsync(child.RepositoryPath, "rev-parse", "HEAD");
+        await GitAsync(child.RepositoryPath, "push", "origin", "main");
         var alpha = await workspace.CloneAsync("alpha");
         var submodule = Path.Combine(alpha.RepositoryPath, "child");
         await GitAsync(alpha.RepositoryPath, "-c", "protocol.file.allow=always", "submodule", "add", child.Repository, "child");
-        var latest = await GitAsync(submodule, "rev-parse", "HEAD");
-        await GitAsync(submodule, "checkout", "--detach", "HEAD~1");
-        var pinned = await GitAsync(submodule, "rev-parse", "HEAD");
+        await GitAsync(submodule, "checkout", "--detach", pinned);
         await GitAsync(alpha.RepositoryPath, "commit", "--all", "-m", "Pin child");
         await GitAsync(alpha.RepositoryPath, "switch", "--create", "feature/x");
         await GitAsync(submodule, "checkout", "--detach", latest);
         await GitAsync(alpha.RepositoryPath, "commit", "--all", "-m", "Update child");
+        await GitAsync(alpha.RepositoryPath, "switch", "--recurse-submodules", "main");
+        await GitAsync(alpha.RepositoryPath, "switch", "--create", "feature/missing");
+        await GitAsync(alpha.RepositoryPath, "update-index", "--cacheinfo", $"160000,{new string('1', 40)},child");
+        await GitAsync(alpha.RepositoryPath, "commit", "-m", "Pin a missing child commit");
         await GitAsync(alpha.RepositoryPath, "switch", "main");
-        await GitAsync(alpha.RepositoryPath, "submodule", "update");
+        var bravo = await workspace.CloneAsync("bravo");
+        await CommitFileAsync(bravo.RepositoryPath, ".gitignore", "local.env\n");
+        await GitAsync(bravo.RepositoryPath, "switch", "--create", "feature/x");
+        await CommitFileAsync(bravo.RepositoryPath, "local.env", "tracked");
+        await GitAsync(bravo.RepositoryPath, "switch", "main");
+        string[] localFiles = [Path.Combine(submodule, "local.env"), Path.Combine(bravo.RepositoryPath, "local.env")];
+        await Task.WhenAll(localFiles.Select(file => File.WriteAllTextAsync(file, "local work", TestContext.Current.CancellationToken)));
 
+        var blocked = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x"), alpha, bravo);
+        var missing = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = "feature/missing"), alpha);
+
+        var details = blocked.Data!.Value.ReplaceLineEndings("\n").Split('\n');
+        Assert.Equal(
+            "- **alpha** (needs attention): On `main`. Switching would overwrite `child/local.env`, so nothing changed. Move it, then switch again.",
+            details[0]);
+        Assert.Matches(@"^- \*\*bravo\*\* \(needs attention\): On `main`\. Switch failed: .*local\.env", details[1]);
+        Assert.StartsWith(
+            "- **alpha** (needs attention): On `main`. Couldn't check what the switch would overwrite: fatal: ",
+            missing.Data?.Value,
+            StringComparison.Ordinal);
+        Assert.All(localFiles, file => Assert.Equal("local work", File.ReadAllText(file)));
+        Assert.Equal(pinned, await GitAsync(submodule, "rev-parse", "HEAD"));
+        File.Delete(localFiles[0]);
         foreach (var (branch, commit) in new[] { ("feature/x", latest), ("main", pinned) })
         {
             var result = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = branch), alpha);
@@ -255,26 +282,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             Assert.Equal(commit, await GitAsync(submodule, "rev-parse", "HEAD"));
             Assert.Empty(await GitAsync(alpha.RepositoryPath, "status", "--porcelain"));
         }
-    }
-
-    [Fact]
-    public async Task Ignored_files_that_the_selected_branch_tracks_are_kept()
-    {
-        using var workspace = BranchWorkspace.Create();
-        var alpha = await workspace.CloneAsync("alpha");
-        await CommitFileAsync(alpha.RepositoryPath, ".gitignore", "local.env\n");
-        await GitAsync(alpha.RepositoryPath, "switch", "--create", "feature/x");
-        await CommitFileAsync(alpha.RepositoryPath, "local.env", "tracked");
-        await GitAsync(alpha.RepositoryPath, "switch", "main");
-        var localFile = Path.Combine(alpha.RepositoryPath, "local.env");
-        await File.WriteAllTextAsync(localFile, "local work", TestContext.Current.CancellationToken);
-
-        var result = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x"), alpha);
-
-        Assert.False(result.Success);
-        Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `main`\. Switch failed: .*local\.env", result.Data?.Value);
-        Assert.Equal("main", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
-        Assert.Equal("local work", await File.ReadAllTextAsync(localFile, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -291,8 +298,13 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, "main").Change);
         var track = ModuleRepositoryBranchSwitching.Plan(detached, "feature/x");
         Assert.Equal("Detached HEAD → `feature/x`, a new local branch tracking `origin/feature/x`", track.Summary);
-        Assert.Equal(["switch", "--no-overwrite-ignore", "--create", "feature/x", "--track", "origin/feature/x"], track.SwitchArguments);
-        Assert.Equal(["switch", "--no-overwrite-ignore", "main"], ModuleRepositoryBranchSwitching.Plan(detached, "main").SwitchArguments);
+        Assert.Equal("refs/remotes/origin/feature/x", track.Target);
+        Assert.Equal(
+            ["switch", "--recurse-submodules", "--no-overwrite-ignore", "--create", "feature/x", "--track", "origin/feature/x"],
+            track.SwitchArguments);
+        var local = ModuleRepositoryBranchSwitching.Plan(detached, "main");
+        Assert.Equal("refs/heads/main", local.Target);
+        Assert.Equal(["switch", "--recurse-submodules", "--no-overwrite-ignore", "main"], local.SwitchArguments);
         Assert.Equal("No `feature/y` branch locally or on origin.", ModuleRepositoryBranchSwitching.Plan(onMain, "feature/y").Summary);
     }
 
@@ -469,13 +481,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             var requirement = Register(name);
             await GitAsync(Path, "clone", GetOrigin(name), requirement.RepositoryPath);
             return requirement;
-        }
-
-        public async Task PushCommitAsync(string name, string branch)
-        {
-            var seed = System.IO.Path.Combine(Path, "seeds", name);
-            await CommitAsync(seed, branch, "remote.txt", branch);
-            await GitAsync(seed, "push", "origin", branch);
         }
 
         private static async Task CommitAsync(string seed, string branch, string file, params string[] switchArguments)

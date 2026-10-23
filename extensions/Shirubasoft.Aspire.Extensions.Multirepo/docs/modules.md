@@ -107,9 +107,9 @@ During `aspire run`, every module resource that uses an initialized repository h
 
 Nothing changes until you confirm the plan the command shows:
 
-- A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it. Submodules then move to the commits the branch records.
+- A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it. Submodules move to the commits the branch records, and submodules that the branch adds are cloned.
 - Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
-- Just before changing a repository, the command checks again that it is on the reviewed branch and has no uncommitted changes. Git refuses to overwrite untracked or ignored files.
+- Just before changing a repository, the command checks again that it is on the reviewed branch and has no uncommitted changes. The repository stays unchanged if switching would overwrite an untracked or ignored file in the checkout or in a submodule, or if a checked-out submodule doesn't have the commit the branch records.
 
 The result lists each repository's outcome and where its checkout ended up. Restart or rebuild the resources from changed repositories to run their new source.
 

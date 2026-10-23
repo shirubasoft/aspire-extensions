@@ -35,6 +35,7 @@ internal sealed record ModuleRepositoryBranchPlanItem(
     ModuleRepositoryBranchStatus Repository,
     ModuleRepositoryBranchChange Change,
     string Summary,
+    string? Target = null,
     IReadOnlyList<string>? SwitchArguments = null);
 
 internal sealed record ModuleRepositoryBranchOutcome(string Repository, string Status, string Detail, bool Changed = false);
@@ -250,7 +251,7 @@ internal static class ModuleRepositoryBranchSwitching
     {
         var from = FormatBranch(repository.CurrentBranch);
         return repository.LocalBranches.Contains(branch, StringComparer.Ordinal)
-            ? Change(repository, $"{from} → `{branch}`", [branch])
+            ? Change(repository, $"{from} → `{branch}`", $"refs/heads/{branch}", [branch])
             : PlanTrackingBranch(repository, branch, from);
     }
 
@@ -264,14 +265,21 @@ internal static class ModuleRepositoryBranchSwitching
             ? Change(
                 repository,
                 $"{from} → `{branch}`, a new local branch tracking `origin/{branch}`",
+                $"refs/remotes/origin/{branch}",
                 ["--create", branch, "--track", $"origin/{branch}"])
             : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.");
 
     private static ModuleRepositoryBranchPlanItem Change(
         ModuleRepositoryBranchStatus repository,
         string summary,
+        string target,
         string[] arguments) =>
-        new(repository, ModuleRepositoryBranchChange.Change, summary, ["switch", "--no-overwrite-ignore", .. arguments]);
+        new(
+            repository,
+            ModuleRepositoryBranchChange.Change,
+            summary,
+            target,
+            ["switch", "--recurse-submodules", "--no-overwrite-ignore", .. arguments]);
 
     private static string FormatPlan(IEnumerable<ModuleRepositoryBranchPlanItem> plan) =>
         string.Join(
@@ -465,29 +473,88 @@ internal static class ModuleRepositoryBranchSwitching
                 ? null
                 : $"Was on {FormatBranch(item.Repository.CurrentBranch)} when you reviewed the plan, so nothing changed.");
 
-        private Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item) =>
-            RunStepAsync(item.Repository.Requirement, "Switch", item.SwitchArguments!);
-
-        private async Task<string?> RunStepAsync(
-            ModuleRepositoryRequirement requirement,
-            string step,
-            IReadOnlyList<string> arguments)
+        private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
         {
-            // Move submodules to the commits the new HEAD records, the same way initialization does.
-            var error = FormatFailure(
-                step,
-                await RunAsync(requirement, arguments, settings.CommandTimeout).ConfigureAwait(false));
-            return error ?? FormatFailure(
-                "Submodule update",
-                await RunAsync(
+            var requirement = item.Repository.Requirement;
+
+            // The recursive switch moves existing submodules; the update then clones submodules the branch adds,
+            // the same way initialization does.
+            return await FindOverwriteAsync(requirement, string.Empty, "HEAD", item.Target!).ConfigureAwait(false)
+                ?? await RunStepAsync(requirement, "Switch", item.SwitchArguments!).ConfigureAwait(false)
+                ?? await RunStepAsync(
                     requirement,
+                    "Submodule update",
                     RepositorySynchronizer.CreateSubmoduleUpdateCommand(
                         requirement.RepositoryPath,
                         settings.GitExecutablePath,
                         settings.GitHubCliPath,
-                        requirement.Repository).Arguments,
-                    settings.CommandTimeout).ConfigureAwait(false));
+                        requirement.Repository).Arguments).ConfigureAwait(false);
         }
+
+        // git switch --no-overwrite-ignore protects the checkout's own files, but the recursive switch moves
+        // each submodule with read-tree, which overwrites ignored files. Before switching, look for anything
+        // in the way of a path that a submodule's new commit adds, or of a submodule that the branch adds.
+        private async Task<string?> FindOverwriteAsync(
+            ModuleRepositoryRequirement requirement,
+            string submodule,
+            string from,
+            string to)
+        {
+            var diff = await RunAsync(
+                requirement,
+                ["-C", submodule, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none", from, to, "--"],
+                settings.CommandTimeout).ConfigureAwait(false);
+            var changes = TreeChange.Parse(diff.StandardOutput, submodule);
+            return diff.IsSuccess
+                ? FindOccupiedPath(requirement, submodule, changes) ??
+                    await FindSubmoduleOverwriteAsync(requirement, changes).ConfigureAwait(false)
+                : $"Couldn't check what the switch would overwrite: {FormatError(diff)}";
+        }
+
+        private static string? FindOccupiedPath(
+            ModuleRepositoryRequirement requirement,
+            string submodule,
+            IEnumerable<TreeChange> changes) =>
+            changes
+                .Where(change => change.Status == "A")
+                .Where(change => submodule.Length > 0 || change.IsSubmodule)
+                .Select(change => change.Path)
+                .FirstOrDefault(path => IsOccupied(requirement.RepositoryPath, path)) is { } path
+                ? $"Switching would overwrite `{path}`, so nothing changed. Move it, then switch again."
+                : null;
+
+        // Git replaces whatever is at an added path, and a file where the path needs a directory.
+        private static bool IsOccupied(string repository, string path) =>
+            Path.Exists(Path.Combine(repository, path)) ||
+            Enumerable.Range(0, path.Length)
+                .Where(index => path[index] == '/')
+                .Any(index => File.Exists(Path.Combine(repository, path[..index])));
+
+        private async Task<string?> FindSubmoduleOverwriteAsync(
+            ModuleRepositoryRequirement requirement,
+            IEnumerable<TreeChange> changes)
+        {
+            var submodules = changes
+                .Where(change => change.IsSubmodule && Path.Exists(Path.Combine(requirement.RepositoryPath, change.Path, ".git")))
+                .ToArray();
+            foreach (var submodule in submodules)
+            {
+                var overwrite = await FindOverwriteAsync(requirement, $"{submodule.Path}/", "HEAD", submodule.Commit)
+                    .ConfigureAwait(false);
+                if (overwrite is not null)
+                {
+                    return overwrite;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task<string?> RunStepAsync(
+            ModuleRepositoryRequirement requirement,
+            string step,
+            IReadOnlyList<string> arguments) =>
+            FormatFailure(step, await RunAsync(requirement, arguments, settings.CommandTimeout).ConfigureAwait(false));
 
         private static string? FormatFailure(string step, ModuleCliResult result) =>
             result.IsSuccess ? null : $"{step} failed: {FormatError(result)}";
@@ -525,6 +592,22 @@ internal static class ModuleRepositoryBranchSwitching
         private sealed record CheckoutState(string? Branch, string? Commit, string? Blocker)
         {
             public string? Location => Commit is null ? null : Branch is null ? "Detached HEAD." : $"On `{Branch}`.";
+        }
+
+        // "git diff --raw -z" writes ":<old mode> <new mode> <old id> <new id> <status>\0<path>\0" per change.
+        private sealed record TreeChange(string Status, bool IsSubmodule, string Commit, string Path)
+        {
+            public static TreeChange[] Parse(string output, string submodule) =>
+                output
+                    .Split('\0', StringSplitOptions.RemoveEmptyEntries)
+                    .Chunk(2)
+                    .Select(entry => (Fields: entry[0].Split(' '), Path: submodule + entry[1]))
+                    .Select(entry => new TreeChange(
+                        entry.Fields[4],
+                        entry.Fields[1] == "160000",
+                        entry.Fields[3],
+                        entry.Path))
+                    .ToArray();
         }
     }
 }
