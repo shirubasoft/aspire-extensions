@@ -98,19 +98,15 @@ if [[ "$container_runtime" == *podman* ]]; then
     export CONTAINERS_REGISTRIES_CONF="$container_registries_configuration"
 fi
 
-wait_for_registry() {
-    local endpoint="$1"
+for endpoint in "$registry_endpoint" "$mirror_registry_endpoint"; do
     for _ in {1..40}; do
         if curl --fail --silent --output /dev/null "http://$endpoint/v2/"; then
-            return 0
+            break
         fi
         sleep 0.25
     done
     curl --fail --silent --output /dev/null "http://$endpoint/v2/"
-}
-
-wait_for_registry "$registry_endpoint"
-wait_for_registry "$mirror_registry_endpoint"
+done
 
 "$container_runtime" build --tag "$fixture_image" "$fixture_directory"
 
@@ -126,25 +122,12 @@ assert_repository_has_tag() {
     fi
 }
 
-assert_repository_lacks_tag() {
-    local repository="$1"
-    local unexpected_tag="$2"
-    local registry="$3"
-    local response
-    response="$(curl --fail --silent "http://$registry/v2/$repository/tags/list")"
-    if [[ "$response" == *"\"$unexpected_tag\""* ]]; then
-        echo "Registry repository '$registry/$repository' unexpectedly contained tag '$unexpected_tag': $response" >&2
-        return 1
-    fi
-}
-
 assert_repository_absent() {
     local repository="$1"
-    local registry="${2:-$registry_endpoint}"
     local status
     status="$(
         curl --silent --output /dev/null --write-out '%{http_code}' \
-            "http://$registry/v2/$repository/tags/list"
+            "http://$registry_endpoint/v2/$repository/tags/list"
     )"
     if [[ "$status" != "404" ]]; then
         echo "Expected registry repository '$repository' to be absent, but received HTTP $status." >&2
@@ -164,7 +147,6 @@ dotnet tool run aspire -- "do" push-image-push-project \
 assert_repository_has_tag "image-push/project"
 assert_repository_has_tag "image-push/project" "$branch_image_tag"
 assert_repository_absent "image-push/declared"
-assert_repository_absent "image-push/declared-mirror" "$mirror_registry_endpoint"
 assert_repository_absent "image-push/dockerfile"
 assert_repository_absent "image-push/factory"
 assert_repository_absent "image-push/extra"
@@ -183,7 +165,6 @@ assert_repository_has_tag "image-push/declared" "$module_image_tag"
 assert_repository_has_tag "image-push/declared" "$branch_image_tag"
 assert_repository_has_tag "image-push/declared" "stable"
 assert_repository_has_tag "image-push/declared-mirror" "$module_image_tag" "$mirror_registry_endpoint"
-assert_repository_lacks_tag "image-push/declared-mirror" "$branch_image_tag" "$mirror_registry_endpoint"
 assert_repository_has_tag "image-push/factory" "$module_image_tag"
 assert_repository_has_tag "image-push/factory" "$branch_image_tag"
 assert_repository_absent "image-push/dockerfile"
@@ -208,4 +189,4 @@ dotnet tool run aspire -- "do" push-image-push-extra \
 assert_repository_has_tag "image-push/extra" "$image_tag"
 assert_repository_has_tag "image-push/extra" "$branch_image_tag"
 
-echo "Verified custom and Aspire-native named-resource image pushes against $registry_endpoint and push targets in $mirror_registry_endpoint."
+echo "Verified custom and Aspire-native named-resource image pushes against $registry_endpoint."

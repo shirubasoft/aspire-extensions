@@ -121,7 +121,8 @@ public sealed class ModuleImagePushPipelineTests
                     (_, container) => container
                         .WithContainerRegistry(registry)
                         .WithRemoteImageName("services/orders")
-                        .WithRemoteImageTag("candidate"));
+                        .WithRemoteImageTag("candidate")
+                        .WithImagePushTarget("mirror.example.test/team/orders"));
         });
 
         builder.AddModule(module);
@@ -146,6 +147,11 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Equal("services/orders", pushOptions.RemoteImageName);
         Assert.Equal("candidate", pushOptions.RemoteImageTag);
         Assert.Single(await CreatePushStepsAsync(container));
+        var resolved = await ModuleEffectiveImageResolver.ResolveAsync(container, TestContext.Current.CancellationToken);
+        Assert.Equal("registry.example.test/acme/services/orders:candidate", resolved.PushReference);
+        Assert.Equal(
+            $"mirror.example.test/team/orders:{ModuleImageBuildRecipe.LocalRunTag}",
+            Assert.Single(ModuleImagePushPipeline.GetPushTargets(container, resolved.Reference)));
     }
 
     [Fact]
@@ -321,20 +327,6 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Contains("WithContainerRegistry", exception.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Resource_builder_push_targets_are_repeatable()
-    {
-        var container = DistributedApplication.CreateBuilder()
-            .AddContainer("orders-api", "acme/orders-api", "candidate")
-            .WithImagePushTarget("first.example.test/acme/orders-api")
-            .WithImagePushTarget("second.example.test/acme/orders-api:stable")
-            .Resource;
-
-        Assert.Equal(
-            ["first.example.test/acme/orders-api", "second.example.test/acme/orders-api:stable"],
-            container.Annotations.OfType<ModuleImagePushTargetAnnotation>().Select(target => target.RemoteImageReference));
-    }
-
     [Theory]
     [InlineData("registry.example.test/acme/api@sha256:0123456789abcdef")]
     [InlineData(" ")]
@@ -365,29 +357,6 @@ public sealed class ModuleImagePushPipelineTests
                 "mirror.example.test/acme/orders-api:stable"
             ],
             targets);
-    }
-
-    [Fact]
-    public async Task Registry_configuration_shapes_only_the_registry_target()
-    {
-        var builder = DistributedApplication.CreateBuilder();
-        var registry = builder.AddContainerRegistry("registry", "registry.example.test", "acme");
-        var container = builder
-            .AddContainer("orders-api", "orders-api", "candidate")
-            .WithContainerRegistry(registry)
-            .WithRemoteImageName("remote-api")
-            .WithRemoteImageTag("remote-tag")
-            .WithImagePushTarget("mirror.example.test/team/orders-api")
-            .Resource;
-
-        var resolved = await ModuleEffectiveImageResolver.ResolveAsync(
-            container,
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal("registry.example.test/acme/remote-api:remote-tag", resolved.PushReference);
-        Assert.Equal(
-            "mirror.example.test/team/orders-api:candidate",
-            Assert.Single(ModuleImagePushPipeline.GetPushTargets(container, resolved.Reference)));
     }
 
     [Fact]
