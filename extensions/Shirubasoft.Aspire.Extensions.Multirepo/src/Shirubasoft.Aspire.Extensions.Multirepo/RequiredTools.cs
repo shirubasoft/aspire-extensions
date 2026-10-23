@@ -225,7 +225,7 @@ public static class RequiredToolResourceExtensions
             InstallCommandName,
             "Install",
             context => ExecuteInstallCommandAsync(builder.Resource, installer, context),
-            CreateInstallCommandOptions(builder.Resource.Name));
+            CreateInstallCommandOptions(builder.Resource.Name, installer));
     }
 
     private static void ValidateInstallTimeout(RequiredToolInstallOptions options)
@@ -239,13 +239,21 @@ public static class RequiredToolResourceExtensions
         }
     }
 
-    private static CommandOptions CreateInstallCommandOptions(string resourceName) =>
+    private static CommandOptions CreateInstallCommandOptions(
+        string resourceName,
+        RequiredToolInstallerAnnotation installer) =>
         new()
         {
             Description = $"Installs {resourceName} on the AppHost machine.",
             IconName = "ArrowDownload",
             IsHighlighted = true,
-            UpdateState = GetInstallCommandState
+            UpdateState = GetInstallCommandState,
+            Progress = new CommandProgressOptions
+            {
+                Title = $"Installing {resourceName}",
+                Message = $"Running {string.Join(' ', installer.Arguments.Prepend(installer.Command))}. " +
+                    $"Installer output appears in the {resourceName} console logs."
+            }
         };
 
     private static ResourceCommandState GetInstallCommandState(UpdateCommandStateContext context) =>

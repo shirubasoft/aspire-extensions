@@ -23,6 +23,6 @@ The `notification-service` resource becomes healthy and exposes `/notifications`
 
 ## What the sample demonstrates
 
-Git is a required-tool resource with a live health check. The service waits for it, while the dashboard exposes its download page and an **Install** command. The same platform-specific installer runs before repository initialization when Git is missing.
+Git is a required-tool resource with a live health check. The service waits for it, while the dashboard exposes its download page and a cancellable **Install** command that shows its progress. The same platform-specific installer runs before repository initialization when Git is missing.
 
 The imported project also supports developer-local project/container switching. Its checked-in project mode works after a fresh clone; see [developer-local mode switching](../../docs/modules.md#developer-local-mode-switching) to try its generated `notification-service` steps.

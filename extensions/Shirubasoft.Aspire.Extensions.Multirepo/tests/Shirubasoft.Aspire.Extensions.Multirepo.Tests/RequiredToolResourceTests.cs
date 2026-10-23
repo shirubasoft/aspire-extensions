@@ -3,6 +3,7 @@
 #pragma warning disable ASPIREFILESYSTEM001
 #pragma warning disable ASPIREUSERSECRETS001
 
+using System.Diagnostics;
 using System.Reflection;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Eventing;
@@ -193,6 +194,52 @@ public sealed class RequiredToolResourceTests
     }
 
     [Fact]
+    public async Task Install_command_shows_cancellable_progress_and_reports_the_tool_path()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var builder = CreateBuilder(directory.Path);
+        var tool = builder.AddRequiredTool("dotnet-sdk", "dotnet")
+            .WithInstallCommand("installer-command", "install", "dotnet");
+        var install = GetInstallCommand(tool.Resource);
+
+        var result = await ExecuteAsync(tool.Resource, install, TestContext.Current.CancellationToken);
+
+        var progress = Assert.IsType<CommandProgressOptions>(install.Progress);
+        Assert.Equal("Installing dotnet-sdk", progress.Title);
+        Assert.Equal(
+            "Running installer-command install dotnet. Installer output appears in the dotnet-sdk console logs.",
+            progress.Message);
+        Assert.False(progress.HideCancelButton);
+        Assert.True(result.Success);
+        Assert.Equal(
+            $"dotnet-sdk is available at {RequiredToolPathResolver.Resolve("dotnet")}.",
+            result.Message);
+    }
+
+    [Fact]
+    public async Task Cancelling_the_install_command_stops_the_installer()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var directory = TemporaryDirectory.Create();
+        var builder = CreateBuilder(directory.Path);
+        var tool = builder.AddRequiredTool("missing-tool", Path.Combine(directory.Path, "missing-tool"))
+            .WithInstallCommand("/bin/sh", "-c", "sleep 30");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromMilliseconds(200));
+        var stopwatch = Stopwatch.StartNew();
+
+        var result = await ExecuteAsync(tool.Resource, GetInstallCommand(tool.Resource), cancellation.Token);
+
+        Assert.True(result.Canceled);
+        Assert.InRange(stopwatch.Elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(20));
+    }
+
+    [Fact]
     public async Task Tool_registrations_share_one_initialize_aggregate_step()
     {
         using var directory = TemporaryDirectory.Create();
@@ -366,6 +413,27 @@ public sealed class RequiredToolResourceTests
             reportingTask.CompletionMessage);
         Assert.Equal(CompletionState.Completed, reportingTask.RecordedCompletionState);
         Assert.True(reportingTask.IsDisposed);
+    }
+
+    private static ResourceCommandAnnotation GetInstallCommand(RequiredToolResource tool) =>
+        Assert.Single(
+            tool.Annotations.OfType<ResourceCommandAnnotation>(),
+            command => command.Name == "install");
+
+    private static async Task<ExecuteCommandResult> ExecuteAsync(
+        RequiredToolResource tool,
+        ResourceCommandAnnotation command,
+        CancellationToken cancellationToken)
+    {
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        return await command.ExecuteCommand(new ExecuteCommandContext
+        {
+            Services = services,
+            ResourceName = tool.Name,
+            Logger = NullLogger.Instance,
+            CancellationToken = cancellationToken,
+            Arguments = new([])
+        });
     }
 
     private static async Task<IReadOnlyList<PipelineStep>> CreatePipelineStepsAsync(IResource resource)

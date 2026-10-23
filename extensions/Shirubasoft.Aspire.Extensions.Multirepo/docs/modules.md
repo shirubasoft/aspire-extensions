@@ -114,7 +114,7 @@ var orders = builder.ImportOrdersModule();
 orders.Api.WaitFor(git);
 ```
 
-The resource's health reflects whether the command resolves. Its website and installer appear as dashboard commands, and `aspire do initialize` runs the installer before repository steps. Installer commands receive an executable and argument list directly; they do not run through a shell. Required-tool resources are excluded from deployment manifests.
+The resource's health reflects whether the command resolves. Its website and installer appear as dashboard commands, and `aspire do initialize` runs the installer before repository steps. While the dashboard's **Install** command runs, a progress dialog shows the installer command line and can cancel it; installer output streams to the resource's console logs. Installer commands receive an executable and argument list directly; they do not run through a shell. Required-tool resources are excluded from deployment manifests.
 
 See the [remote initialization sample](../samples/RemoteInitialization/README.md) for a runnable, platform-aware setup.
 
