@@ -1,6 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Aspire.Hosting;
 
@@ -37,6 +37,8 @@ internal sealed record ModuleRepositoryBranchPlanItem(
     IReadOnlyList<string> SwitchArguments,
     bool FastForward = false);
 
+internal sealed record ModuleRepositoryBranchOutcome(string Repository, string Status, string Detail, bool Changed = false);
+
 internal static class ModuleRepositoryBranchSwitching
 {
     internal const string CommandName = "switch-module-branches";
@@ -44,13 +46,10 @@ internal static class ModuleRepositoryBranchSwitching
     internal const string FastForwardInputName = "fast-forward";
     internal const string DirtyBlocker = "Has uncommitted changes; commit or stash them first.";
 
-    private const string SwitchedSection = "Switched";
-    private const string AttentionSection = "Needs attention";
+    private const string AttentionStatus = "needs attention";
 
     private static readonly string[] PlanSections = ["Will change", "Skipped", "Unchanged"];
-
-    private static readonly string[] SectionOrder =
-        [PlanSections[0], SwitchedSection, AttentionSection, PlanSections[1], PlanSections[2]];
+    private static readonly string[] PlanStatuses = ["done", "skipped", "unchanged"];
 
     public static void AddCommand<TResource>(
         IResourceBuilder<TResource> resource,
@@ -91,7 +90,7 @@ internal static class ModuleRepositoryBranchSwitching
             return CommandResults.Failure("Switching branches requires the Aspire dashboard.");
         }
 
-        var git = new GitSession(settings, context.Logger, context.CancellationToken);
+        var git = new GitSession(settings, context.CancellationToken);
         var repositories = await git.InspectAsync(requirements).ConfigureAwait(false);
         return await PromptAndSwitchAsync(interaction, repositories, git).ConfigureAwait(false);
     }
@@ -106,7 +105,12 @@ internal static class ModuleRepositoryBranchSwitching
             return CreateResult(
                 success: false,
                 "No module repository can switch branches.",
-                repositories.Select(repository => (PlanSections[2], repository.Name, repository.Description)));
+                repositories
+                    .Select(repository => new ModuleRepositoryBranchOutcome(
+                        repository.Name,
+                        PlanStatuses[(int)ModuleRepositoryBranchChange.Skip],
+                        repository.Description))
+                    .ToArray());
         }
 
         var selection = await interaction.PromptInputsAsync(
@@ -235,20 +239,17 @@ internal static class ModuleRepositoryBranchSwitching
         ModuleRepositoryBranchStatus repository,
         string? branch,
         bool fastForward) =>
-        branch is null || IsUnchanged(repository, branch, fastForward)
+        IsUnchanged(repository, branch, fastForward)
             ? new(repository, ModuleRepositoryBranchChange.Keep, repository.Description, [])
-            : PlanSelection(repository, branch, fastForward);
+            : repository.Blocker is null
+                ? PlanChange(repository, branch, fastForward)
+                : new(repository, ModuleRepositoryBranchChange.Skip, repository.Blocker, []);
 
-    private static bool IsUnchanged(ModuleRepositoryBranchStatus repository, string branch, bool fastForward) =>
-        IsCurrent(repository, branch) && !fastForward;
-
-    private static ModuleRepositoryBranchPlanItem PlanSelection(
+    private static bool IsUnchanged(
         ModuleRepositoryBranchStatus repository,
-        string branch,
+        [NotNullWhen(false)] string? branch,
         bool fastForward) =>
-        repository.Blocker is null
-            ? PlanChange(repository, branch, fastForward)
-            : new(repository, ModuleRepositoryBranchChange.Skip, repository.Blocker, []);
+        branch is null || (IsCurrent(repository, branch) && !fastForward);
 
     private static ModuleRepositoryBranchPlanItem PlanChange(
         ModuleRepositoryBranchStatus repository,
@@ -257,12 +258,12 @@ internal static class ModuleRepositoryBranchSwitching
     {
         if (IsCurrent(repository, branch))
         {
-            return new(repository, ModuleRepositoryBranchChange.Change, $"Stays on `{branch}`", [], fastForward);
+            return Change(repository, $"Stays on `{branch}`", [], fastForward);
         }
 
         var from = FormatBranch(repository.CurrentBranch);
         return repository.LocalBranches.Contains(branch, StringComparer.Ordinal)
-            ? new(repository, ModuleRepositoryBranchChange.Change, $"{from} → `{branch}`", ["switch", branch], fastForward)
+            ? Change(repository, $"{from} → `{branch}`", ["switch", branch], fastForward)
             : PlanTrackingBranch(repository, branch, from, fastForward);
     }
 
@@ -274,22 +275,34 @@ internal static class ModuleRepositoryBranchSwitching
         string from,
         bool fastForward) =>
         repository.RemoteBranches.Contains(branch, StringComparer.Ordinal)
-            ? new(
+            ? Change(
                 repository,
-                ModuleRepositoryBranchChange.Change,
                 $"{from} → `{branch}`, a new local branch tracking `origin/{branch}`",
                 ["switch", "--create", branch, "--track", $"origin/{branch}"],
                 fastForward)
             : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.", []);
 
-    private static string FormatPlan(IEnumerable<ModuleRepositoryBranchPlanItem> plan) =>
-        FormatSections(plan.Select(item => (
-            PlanSections[(int)item.Change],
-            item.Repository.Name,
-            item.Summary + FormatFastForward(item, ", then fast-forward to upstream"))));
+    private static ModuleRepositoryBranchPlanItem Change(
+        ModuleRepositoryBranchStatus repository,
+        string summary,
+        IReadOnlyList<string> switchArguments,
+        bool fastForward) =>
+        new(
+            repository,
+            ModuleRepositoryBranchChange.Change,
+            fastForward ? $"{summary}, then fast-forward to upstream" : summary,
+            switchArguments,
+            fastForward);
 
-    private static string FormatFastForward(ModuleRepositoryBranchPlanItem item, string text) =>
-        item.FastForward ? text : string.Empty;
+    private static string FormatPlan(IEnumerable<ModuleRepositoryBranchPlanItem> plan) =>
+        string.Join(
+            "\n\n",
+            plan
+                .GroupBy(item => item.Change)
+                .OrderBy(group => group.Key)
+                .Select(group =>
+                    $"**{PlanSections[(int)group.Key]}**\n\n" +
+                    string.Join('\n', group.Select(item => $"- **{item.Repository.Name}**: {item.Summary}"))));
 
     private static async Task<ExecuteCommandResult> ConfirmAndSwitchAsync(
         IInteractionService interaction,
@@ -316,69 +329,46 @@ internal static class ModuleRepositoryBranchSwitching
                 Intent = MessageIntent.Confirmation
             },
             git.CancellationToken).ConfigureAwait(false);
-        return IsConfirmed(confirmation)
+        return confirmation.Data
             ? await SwitchAsync(plan, git).ConfigureAwait(false)
             : CommandResults.Canceled();
     }
 
-    private static bool IsConfirmed(InteractionResult<bool> confirmation) =>
-        confirmation is { Canceled: false, Data: true };
-
     private static async Task<ExecuteCommandResult> SwitchAsync(ModuleRepositoryBranchPlanItem[] plan, GitSession git)
     {
-        var outcomes = new List<(string Section, string Repository, string Summary)>();
+        var outcomes = new List<ModuleRepositoryBranchOutcome>();
         foreach (var item in plan)
         {
-            outcomes.Add(await SwitchAsync(item, git).ConfigureAwait(false));
+            outcomes.Add(item.Change == ModuleRepositoryBranchChange.Change
+                ? await git.SwitchAsync(item).ConfigureAwait(false)
+                : new(item.Repository.Name, PlanStatuses[(int)item.Change], item.Summary));
         }
 
-        var failed = outcomes.Count(outcome => outcome.Section == AttentionSection);
-        return CreateResult(
-            failed == 0,
-            FormatSwitchMessage(plan.Count(IsChange), failed),
-            outcomes,
-            When(
-                outcomes.Any(outcome => outcome.Section == SwitchedSection),
-                "Restart or rebuild resources from the switched repositories to run their new source."));
+        return CreateResult(outcomes);
     }
 
-    private static async Task<(string Section, string Repository, string Summary)> SwitchAsync(
-        ModuleRepositoryBranchPlanItem item,
-        GitSession git)
+    private static ExecuteCommandResult CreateResult(IReadOnlyCollection<ModuleRepositoryBranchOutcome> outcomes)
     {
-        if (!IsChange(item))
-        {
-            return (PlanSections[(int)item.Change], item.Repository.Name, item.Summary);
-        }
-
-        var error = await git.SwitchAsync(item).ConfigureAwait(false);
-        return error is null
-            ? (SwitchedSection, item.Repository.Name, item.Summary + FormatFastForward(item, ", up to date with upstream"))
-            : (AttentionSection, item.Repository.Name, error);
+        var success = outcomes.All(outcome => outcome.Status != AttentionStatus);
+        return CreateResult(
+            success,
+            success ? "Branch switch complete." : "Branch switch needs attention.",
+            outcomes);
     }
-
-    private static string FormatSwitchMessage(int changed, int failed) =>
-        failed == 0
-            ? $"Switched branches in {FormatRepositoryCount(changed)}."
-            : $"Branch switch needs attention in {FormatRepositoryCount(failed)}.";
-
-    private static bool IsChange(ModuleRepositoryBranchPlanItem item) =>
-        item.Change == ModuleRepositoryBranchChange.Change;
-
-    private static string FormatRepositoryCount(int count) =>
-        count == 1 ? "1 repository" : $"{count} repositories";
-
-    private static string? When(bool condition, string value) => condition ? value : null;
 
     private static ExecuteCommandResult CreateResult(
         bool success,
         string message,
-        IEnumerable<(string Section, string Repository, string Summary)> entries,
-        string? footer = null)
+        IReadOnlyCollection<ModuleRepositoryBranchOutcome> outcomes)
     {
         var details = new CommandResultData
         {
-            Value = string.Join("\n\n", new[] { FormatSections(entries), footer }.OfType<string>()),
+            Value = string.Join(
+                '\n',
+                outcomes.Select(outcome => $"- **{outcome.Repository}** ({outcome.Status}): {outcome.Detail}")) +
+                (outcomes.Any(outcome => outcome.Changed)
+                    ? "\n\nRestart or rebuild resources from the changed repositories to run their new source."
+                    : string.Empty),
             Format = CommandResultFormat.Markdown,
             DisplayImmediately = true
         };
@@ -387,31 +377,9 @@ internal static class ModuleRepositoryBranchSwitching
             : CommandResults.Failure(message, details);
     }
 
-    private static string FormatSections(IEnumerable<(string Section, string Repository, string Summary)> entries) =>
-        string.Join(
-            "\n\n",
-            entries
-                .GroupBy(entry => entry.Section, StringComparer.Ordinal)
-                .OrderBy(group => Array.IndexOf(SectionOrder, group.Key))
-                .Select(group =>
-                    $"**{group.Key}**\n\n" +
-                    string.Join('\n', group.Select(entry => $"- **{entry.Repository}**: {entry.Summary}"))));
-
-    private sealed class GitSession(
-        ModuleRepositoryInitializationSettings settings,
-        ILogger logger,
-        CancellationToken cancellationToken)
+    private sealed class GitSession(ModuleRepositoryInitializationSettings settings, CancellationToken cancellationToken)
     {
-        private const string FetchWarning =
-            "Couldn't fetch from origin, so remote branches may be out of date; see the console logs.";
-
         private static readonly string[] FastForwardArguments = ["merge", "--ff-only", "@{upstream}"];
-
-        private static readonly Action<ILogger, string, string, Exception?> LogGitOutput =
-            LoggerMessage.Define<string, string>(
-                LogLevel.Information,
-                new EventId(1, nameof(LogGitOutput)),
-                "Repository {Repository}: {Output}");
 
         public CancellationToken CancellationToken => cancellationToken;
 
@@ -455,8 +423,7 @@ internal static class ModuleRepositoryBranchSwitching
             var references = await RunAsync(
                 requirement,
                 "List branches",
-                ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
-                static _ => { }).ConfigureAwait(false);
+                ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).ConfigureAwait(false);
             var branch = await RepositoryInspector.TryGetBranchAsync(
                 requirement.RepositoryPath,
                 settings.GitExecutablePath,
@@ -472,8 +439,10 @@ internal static class ModuleRepositoryBranchSwitching
                 GetBranches(names, "refs/heads/"),
                 GetBranches(names, "refs/remotes/origin/"),
                 FormatLocation(branch),
-                When(isDirty, DirtyBlocker),
-                When(!fetch.IsSuccess, FetchWarning));
+                isDirty ? DirtyBlocker : null,
+                fetch.IsSuccess
+                    ? null
+                    : $"Couldn't fetch from origin, so remote branches may be out of date: {FormatError(fetch)}");
         }
 
         private static string FormatLocation(string? branch) =>
@@ -486,12 +455,15 @@ internal static class ModuleRepositoryBranchSwitching
                 .Where(branch => !string.Equals(branch, "HEAD", StringComparison.Ordinal))
                 .ToArray();
 
-        public async Task<string?> SwitchAsync(ModuleRepositoryBranchPlanItem item)
+        public async Task<ModuleRepositoryBranchOutcome> SwitchAsync(ModuleRepositoryBranchPlanItem item)
         {
             var isDirty = await IsDirtyAsync(item.Repository.Requirement).ConfigureAwait(false);
-            return isDirty
+            var error = isDirty
                 ? "Uncommitted changes appeared after review; nothing changed."
                 : await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
+            return error is null
+                ? new(item.Repository.Name, PlanStatuses[(int)item.Change], item.Summary, Changed: true)
+                : new(item.Repository.Name, AttentionStatus, error);
         }
 
         private Task<bool> IsDirtyAsync(ModuleRepositoryRequirement requirement) =>
@@ -504,31 +476,26 @@ internal static class ModuleRepositoryBranchSwitching
 
         private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
         {
-            var error = await RunStepAsync(
-                item.Repository,
-                "Switch branch",
-                item.SwitchArguments,
-                "Switch failed; nothing changed").ConfigureAwait(false);
+            var error = await RunStepAsync(item.Repository.Requirement, "Switch", item.SwitchArguments)
+                .ConfigureAwait(false);
             return error ?? await RunStepAsync(
-                item.Repository,
-                "Fast-forward branch",
-                item.FastForward ? FastForwardArguments : [],
-                $"{item.Summary}, but fast-forward failed").ConfigureAwait(false);
+                item.Repository.Requirement,
+                "Fast-forward",
+                item.FastForward ? FastForwardArguments : []).ConfigureAwait(false);
         }
 
         private async Task<string?> RunStepAsync(
-            ModuleRepositoryBranchStatus repository,
-            string operation,
-            IReadOnlyList<string> arguments,
-            string failure)
+            ModuleRepositoryRequirement requirement,
+            string step,
+            IReadOnlyList<string> arguments)
         {
             if (arguments.Count == 0)
             {
                 return null;
             }
 
-            var result = await RunAsync(repository.Requirement, operation, arguments).ConfigureAwait(false);
-            return result.IsSuccess ? null : $"{failure}: {FormatError(result)}";
+            var result = await RunAsync(requirement, step, arguments).ConfigureAwait(false);
+            return result.IsSuccess ? null : $"{step} failed: {FormatError(result)}";
         }
 
         private static string FormatError(ModuleCliResult result) =>
@@ -537,21 +504,10 @@ internal static class ModuleRepositoryBranchSwitching
                 (string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError)
                     .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
-        private Task<ModuleCliResult> RunAsync(
-            ModuleRepositoryRequirement requirement,
-            string operation,
-            IReadOnlyList<string> arguments) =>
-            RunAsync(
-                requirement,
-                operation,
-                arguments,
-                line => LogGitOutput(logger, requirement.NormalizedRepository, line, null));
-
         private async Task<ModuleCliResult> RunAsync(
             ModuleRepositoryRequirement requirement,
             string operation,
-            IReadOnlyList<string> arguments,
-            Action<string> progress)
+            IReadOnlyList<string> arguments)
         {
             try
             {
@@ -562,11 +518,10 @@ internal static class ModuleRepositoryBranchSwitching
                     settings.CommandTimeout,
                     $"{operation} in {Path.GetFileName(requirement.RepositoryPath)}",
                     cancellationToken,
-                    progress).ConfigureAwait(false);
+                    static _ => { }).ConfigureAwait(false);
             }
             catch (TimeoutException exception)
             {
-                progress(exception.Message);
                 return new ModuleCliResult(-1, string.Empty, exception.Message);
             }
         }

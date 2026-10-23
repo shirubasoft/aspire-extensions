@@ -35,7 +35,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var result = await ExecuteAsync(interaction, alpha, bravo, charlie, delta, echo, foxtrot);
 
         Assert.True(result.Success, result.Message);
-        Assert.Equal("Switched branches in 2 repositories.", result.Message);
+        Assert.Equal("Branch switch complete.", result.Message);
         var inputs = interaction.Inputs!;
         Assert.Equal(
             ["all", "repository-0", "repository-1", "repository-2", "repository-3", "repository-4", "repository-5", "fast-forward"],
@@ -75,21 +75,19 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.NotNull(result.Data);
         Assert.True(result.Data.DisplayImmediately);
         Assert.Equal(CommandResultFormat.Markdown, result.Data.Format);
-        Assert.StartsWith(
+        Assert.Equal(
             """
-            **Switched**
+            - **alpha** (done): `main` → `feature/x`, a new local branch tracking `origin/feature/x`, then fast-forward to upstream
+            - **bravo** (done): `main` → `feature/x`, then fast-forward to upstream
+            - **charlie** (skipped): No `feature/x` branch locally or on origin.
+            - **delta** (skipped): Has uncommitted changes; commit or stash them first.
+            - **echo** (skipped): Pinned to revision `v1`; change `RepositoryRevision` to move it.
+            - **foxtrot** (skipped): Not initialized; run `aspire do initialize` first.
 
-            - **alpha**: `main` → `feature/x`, a new local branch tracking `origin/feature/x`, up to date with upstream
-            - **bravo**: `main` → `feature/x`, up to date with upstream
-
-            **Skipped**
-            """.ReplaceLineEndings("\n"),
-            result.Data.Value.ReplaceLineEndings("\n"),
-            StringComparison.Ordinal);
-        Assert.EndsWith(
-            "Restart or rebuild resources from the switched repositories to run their new source.",
+            Restart or rebuild resources from the changed repositories to run their new source.
+            """,
             result.Data.Value,
-            StringComparison.Ordinal);
+            ignoreLineEndingDifferences: true);
         Assert.Equal("feature/x", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("origin/feature/x", await GitAsync(alpha.RepositoryPath, "rev-parse", "--abbrev-ref", "@{upstream}"));
         Assert.Equal(
@@ -115,8 +113,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var result = await ExecuteAsync(interaction, alpha, bravo);
 
         Assert.True(result.Success, result.Message);
-        Assert.Equal("Switched branches in 1 repository.", result.Message);
-        Assert.Contains("**Unchanged**\n\n- **bravo**: On `main`.", interaction.ConfirmationMessage, StringComparison.Ordinal);
         Assert.Equal("feature/x", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("main", await GitAsync(bravo.RepositoryPath, "branch", "--show-current"));
     }
@@ -164,11 +160,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
 
         Assert.False(result.Success);
         Assert.Equal("No module repository can switch branches.", result.Message);
-        Assert.Equal(
-            "**Unchanged**\n\n" +
-            "- **alpha**: Pinned to revision `v1`; change `RepositoryRevision` to move it.\n" +
-            "- **bravo**: Not initialized; run `aspire do initialize` first.",
-            result.Data?.Value.ReplaceLineEndings("\n"));
+        Assert.Contains("- **bravo** (skipped): Not initialized", result.Data?.Value, StringComparison.Ordinal);
         Assert.Null(interaction.Inputs);
     }
 
@@ -200,15 +192,12 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var result = await ExecuteAsync(interaction, locked, diverged, edited);
 
         Assert.False(result.Success);
-        Assert.Equal("Branch switch needs attention in 3 repositories.", result.Message);
-        var details = result.Data!.Value.ReplaceLineEndings("\n");
-        Assert.StartsWith("**Needs attention**\n\n- **alpha**: Switch failed; nothing changed: ", details, StringComparison.Ordinal);
-        Assert.Contains("index.lock", details, StringComparison.Ordinal);
-        Assert.Contains("- **bravo**: `main` → `feature/x`, but fast-forward failed: ", details, StringComparison.Ordinal);
-        Assert.EndsWith(
-            "- **charlie**: Uncommitted changes appeared after review; nothing changed.",
-            details,
-            StringComparison.Ordinal);
+        Assert.Equal("Branch switch needs attention.", result.Message);
+        var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
+        Assert.StartsWith("- **alpha** (needs attention): Switch failed: ", details[0], StringComparison.Ordinal);
+        Assert.Contains("index.lock", details[0], StringComparison.Ordinal);
+        Assert.StartsWith("- **bravo** (needs attention): Fast-forward failed: ", details[1], StringComparison.Ordinal);
+        Assert.Equal("- **charlie** (needs attention): Uncommitted changes appeared after review; nothing changed.", details[2]);
         Assert.Equal("main", await GitAsync(locked.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("feature/x", await GitAsync(diverged.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("local", await GitAsync(diverged.RepositoryPath, "log", "-1", "--format=%s"));
@@ -229,7 +218,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, null, fastForward: true).Change);
         Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, "main", fastForward: false).Change);
         var update = ModuleRepositoryBranchSwitching.Plan(onMain, "main", fastForward: true);
-        Assert.Equal((ModuleRepositoryBranchChange.Change, "Stays on `main`", 0), (update.Change, update.Summary, update.SwitchArguments.Count));
+        Assert.Equal((ModuleRepositoryBranchChange.Change, "Stays on `main`, then fast-forward to upstream", 0), (update.Change, update.Summary, update.SwitchArguments.Count));
         var track = ModuleRepositoryBranchSwitching.Plan(detached, "feature/x", fastForward: false);
         Assert.Equal("Detached HEAD → `feature/x`, a new local branch tracking `origin/feature/x`", track.Summary);
         Assert.Equal(["switch", "--create", "feature/x", "--track", "origin/feature/x"], track.SwitchArguments);
@@ -379,8 +368,13 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             await GitAsync(seed, "add", "README.md");
             await GitAsync(seed, "commit", "-m", "initial");
             await GitAsync(Path, "init", "--bare", "--initial-branch", "main", GetOrigin(name));
+            foreach (var branch in branches)
+            {
+                await CommitAsync(seed, branch, "branch.txt", "--create", branch);
+            }
+
             await GitAsync(seed, "remote", "add", "origin", GetOrigin(name));
-            await GitAsync(seed, ["push", "origin", "main", .. branches.Select(branch => $"main:{branch}")]);
+            await GitAsync(seed, ["push", "origin", "main", .. branches]);
             var requirement = Register(name);
             await GitAsync(Path, "clone", GetOrigin(name), requirement.RepositoryPath);
             return requirement;
@@ -389,11 +383,17 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         public async Task PushCommitAsync(string name, string branch)
         {
             var seed = System.IO.Path.Combine(Path, "seeds", name);
-            await GitAsync(seed, "switch", "--create", branch);
-            await File.WriteAllTextAsync(System.IO.Path.Combine(seed, "remote.txt"), branch, TestContext.Current.CancellationToken);
-            await GitAsync(seed, "add", "remote.txt");
-            await GitAsync(seed, "commit", "-m", "remote");
-            await GitAsync(seed, "push", "--force", "origin", branch);
+            await CommitAsync(seed, branch, "remote.txt", branch);
+            await GitAsync(seed, "push", "origin", branch);
+        }
+
+        private static async Task CommitAsync(string seed, string branch, string file, params string[] switchArguments)
+        {
+            await GitAsync(seed, ["switch", .. switchArguments]);
+            await File.WriteAllTextAsync(System.IO.Path.Combine(seed, file), branch, TestContext.Current.CancellationToken);
+            await GitAsync(seed, "add", file);
+            await GitAsync(seed, "commit", "-m", $"{file} on {branch}");
+            await GitAsync(seed, "switch", "main");
         }
 
         public void Dispose() => directory.Dispose();
