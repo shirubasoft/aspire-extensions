@@ -110,21 +110,31 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         await GitAsync(bravo.RepositoryPath, "switch", "--create", "(detached)");
         var charlie = await workspace.CloneAsync("charlie");
         await GitAsync(charlie.RepositoryPath, "switch", "--detach");
+        // An invalid branch color fails "git branch" but not "git status", so only the (detached) check fails.
+        var delta = await workspace.CloneAsync("delta");
+        await GitAsync(delta.RepositoryPath, "switch", "--create", "(detached)");
+        await GitAsync(delta.RepositoryPath, "config", "color.branch.current", "not-a-color");
         var interaction = new ScriptedInteractionService(inputs =>
         {
             inputs[1].Value = "(feature)";
             inputs[2].Value = "(detached)";
+            inputs[4].Value = "(detached)";
         });
 
-        var result = await ExecuteAsync(interaction, alpha, bravo, charlie);
+        var result = await ExecuteAsync(interaction, alpha, bravo, charlie, delta);
 
         Assert.True(result.Success, result.Message);
         Assert.Equal("Nothing to switch.", result.Message);
-        Assert.Equal(
-            "**Unchanged**\n\n- **alpha**: On `(feature)`.\n- **bravo**: On `(detached)`.\n- **charlie**: Detached HEAD.",
-            result.Data?.Value.ReplaceLineEndings("\n"));
+        var details = result.Data?.Value.ReplaceLineEndings("\n");
+        Assert.StartsWith("**Skipped**\n\n- **delta**: Couldn't read the checkout: ", details, StringComparison.Ordinal);
+        Assert.Contains("color.branch.current", details, StringComparison.Ordinal);
+        Assert.EndsWith(
+            "\n\n**Unchanged**\n\n- **alpha**: On `(feature)`.\n- **bravo**: On `(detached)`.\n- **charlie**: Detached HEAD.",
+            details,
+            StringComparison.Ordinal);
         Assert.Null(interaction.ConfirmationMessage);
         Assert.Contains("Couldn't fetch from origin", interaction.Inputs![1].Description, StringComparison.Ordinal);
+        Assert.True(interaction.Inputs[4].Disabled);
     }
 
     [Fact]

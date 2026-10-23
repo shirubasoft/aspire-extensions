@@ -419,21 +419,30 @@ internal static class ModuleRepositoryBranchSwitching
             var lines = status.StandardOutput.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            return status.IsSuccess
+            var branch = await ReadBranchAsync(requirement, status, lines).ConfigureAwait(false);
+            return branch.IsSuccess
                 ? new CheckoutState(
-                    await GetBranchAsync(requirement, lines).ConfigureAwait(false),
+                    GetBranchName(branch),
                     GetHeader(lines, "oid", "(initial)"),
                     lines.Any(line => !line.StartsWith('#')) ? DirtyBlocker : null)
-                : new CheckoutState(null, null, $"Couldn't read the checkout: {FormatError(status)}");
+                : new CheckoutState(null, null, $"Couldn't read the checkout: {FormatError(branch)}");
         }
 
         // Status prints "(detached)" for a detached HEAD and for a branch with that name, so git tells them apart.
-        private async Task<string?> GetBranchAsync(ModuleRepositoryRequirement requirement, string[] lines) =>
-            GetHeader(lines, "head", "(detached)") ?? await RepositoryInspector.TryGetBranchAsync(
-                requirement.RepositoryPath,
-                settings.GitExecutablePath,
-                settings.CommandTimeout,
-                cancellationToken).ConfigureAwait(false);
+        private async Task<ModuleCliResult> ReadBranchAsync(
+            ModuleRepositoryRequirement requirement,
+            ModuleCliResult status,
+            IEnumerable<string> lines) =>
+            !status.IsSuccess
+                ? status
+                : GetHeader(lines, "head", "(detached)") is { } branch
+                    ? status with { StandardOutput = branch }
+                    : await RunAsync(requirement, ["branch", "--show-current"], settings.CommandTimeout)
+                        .ConfigureAwait(false);
+
+        // "git branch --show-current" prints nothing for a detached HEAD.
+        private static string? GetBranchName(ModuleCliResult branch) =>
+            string.IsNullOrWhiteSpace(branch.StandardOutput) ? null : branch.StandardOutput.Trim();
 
         // Porcelain v2 headers are "# branch.head <name>" and "# branch.oid <commit>", with the placeholders
         // "(detached)" for a detached HEAD and "(initial)" for an unborn branch.
