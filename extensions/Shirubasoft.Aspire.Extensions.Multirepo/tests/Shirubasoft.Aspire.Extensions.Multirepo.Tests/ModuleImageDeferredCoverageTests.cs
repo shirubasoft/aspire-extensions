@@ -761,42 +761,11 @@ public sealed class ModuleImageDeferredCoverageTests
             ],
             runtime.Invocations);
         Assert.Contains(
-            "- unreachable.example.test/acme/api:stable: Container runtime command 'docker push' failed with " +
-            "exit code 7. runtime stderr",
+            "- unreachable.example.test/acme/api:stable: Container runtime command " +
+            "'docker push unreachable.example.test/acme/api:stable' failed with exit code 7. " +
+            $"runtime stderr https://user:secret@example.test/path?token=secret{Environment.NewLine}",
             exception.Message,
             StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData(FakeRuntimeMode.Success)]
-    [InlineData(FakeRuntimeMode.Failure)]
-    public async Task Runtime_push_logs_output_and_reports_the_runtime_error_on_failure(FakeRuntimeMode mode)
-    {
-        using var runtime = new FakeContainerRuntimeEnvironment(mode, configured: true);
-        var resourceLogger = new RecordingLogger();
-
-        var push = ModuleImagePushPipeline.RunContainerRuntimeAsync(
-            "docker",
-            ["push", "registry.example.test/acme/api:test"],
-            resourceLogger,
-            TestContext.Current.CancellationToken);
-
-        if (mode is FakeRuntimeMode.Success)
-        {
-            await push;
-        }
-        else
-        {
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => push);
-            Assert.Equal(
-                "Container runtime command 'docker push' failed with exit code 7. " +
-                "runtime stderr https://user:secret@example.test/path?token=secret",
-                exception.Message);
-        }
-
-        Assert.Contains(
-            resourceLogger.Entries,
-            entry => entry.Message.Contains("runtime stderr", StringComparison.Ordinal));
     }
 
     [Fact]

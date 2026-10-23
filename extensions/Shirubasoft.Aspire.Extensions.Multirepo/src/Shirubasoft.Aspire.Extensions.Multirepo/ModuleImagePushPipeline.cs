@@ -540,7 +540,7 @@ internal static class ModuleImagePushPipeline
     private static bool IsLoopbackAddress(string host) =>
         IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
 
-    internal static async Task RunContainerRuntimeAsync(
+    private static async Task RunContainerRuntimeAsync(
         string runtime,
         IReadOnlyList<string> arguments,
         ILogger resourceLogger,
@@ -566,7 +566,7 @@ internal static class ModuleImagePushPipeline
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"Container runtime command '{runtime} {arguments[0]}' failed with exit code {result.ExitCode}. {lastError}"
+                $"Container runtime command '{runtime} {string.Join(' ', arguments)}' failed with exit code {result.ExitCode}. {lastError}"
                     .TrimEnd());
         }
     }
