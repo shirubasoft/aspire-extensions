@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.DependencyInjection;
@@ -425,29 +426,21 @@ internal static class ModuleRepositoryBranchSwitching
                 requirement,
                 "List branches",
                 ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).ConfigureAwait(false);
-            var branch = await RepositoryInspector.TryGetBranchAsync(
-                requirement.RepositoryPath,
-                settings.GitExecutablePath,
-                settings.CommandTimeout,
-                cancellationToken).ConfigureAwait(false);
-            var isDirty = await IsDirtyAsync(requirement).ConfigureAwait(false);
+            var state = await ReadStateAsync(requirement).ConfigureAwait(false);
             var names = references.StandardOutput.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             return new ModuleRepositoryBranchStatus(
                 requirement,
-                branch,
+                state.Branch,
                 GetBranches(names, "refs/heads/"),
                 GetBranches(names, "refs/remotes/origin/"),
-                FormatLocation(branch),
-                isDirty ? DirtyBlocker : null,
+                state.Location,
+                state.Blocker,
                 fetch.IsSuccess
                     ? null
                     : $"Couldn't fetch from origin, so remote branches may be out of date: {FormatError(fetch)}");
         }
-
-        private static string FormatLocation(string? branch) =>
-            branch is null ? "Detached HEAD." : $"On `{branch}`.";
 
         private static string[] GetBranches(IEnumerable<string> references, string prefix) =>
             references
@@ -456,24 +449,42 @@ internal static class ModuleRepositoryBranchSwitching
                 .Where(branch => !string.Equals(branch, "HEAD", StringComparison.Ordinal))
                 .ToArray();
 
+        private async Task<CheckoutState> ReadStateAsync(ModuleRepositoryRequirement requirement)
+        {
+            var status = await RunAsync(
+                requirement,
+                "Read status",
+                ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"]).ConfigureAwait(false);
+            var lines = status.StandardOutput.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return new CheckoutState(
+                GetHeader(lines, "head"),
+                GetHeader(lines, "oid"),
+                status.IsSuccess
+                    ? lines.Any(line => !line.StartsWith('#')) ? DirtyBlocker : null
+                    : $"Couldn't read the checkout: {FormatError(status)}");
+        }
+
+        // Porcelain v2 headers are "# branch.head <name>" and "# branch.oid <commit>"; a detached HEAD
+        // or an unborn branch reports a parenthesized placeholder instead.
+        private static string? GetHeader(IEnumerable<string> lines, string name)
+        {
+            var prefix = $"# branch.{name} ";
+            return lines
+                .Where(line => line.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(line => line[prefix.Length..])
+                .FirstOrDefault(value => !value.StartsWith('('));
+        }
+
         public async Task<ModuleRepositoryBranchOutcome> SwitchAsync(ModuleRepositoryBranchPlanItem item)
         {
-            var isDirty = await IsDirtyAsync(item.Repository.Requirement).ConfigureAwait(false);
-            var error = isDirty
-                ? "Uncommitted changes appeared after review; nothing changed."
-                : await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
+            var state = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
+            var error = state.Blocker ?? await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
             return error is null
                 ? new(item.Repository.Name, PlanStatuses[(int)item.Change], item.Summary, Changed: true)
                 : new(item.Repository.Name, AttentionStatus, error);
         }
-
-        private Task<bool> IsDirtyAsync(ModuleRepositoryRequirement requirement) =>
-            RepositoryInspector.IsDirtyAsync(
-                requirement.RepositoryPath,
-                settings.GitExecutablePath,
-                settings.CommandTimeout,
-                requireSuccessfulInspection: true,
-                cancellationToken);
 
         private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
         {
@@ -521,10 +532,15 @@ internal static class ModuleRepositoryBranchSwitching
                     cancellationToken,
                     static _ => { }).ConfigureAwait(false);
             }
-            catch (TimeoutException exception)
+            catch (Exception exception) when (exception is TimeoutException or Win32Exception)
             {
                 return new ModuleCliResult(-1, string.Empty, exception.Message);
             }
+        }
+
+        private sealed record CheckoutState(string? Branch, string? Commit, string? Blocker)
+        {
+            public string? Location => Commit is null ? null : Branch is null ? "Detached HEAD." : $"On `{Branch}`.";
         }
     }
 }

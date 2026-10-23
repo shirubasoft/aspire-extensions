@@ -171,12 +171,14 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var locked = await workspace.CloneAsync("alpha", "feature/x");
         var diverged = await workspace.CloneAsync("bravo", "feature/x");
         await GitAsync(diverged.RepositoryPath, "switch", "--create", "feature/x", "--track", "origin/feature/x");
-        await File.WriteAllTextAsync(Path.Combine(diverged.RepositoryPath, "local.txt"), "local", TestContext.Current.CancellationToken);
-        await GitAsync(diverged.RepositoryPath, "add", "local.txt");
-        await GitAsync(diverged.RepositoryPath, "commit", "-m", "local");
+        await CommitFileAsync(diverged.RepositoryPath, "local.txt", "local");
         await GitAsync(diverged.RepositoryPath, "switch", "main");
         await workspace.PushCommitAsync("bravo", "feature/x");
         var edited = await workspace.CloneAsync("charlie", "feature/x");
+        var unreadable = await workspace.CloneAsync("delta", "feature/x");
+        var uninspectable = await workspace.CloneAsync("echo", "feature/x");
+        var removed = await workspace.CloneAsync("foxtrot", "feature/x");
+        await File.WriteAllTextAsync(Path.Combine(uninspectable.RepositoryPath, ".git", "index"), "corrupt", TestContext.Current.CancellationToken);
         var interaction = new ScriptedInteractionService(
             inputs =>
             {
@@ -187,9 +189,11 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             {
                 File.WriteAllText(Path.Combine(locked.RepositoryPath, ".git", "index.lock"), string.Empty);
                 File.WriteAllText(Path.Combine(edited.RepositoryPath, "draft.txt"), "draft");
+                File.WriteAllText(Path.Combine(unreadable.RepositoryPath, ".git", "index"), "corrupt");
+                TemporaryDirectory.DeleteRecursively(removed.RepositoryPath);
             });
 
-        var result = await ExecuteAsync(interaction, locked, diverged, edited);
+        var result = await ExecuteAsync(interaction, locked, diverged, edited, unreadable, uninspectable, removed);
 
         Assert.False(result.Success);
         Assert.Equal("Branch switch needs attention.", result.Message);
@@ -197,10 +201,13 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.StartsWith("- **alpha** (needs attention): Switch failed: ", details[0], StringComparison.Ordinal);
         Assert.Contains("index.lock", details[0], StringComparison.Ordinal);
         Assert.StartsWith("- **bravo** (needs attention): Fast-forward failed: ", details[1], StringComparison.Ordinal);
-        Assert.Equal("- **charlie** (needs attention): Uncommitted changes appeared after review; nothing changed.", details[2]);
+        Assert.Equal("- **charlie** (needs attention): Has uncommitted changes; commit or stash them first.", details[2]);
+        Assert.StartsWith("- **delta** (needs attention): Couldn't read the checkout: ", details[3], StringComparison.Ordinal);
+        Assert.StartsWith("- **echo** (skipped): Couldn't read the checkout: ", details[4], StringComparison.Ordinal);
+        Assert.StartsWith("- **foxtrot** (needs attention): Couldn't read the checkout: ", details[5], StringComparison.Ordinal);
         Assert.Equal("main", await GitAsync(locked.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("feature/x", await GitAsync(diverged.RepositoryPath, "branch", "--show-current"));
-        Assert.Equal("local", await GitAsync(diverged.RepositoryPath, "log", "-1", "--format=%s"));
+        Assert.Equal("Add local.txt", await GitAsync(diverged.RepositoryPath, "log", "-1", "--format=%s"));
         Assert.Equal("main", await GitAsync(edited.RepositoryPath, "branch", "--show-current"));
         Assert.True(File.Exists(Path.Combine(edited.RepositoryPath, "draft.txt")));
     }
