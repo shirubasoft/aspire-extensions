@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Tags an extension's initial version when it has no release tag yet. The tag marks the commit
+# before the extension folder first appeared, so semantic-release analyzes only the extension's
+# own history rather than unrelated breaking changes from earlier repository history.
+set -euo pipefail
+
+usage="Usage: bootstrap-version-baseline.sh <tag-prefix> <initial-version> <extension-path>"
+tag_prefix="${1:?$usage}"
+initial_version="${2:?$usage}"
+extension_path="${3:?$usage}"
+
+if git describe --tags --abbrev=0 --match "$tag_prefix-v[0-9]*" >/dev/null 2>&1; then
+  exit 0
+fi
+
+first_commit="$(git rev-list --reverse HEAD -- "$extension_path" | head -n 1)"
+if [[ -z "$first_commit" ]]; then
+  echo "No commit reachable from HEAD touches $extension_path." >&2
+  exit 1
+fi
+
+# An extension created by the root commit keeps the root commit as its baseline.
+baseline="$(git rev-parse --verify --quiet "$first_commit^" || printf '%s' "$first_commit")"
+git tag "$tag_prefix-v$initial_version" "$baseline"
+printf 'Created %s-v%s at %s, the commit before %s first appeared.\n' \
+  "$tag_prefix" "$initial_version" "$baseline" "$extension_path"

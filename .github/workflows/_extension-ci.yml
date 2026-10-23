@@ -104,13 +104,12 @@ jobs:
       - name: Bootstrap the package version baseline
         shell: bash
         env:
+          EXTENSION_PATH: ${{ inputs.extension_path }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
           INITIAL_VERSION: ${{ inputs.initial_version }}
-        run: |
-          set -euo pipefail
-          if ! git describe --tags --abbrev=0 --match "$TAG_PREFIX-v[0-9]*" >/dev/null 2>&1; then
-            git tag "$TAG_PREFIX-v$INITIAL_VERSION" "$(git rev-list --max-parents=0 HEAD | tail -n 1)"
-          fi
+        run: >-
+          bash .github/release/bootstrap-version-baseline.sh
+          "$TAG_PREFIX" "$INITIAL_VERSION" "$EXTENSION_PATH"
 
       - name: Calculate release version
         id: release-version
