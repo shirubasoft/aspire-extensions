@@ -19,6 +19,7 @@ if (string.IsNullOrWhiteSpace(registryEndpoint))
 }
 
 var retagRegistryEndpoint = builder.Configuration["ImagePush:RetagRegistryEndpoint"] ?? registryEndpoint;
+var mirrorRegistryEndpoint = builder.Configuration["ImagePush:MirrorRegistryEndpoint"] ?? registryEndpoint;
 
 var registry = builder.AddContainerRegistry(
     "image-push-registry",
@@ -44,6 +45,8 @@ var module = builder.ExportModule("image-push-e2e", "Sample.ImagePush.Contract",
             ImageTag = ImageTag,
             WorkingDirectory = "ImageFixture"
         })
+        .WithImagePushTarget($"{mirrorRegistryEndpoint}/image-push/declared-mirror")
+        .WithImagePushTarget($"{registryEndpoint}/image-push/declared:stable")
         .Configure((_, container) => container.WithExplicitStart());
 
     definition.AddContainer(
