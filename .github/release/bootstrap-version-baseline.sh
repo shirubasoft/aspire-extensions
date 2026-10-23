@@ -20,7 +20,9 @@ fi
 
 # Follow first parents so a merged branch is introduced by its merge commit, whose first parent
 # already contains every mainline commit that landed before the merge.
-first_commit="$(git rev-list --first-parent --reverse HEAD -- "$extension_path" | head -n 1)"
+# Read the whole list rather than piping to head, which can end rev-list with SIGPIPE under pipefail.
+introducing_commits="$(git rev-list --first-parent --reverse HEAD -- "$extension_path")"
+first_commit="${introducing_commits%%$'\n'*}"
 if [[ -z "$first_commit" ]]; then
   echo "No commit reachable from HEAD touches $extension_path." >&2
   exit 1
