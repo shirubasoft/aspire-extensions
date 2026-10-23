@@ -732,7 +732,7 @@ public sealed class ModuleImageDeferredCoverageTests
     }
 
     [Fact]
-    public async Task Push_step_tags_and_pushes_every_push_target_with_the_selected_runtime()
+    public async Task Push_step_pushes_every_push_target_and_reports_a_failed_push()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -741,50 +741,27 @@ public sealed class ModuleImageDeferredCoverageTests
 
         using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
         var (step, application, canonicalImage) = await CreatePushTargetStepAsync(
-            "first.example.test/acme/api",
-            "second.example.test/team/api:stable");
-        await using var _ = application;
-
-        await ExecutePipelineStepAsync(application, step);
-
-        var canonicalTag = ModuleImageReference.GetTag(canonicalImage);
-        Assert.Equal(
-            [
-                $"tag {canonicalImage} first.example.test/acme/api:{canonicalTag}",
-                $"push first.example.test/acme/api:{canonicalTag}",
-                $"tag {canonicalImage} second.example.test/team/api:stable",
-                "push second.example.test/team/api:stable"
-            ],
-            runtime.Invocations);
-    }
-
-    [Fact]
-    public async Task Push_step_tries_every_push_target_and_reports_each_runtime_failure()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Failure, configured: true);
-        var (step, application, canonicalImage) = await CreatePushTargetStepAsync(
-            "first.example.test/acme/api:stable",
-            "second.example.test/team/api:stable");
+            "unreachable.example.test/acme/api:stable",
+            "mirror.example.test/team/api");
         await using var _ = application;
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             ExecutePipelineStepAsync(application, step));
 
+        var mirror = $"mirror.example.test/team/api:{ModuleImageReference.GetTag(canonicalImage)}";
         Assert.Equal(
             [
-                $"tag {canonicalImage} first.example.test/acme/api:stable",
-                $"tag {canonicalImage} second.example.test/team/api:stable"
+                $"tag {canonicalImage} unreachable.example.test/acme/api:stable",
+                "push unreachable.example.test/acme/api:stable",
+                $"tag {canonicalImage} {mirror}",
+                $"push {mirror}"
             ],
             runtime.Invocations);
-        Assert.Contains("failed to push 2 of 2 image push targets", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("- first.example.test/acme/api:stable: ", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("- second.example.test/team/api:stable: ", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("exit code 7", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "- unreachable.example.test/acme/api:stable: Container runtime command 'docker push' failed with " +
+            "exit code 7. runtime stderr",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1307,6 +1284,7 @@ public sealed class ModuleImageDeferredCoverageTests
                 $"printf '%s\\n' \"$*\" >> \"{_invocationPath}\"\n" +
                 "printf '%s\\n' 'runtime stdout token=secret'\n" +
                 "printf '%s\\n' 'runtime stderr https://user:secret@example.test/path?token=secret' >&2\n" +
+                "case \"$*\" in 'push unreachable.'*) exit 7;; esac\n" +
                 $"exit {exitCode}\n");
             File.SetUnixFileMode(
                 executablePath,
