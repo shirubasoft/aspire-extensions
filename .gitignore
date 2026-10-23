@@ -6,3 +6,4 @@ TestResults/
 artifacts/
 *.user
 node_modules/
+dist/

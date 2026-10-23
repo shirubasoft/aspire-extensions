@@ -62,6 +62,9 @@ jobs:
             .github/workflows/test-projects-ci.yml
             .github/workflows/test-projects-prerelease.yml
             .github/workflows/test-projects-publish.yml
+            .github/workflows/tiger-beetle-ci.yml
+            .github/workflows/tiger-beetle-prerelease.yml
+            .github/workflows/tiger-beetle-publish.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-a-e2e.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-dispatch.yml
             extensions/Shirubasoft.Aspire.Extensions.Multirepo/docs/workflows/repo-b-workflow-call.yml

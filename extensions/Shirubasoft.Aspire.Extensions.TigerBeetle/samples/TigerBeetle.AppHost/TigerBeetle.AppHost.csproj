@@ -1,0 +1,16 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>shirubasoft-aspire-tigerbeetle-sample</UserSecretsId>
+    <AspireUseCliBundle Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(AspireHostingSDKVersion)', '13.5.0'))">true</AspireUseCliBundle>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Docker" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Shirubasoft.Aspire.Extensions.TigerBeetle/Shirubasoft.Aspire.Extensions.TigerBeetle.csproj"
+                      IsAspireProjectResource="false" />
+    <ProjectReference Include="../TigerBeetle.Client/TigerBeetle.Client.csproj" />
+  </ItemGroup>
+</Project>

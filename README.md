@@ -12,6 +12,7 @@ This repository contains independently versioned Aspire extensions. Each extensi
 | `Shirubasoft.Aspire.Extensions.ResourceGroups` | Logical parent resources that organize an AppHost resource graph. | [Resource Groups extension](extensions/Shirubasoft.Aspire.Extensions.ResourceGroups/README.md) |
 | `Shirubasoft.Aspire.Tailscale` | Private HTTPS exposure of resources on a Tailscale tailnet through sidecar nodes. | [Tailscale extension](extensions/Shirubasoft.Aspire.Extensions.Tailscale/README.md) |
 | `Shirubasoft.Aspire.Extensions.TestProjects` | AppHost-managed test suites with dashboard commands and Markdown results. | [Test Projects extension](extensions/Shirubasoft.Aspire.Extensions.TestProjects/README.md) |
+| `Shirubasoft.Aspire.Hosting.TigerBeetle` | TigerBeetle replicas and RabbitMQ change data capture jobs with polyglot AppHost APIs. | [TigerBeetle extension](extensions/Shirubasoft.Aspire.Extensions.TigerBeetle/README.md) |
 
 ## Build
 

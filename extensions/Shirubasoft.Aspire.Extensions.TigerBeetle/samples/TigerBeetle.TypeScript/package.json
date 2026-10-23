@@ -1,0 +1,21 @@
+{
+  "name": "aspire-tigerbeetle-typescript-sample",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "aspire:build": "tsc -p tsconfig.apphost.json",
+    "build": "npm run aspire:build && npm run build --prefix client",
+    "start": "aspire start --apphost ./apphost.mts --non-interactive"
+  },
+  "dependencies": {
+    "vscode-jsonrpc": "8.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "tsx": "4.23.12",
+    "typescript": "5.9.2"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  }
+}
