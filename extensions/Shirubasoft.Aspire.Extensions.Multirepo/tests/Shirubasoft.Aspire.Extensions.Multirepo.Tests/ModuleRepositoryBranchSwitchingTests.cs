@@ -29,6 +29,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var interaction = new ScriptedInteractionService(inputs =>
         {
             inputs[0].Value = "feature/x";
+            inputs[3].Value = "main";
             inputs[^1].Value = bool.TrueString;
         });
 
@@ -62,10 +63,10 @@ public sealed class ModuleRepositoryBranchSwitchingTests
 
             - **alpha**: `main` → `feature/x`, a new local branch tracking `origin/feature/x`, then fast-forward to upstream
             - **bravo**: `main` → `feature/x`, then fast-forward to upstream
+            - **charlie**: Stays on `main`, then fast-forward to upstream
 
             **Skipped**
 
-            - **charlie**: No `feature/x` branch locally or on origin.
             - **delta**: Has uncommitted changes; commit or stash them first.
             - **echo**: Pinned to revision `v1`; change `RepositoryRevision` to move it.
             - **foxtrot**: Not initialized; run `aspire do initialize` first.
@@ -79,7 +80,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             """
             - **alpha** (done): `main` → `feature/x`, a new local branch tracking `origin/feature/x`, then fast-forward to upstream
             - **bravo** (done): `main` → `feature/x`, then fast-forward to upstream
-            - **charlie** (skipped): No `feature/x` branch locally or on origin.
+            - **charlie** (done): Stays on `main`, then fast-forward to upstream
             - **delta** (skipped): Has uncommitted changes; commit or stash them first.
             - **echo** (skipped): Pinned to revision `v1`; change `RepositoryRevision` to move it.
             - **foxtrot** (skipped): Not initialized; run `aspire do initialize` first.
@@ -96,25 +97,6 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal("main", await GitAsync(charlie.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("main", await GitAsync(delta.RepositoryPath, "branch", "--show-current"));
         Assert.True(File.Exists(Path.Combine(delta.RepositoryPath, "notes.txt")));
-    }
-
-    [Fact]
-    public async Task Repository_choice_overrides_the_all_repositories_choice()
-    {
-        using var workspace = BranchWorkspace.Create();
-        var alpha = await workspace.CloneAsync("alpha", "feature/x");
-        var bravo = await workspace.CloneAsync("bravo", "feature/x");
-        var interaction = new ScriptedInteractionService(inputs =>
-        {
-            inputs[0].Value = "feature/x";
-            inputs[2].Value = "main";
-        });
-
-        var result = await ExecuteAsync(interaction, alpha, bravo);
-
-        Assert.True(result.Success, result.Message);
-        Assert.Equal("feature/x", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
-        Assert.Equal("main", await GitAsync(bravo.RepositoryPath, "branch", "--show-current"));
     }
 
     [Fact]
@@ -321,27 +303,22 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         await CommitFileAsync(switching.RepositoryPath, "local.env", "tracked");
         await GitAsync(switching.RepositoryPath, "push", "origin", "main", "feature/x");
         await GitAsync(switching.RepositoryPath, "switch", "main");
-        await GitAsync(switching.RepositoryPath, "branch", "--delete", "--force", "feature/x");
         var updating = await workspace.CloneAsync("bravo");
         await CommitFileAsync(updating.RepositoryPath, ".gitignore", "local.env\n");
         var reviewed = await GitAsync(updating.RepositoryPath, "rev-parse", "HEAD");
         await CommitFileAsync(updating.RepositoryPath, "local.env", "tracked");
         await GitAsync(updating.RepositoryPath, "push", "origin", "main");
         await GitAsync(updating.RepositoryPath, "reset", "--hard", reviewed);
-        foreach (var repository in new[] { switching, updating })
+        string[] localFiles = [Path.Combine(switching.RepositoryPath, "local.env"), Path.Combine(updating.RepositoryPath, "local.env")];
+        await Task.WhenAll(localFiles.Select(file => File.WriteAllTextAsync(file, "local work", TestContext.Current.CancellationToken)));
+        var interaction = new ScriptedInteractionService(inputs =>
         {
-            await File.WriteAllTextAsync(Path.Combine(repository.RepositoryPath, "local.env"), "local work", TestContext.Current.CancellationToken);
-        }
+            inputs[1].Value = "feature/x";
+            inputs[2].Value = "main";
+            inputs[^1].Value = bool.TrueString;
+        });
 
-        var result = await ExecuteAsync(
-            new ScriptedInteractionService(inputs =>
-            {
-                inputs[1].Value = "feature/x";
-                inputs[2].Value = "main";
-                inputs[^1].Value = bool.TrueString;
-            }),
-            switching,
-            updating);
+        var result = await ExecuteAsync(interaction, switching, updating);
 
         Assert.False(result.Success);
         var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
@@ -349,10 +326,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Matches(@"^- \*\*bravo\*\* \(needs attention\): .*Fast-forward failed: .*local\.env", details[1]);
         Assert.Equal("main", await GitAsync(switching.RepositoryPath, "branch", "--show-current"));
         Assert.Equal(reviewed, await GitAsync(updating.RepositoryPath, "rev-parse", "HEAD"));
-        foreach (var repository in new[] { switching, updating })
-        {
-            Assert.Equal("local work", await File.ReadAllTextAsync(Path.Combine(repository.RepositoryPath, "local.env"), TestContext.Current.CancellationToken));
-        }
+        Assert.All(localFiles, file => Assert.Equal("local work", File.ReadAllText(file)));
     }
 
     [Fact]
@@ -373,6 +347,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.Equal("Detached HEAD → `feature/x`, a new local branch tracking `origin/feature/x`", track.Summary);
         Assert.Equal(["switch", "--no-overwrite-ignore", "--create", "feature/x", "--track", "origin/feature/x"], track.SwitchArguments);
         Assert.Equal(["switch", "--no-overwrite-ignore", "main"], ModuleRepositoryBranchSwitching.Plan(detached, "main", fastForward: false).SwitchArguments);
+        Assert.Equal("No `feature/y` branch locally or on origin.", ModuleRepositoryBranchSwitching.Plan(onMain, "feature/y", fastForward: false).Summary);
     }
 
     [Fact]
@@ -384,9 +359,9 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             new InteractionInput { Name = ModuleRepositoryBranchSwitching.FastForwardInputName, InputType = InputType.Boolean, Value = bool.TrueString }
         };
 
-        Assert.True(await ValidateAsync(inputs));
+        Assert.True(await HasValidationErrorsAsync(ModuleRepositoryBranchSwitching.ValidateSelection, inputs));
         inputs[0].Value = "main";
-        Assert.False(await ValidateAsync(inputs));
+        Assert.False(await HasValidationErrorsAsync(ModuleRepositoryBranchSwitching.ValidateSelection, inputs));
     }
 
     [Fact]
@@ -441,7 +416,9 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         return appHost;
     }
 
-    private static async Task<bool> ValidateAsync(IReadOnlyList<InteractionInput> inputs)
+    private static async Task<bool> HasValidationErrorsAsync(
+        Func<InputsDialogValidationContext, Task> validate,
+        IReadOnlyList<InteractionInput> inputs)
     {
         using var services = new ServiceCollection().BuildServiceProvider();
         var context = new InputsDialogValidationContext
@@ -450,7 +427,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             CancellationToken = TestContext.Current.CancellationToken,
             Services = services
         };
-        await ModuleRepositoryBranchSwitching.ValidateSelection(context);
+        await validate(context);
         return (bool)typeof(InputsDialogValidationContext)
             .GetProperty("HasErrors", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(context)!;
@@ -538,9 +515,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             var seed = System.IO.Path.Combine(Path, "seeds", name);
             Directory.CreateDirectory(seed);
             await GitAsync(seed, "init", "--initial-branch", "main");
-            await File.WriteAllTextAsync(System.IO.Path.Combine(seed, "README.md"), name, TestContext.Current.CancellationToken);
-            await GitAsync(seed, "add", "README.md");
-            await GitAsync(seed, "commit", "-m", "initial");
+            await CommitFileAsync(seed, "README.md", name);
             await GitAsync(Path, "init", "--bare", "--initial-branch", "main", GetOrigin(name));
             foreach (var branch in branches)
             {
@@ -564,9 +539,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         private static async Task CommitAsync(string seed, string branch, string file, params string[] switchArguments)
         {
             await GitAsync(seed, ["switch", .. switchArguments]);
-            await File.WriteAllTextAsync(System.IO.Path.Combine(seed, file), branch, TestContext.Current.CancellationToken);
-            await GitAsync(seed, "add", file);
-            await GitAsync(seed, "commit", "-m", $"{file} on {branch}");
+            await CommitFileAsync(seed, file, branch);
             await GitAsync(seed, "switch", "main");
         }
 
@@ -602,17 +575,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             }
 
             select(inputs);
-            using var services = new ServiceCollection().BuildServiceProvider();
-            var validation = new InputsDialogValidationContext
-            {
-                Inputs = new InteractionInputCollection(inputs),
-                CancellationToken = cancellationToken,
-                Services = services
-            };
-            await options!.ValidationCallback!(validation);
-            SelectionWasRejected = (bool)typeof(InputsDialogValidationContext)
-                .GetProperty("HasErrors", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(validation)!;
+            SelectionWasRejected = await HasValidationErrorsAsync(options!.ValidationCallback!, inputs);
             return InteractionResult.Ok(new InteractionInputCollection(inputs));
         }
 

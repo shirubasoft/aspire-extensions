@@ -210,11 +210,8 @@ internal static class ModuleRepositoryBranchSwitching
             Placeholder = repository.Blocker is null ? "Same as all repositories" : "Can't switch",
             Disabled = repository.Blocker is not null,
             Options = repository.LocalBranches
-                .Where(branch => IsCurrent(repository, branch))
-                .Select(branch => KeyValuePair.Create(branch, $"{branch} (current)"))
-                .Concat(repository.LocalBranches
-                    .Where(branch => !IsCurrent(repository, branch))
-                    .Select(branch => KeyValuePair.Create(branch, branch)))
+                .OrderByDescending(branch => IsCurrent(repository, branch))
+                .Select(branch => KeyValuePair.Create(branch, IsCurrent(repository, branch) ? $"{branch} (current)" : branch))
                 .Concat(repository.RemoteBranches
                     .Except(repository.LocalBranches, StringComparer.Ordinal)
                     .Select(branch => KeyValuePair.Create(branch, $"{branch} (from origin)")))
@@ -450,7 +447,6 @@ internal static class ModuleRepositoryBranchSwitching
         {
             var fetch = await RunAsync(
                 requirement,
-                "Fetch origin",
                 GitHubGitAuthentication.ConfigureCredentialHelper(
                     ["fetch", "--prune", "origin"],
                     requirement.Repository,
@@ -458,7 +454,6 @@ internal static class ModuleRepositoryBranchSwitching
                 FetchTimeout).ConfigureAwait(false);
             var references = await RunAsync(
                 requirement,
-                "List branches",
                 ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
                 settings.CommandTimeout).ConfigureAwait(false);
             var state = await ReadStateAsync(requirement).ConfigureAwait(false);
@@ -488,7 +483,6 @@ internal static class ModuleRepositoryBranchSwitching
         {
             var status = await RunAsync(
                 requirement,
-                "Read status",
                 ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"],
                 settings.CommandTimeout).ConfigureAwait(false);
             var lines = status.StandardOutput.Split(
@@ -570,12 +564,11 @@ internal static class ModuleRepositoryBranchSwitching
             // Move submodules to the commits the new HEAD records, the same way initialization does.
             var error = FormatFailure(
                 step,
-                await RunAsync(requirement, step, arguments, settings.CommandTimeout).ConfigureAwait(false));
+                await RunAsync(requirement, arguments, settings.CommandTimeout).ConfigureAwait(false));
             return error ?? FormatFailure(
                 "Submodule update",
                 await RunAsync(
                     requirement,
-                    "Submodule update",
                     RepositorySynchronizer.CreateSubmoduleUpdateCommand(
                         requirement.RepositoryPath,
                         settings.GitExecutablePath,
@@ -596,7 +589,6 @@ internal static class ModuleRepositoryBranchSwitching
 
         private async Task<ModuleCliResult> RunAsync(
             ModuleRepositoryRequirement requirement,
-            string operation,
             IReadOnlyList<string> arguments,
             TimeSpan timeout)
         {
@@ -607,7 +599,7 @@ internal static class ModuleRepositoryBranchSwitching
                     arguments,
                     requirement.RepositoryPath,
                     timeout,
-                    $"{operation} in {Path.GetFileName(requirement.RepositoryPath)}",
+                    $"git in {Path.GetFileName(requirement.RepositoryPath)}",
                     NonInteractive,
                     cancellationToken,
                     static _ => { }).ConfigureAwait(false);
