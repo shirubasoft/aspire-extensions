@@ -5,6 +5,7 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting;
 using Aspire.Hosting.Pipelines;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -301,22 +302,17 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Null(ModuleImagePushPipeline.GetBranchAliasReference(resource, resolved));
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Push_targets_require_an_image_publisher_with_a_registry_target(bool publishes)
+    [Fact]
+    public async Task Push_targets_require_a_registry_target()
     {
         using var repository = CreateProject();
         var builder = CreatePublishBuilder(repository.Path);
         var module = builder.ExportModule("orders", definition =>
         {
             definition.WithRepository(repository.Path);
-            var orders = definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+            definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build"))
                 .WithImagePushTarget("mirror.example.test/acme/orders-api");
-            if (publishes)
-            {
-                orders.WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build"));
-            }
         });
 
         builder.AddModule(module);
@@ -325,6 +321,47 @@ public sealed class ModuleImagePushPipelineTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreatePushStepsAsync(container));
         Assert.Contains("'orders-api' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
         Assert.Contains("WithContainerRegistry", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Consumer_running_an_external_image_ignores_the_producer_push_targets()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePushPrerequisiteBuilder(repository.Path);
+        builder.ConfigureModularAppHosts(options =>
+        {
+            options.Modules["orders"] = new DistributedApplicationModuleOptions
+            {
+                Containers =
+                {
+                    ["orders-api"] = new DistributedApplicationModuleContainerOptions
+                    {
+                        PublishImage = false,
+                        ImageRegistry = "registry.example.test",
+                        ImageName = "acme/orders-api",
+                        ImageTag = "main-0123456789ab"
+                    }
+                }
+            };
+        });
+        builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository("https://example.test/acme/orders.git");
+            definition.AddContainer("orders-api", "acme/orders-api")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build")
+                {
+                    ImageRegistry = "registry.example.test"
+                })
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+        });
+        builder.ImportModule("orders");
+
+        await RunPushPrerequisitesAsync(builder);
+
+        var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
+        Assert.Single(container.Annotations.OfType<ModuleImagePushTargetAnnotation>());
+        Assert.Empty(container.Annotations.OfType<ModuleImagePublisherAnnotation>());
+        Assert.Empty(await CreatePushStepsAsync(container));
     }
 
     [Theory]
@@ -508,6 +545,37 @@ public sealed class ModuleImagePushPipelineTests
         return builder;
     }
 
+    private static IDistributedApplicationBuilder CreatePushPrerequisiteBuilder(string projectDirectory)
+    {
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args =
+            [
+                "--operation", "publish",
+                "--step", WellKnownPipelineSteps.PushPrereq,
+                "--output-path", Path.Combine(projectDirectory, "artifacts")
+            ],
+            DisableDashboard = true,
+            ProjectDirectory = projectDirectory
+        });
+        builder.Configuration[$"{ModularAppHostsOptions.ConfigurationSectionName}:ProjectMode"] =
+            nameof(ModuleProjectMode.Container);
+        return builder;
+    }
+
+    private static async Task RunPushPrerequisitesAsync(IDistributedApplicationBuilder builder)
+    {
+        var reporter = new PipelineCompletionRecorder();
+        builder.Services.AddSingleton<IPipelineActivityReporter>(reporter);
+        await using var application = builder.Build();
+        await application.RunAsync(TestContext.Current.CancellationToken);
+        var completion = Assert.IsType<PublishCompletionOptions>(reporter.Completion);
+        if (completion.CompletionState == CompletionState.CompletedWithError)
+        {
+            throw new InvalidOperationException(completion.CompletionMessage);
+        }
+    }
+
     private static TemporaryDirectory CreateProject()
     {
         var directory = TemporaryDirectory.Create();
@@ -519,4 +587,26 @@ public sealed class ModuleImagePushPipelineTests
 
     private static string GetProjectPath(string directory) =>
         Path.Combine(directory, "Orders.Api.csproj");
+
+    private sealed class PipelineCompletionRecorder : IPipelineActivityReporter
+    {
+        public PublishCompletionOptions? Completion { get; private set; }
+
+        public Task<IReportingStep> CreateStepAsync(string title, CancellationToken cancellationToken = default) =>
+            new NullPublishingActivityReporter().CreateStepAsync(title, cancellationToken);
+
+        public Task CompletePublishAsync(
+            PublishCompletionOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            Completion = options;
+            return Task.CompletedTask;
+        }
+
+        public Task CompletePublishAsync(
+            string? completionMessage = null,
+            CompletionState? completionState = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
 }
