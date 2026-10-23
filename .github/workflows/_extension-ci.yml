@@ -75,10 +75,10 @@ jobs:
           node-version: 24
 
       - name: Install locked release tooling
-        run: npm ci --prefix .github/release
+        run: npm ci --prefix eng/release
 
       - name: Test release tooling
-        run: npm test --prefix .github/release
+        run: npm test --prefix eng/release
 
   release-version:
     if: >-
@@ -102,7 +102,7 @@ jobs:
           node-version: 24
 
       - name: Install locked release tooling
-        run: npm ci --prefix .github/release
+        run: npm ci --prefix eng/release
 
       - name: Bootstrap the package version baseline
         shell: bash
@@ -111,7 +111,7 @@ jobs:
           TAG_PREFIX: ${{ inputs.tag_prefix }}
           INITIAL_VERSION: ${{ inputs.initial_version }}
         run: >-
-          bash .github/release/bootstrap-version-baseline.sh
+          bash eng/release/bootstrap-version-baseline.sh
           "$TAG_PREFIX" "$INITIAL_VERSION" "$EXTENSION_PATH"
 
       - name: Calculate release version
@@ -123,7 +123,7 @@ jobs:
           RELEASE_CONFIG: ${{ inputs.release_config }}
         run: |
           set -euo pipefail
-          .github/release/node_modules/.bin/semantic-release --dry-run --extends "$RELEASE_CONFIG"
+          eng/release/node_modules/.bin/semantic-release --dry-run --extends "$RELEASE_CONFIG"
           if [[ -f "$NEXT_RELEASE_VERSION_FILE" ]]; then
             echo "version=$(<"$NEXT_RELEASE_VERSION_FILE")" >> "$GITHUB_OUTPUT"
           fi

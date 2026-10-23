@@ -134,7 +134,7 @@ jobs:
           node-version: 24
 
       - name: Install locked release tooling
-        run: npm ci --prefix "$RELEASE_TOOLING_DIR/.github/release"
+        run: npm ci --prefix "$RELEASE_TOOLING_DIR/eng/release"
 
       - name: Bootstrap the package version baseline
         shell: bash
@@ -143,7 +143,7 @@ jobs:
           TAG_PREFIX: ${{ inputs.tag_prefix }}
           INITIAL_VERSION: ${{ inputs.initial_version }}
         run: >-
-          bash "$RELEASE_TOOLING_DIR/.github/release/bootstrap-version-baseline.sh"
+          bash "$RELEASE_TOOLING_DIR/eng/release/bootstrap-version-baseline.sh"
           "$TAG_PREFIX" "$INITIAL_VERSION" "$(dirname "$RELEASE_CONFIG")"
 
       - name: Remove the tag left by an earlier unpublished attempt of this release
@@ -153,7 +153,7 @@ jobs:
           PACKAGE_ID: ${{ inputs.package_id }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
         run: >-
-          node "$RELEASE_TOOLING_DIR/.github/release/remove-incomplete-release-tag.mjs"
+          node "$RELEASE_TOOLING_DIR/eng/release/remove-incomplete-release-tag.mjs"
           "$TAG_PREFIX" "$PACKAGE_ID" "$HEAD_SHA"
 
       - name: Version and publish
@@ -162,5 +162,5 @@ jobs:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
           RELEASE_CONFIG: ${{ inputs.release_config }}
         run: >-
-          "$RELEASE_TOOLING_DIR/.github/release/node_modules/.bin/semantic-release"
+          "$RELEASE_TOOLING_DIR/eng/release/node_modules/.bin/semantic-release"
           --extends "$RELEASE_TOOLING_DIR/$RELEASE_CONFIG"

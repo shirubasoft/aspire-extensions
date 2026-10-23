@@ -1,4 +1,4 @@
-import { createExtensionReleaseConfig } from "../../.github/release/create-extension-release-config.mjs";
+import { createExtensionReleaseConfig } from "../../eng/release/create-extension-release-config.mjs";
 
 export default createExtensionReleaseConfig({
   extensionPath: "extensions/Shirubasoft.Aspire.Extensions.TestProjects",

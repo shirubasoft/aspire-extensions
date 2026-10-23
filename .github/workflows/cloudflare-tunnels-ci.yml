@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/**
-      - .github/release/**
       - .github/workflows/_extension-ci.yml
       - .github/workflows/_extension-prerelease.yml
       - .github/workflows/_extension-publish.yml
@@ -28,7 +27,6 @@ on:
   pull_request:
     paths:
       - extensions/Shirubasoft.Aspire.Extensions.CloudflareTunnels/**
-      - .github/release/**
       - .github/workflows/_extension-ci.yml
       - .github/workflows/_extension-prerelease.yml
       - .github/workflows/_extension-publish.yml

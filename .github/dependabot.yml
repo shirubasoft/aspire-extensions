@@ -14,7 +14,7 @@ updates:
           - "*"
 
   - package-ecosystem: npm
-    directory: /.github/release
+    directory: /eng/release
     schedule:
       interval: weekly
       day: monday

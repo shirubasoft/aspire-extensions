@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const toolingDirectory = fileURLToPath(new URL(".", import.meta.url));
-const workflow = await readFile(new URL("../workflows/_extension-publish.yml", import.meta.url), "utf8");
+const workflow = await readFile(new URL("../../.github/workflows/_extension-publish.yml", import.meta.url), "utf8");
 const packageId = "Shirubasoft.Aspire.Extensions.ResourceGroups";
 const extensionPath = `extensions/${packageId}`;
 const releaseConfig = `./${extensionPath}/release.config.mjs`;
@@ -63,11 +63,11 @@ async function fixture(t) {
   await writeFile(path.join(cwd, extensionPath, "source.txt"), "fixed\n");
   await git("commit", "-am", "fix(resource-groups): repair the extension");
   env.HEAD_SHA = await git("rev-parse", "HEAD");
-  await cp(toolingDirectory, path.join(cwd, ".github/release"), {
+  await cp(toolingDirectory, path.join(cwd, "eng/release"), {
     recursive: true, filter: (source) => path.basename(source) !== "node_modules",
   });
   await writeFile(path.join(cwd, releaseConfig),
-    'import { createExtensionReleaseConfig } from "../../.github/release/create-extension-release-config.mjs";\n'
+    'import { createExtensionReleaseConfig } from "../../eng/release/create-extension-release-config.mjs";\n'
     + `export default createExtensionReleaseConfig(${JSON.stringify({
       extensionPath, packageId, tagPrefix: "resource-groups",
     })});\n`);
@@ -81,7 +81,7 @@ async function fixture(t) {
 test("runs newer workflow tooling with the release checkout at an older commit lacking it", async (t) => {
   const { cwd, env, git, githubEnv, run, runnerTemp } = await fixture(t);
   await run(stepCommand("Switch to the release commit after verifying it is on main"));
-  await assert.rejects(readFile(path.join(cwd, ".github/release/remove-incomplete-release-tag.mjs")),
+  await assert.rejects(readFile(path.join(cwd, "eng/release/remove-incomplete-release-tag.mjs")),
     { code: "ENOENT" });
   await run(stepCommand("Check out release tooling from this workflow's commit"));
   const releaseTooling = path.join(runnerTemp, "release-tooling");
@@ -89,7 +89,7 @@ test("runs newer workflow tooling with the release checkout at an older commit l
   assert.equal(await git("rev-parse", "HEAD"), env.HEAD_SHA);
   assert.equal(await git("-C", releaseTooling, "rev-parse", "HEAD"), env.WORKFLOW_SHA);
   await symlink(path.join(toolingDirectory, "node_modules"),
-    path.join(releaseTooling, ".github/release/node_modules"), "junction");
+    path.join(releaseTooling, "eng/release/node_modules"), "junction");
 
   const { stdout } = await run(stepCommand("Remove the tag left by an earlier unpublished attempt of this release"), {
     RELEASE_TOOLING_DIR: releaseTooling, GITHUB_REPOSITORY: env.REPOSITORY,
