@@ -108,9 +108,9 @@ During `aspire run`, every module resource that uses an initialized repository h
 Nothing changes until you confirm the plan the command shows:
 
 - A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it.
-- The command never changes submodules. A repository is skipped when the chosen branch adds, removes, or replaces a submodule or records a different commit for one, so you can switch it yourself after checking the submodules' local files.
+- The command doesn't update or move submodules itself. When planning and again just before switching, it skips a repository if the chosen branch adds, removes, or replaces a submodule or records a different commit for one, so you can switch it yourself after checking the submodules' local files.
 - Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
-- Just before changing a repository, the command checks again that it is on the reviewed branch, that it has no uncommitted changes, and that the chosen branch leaves its submodules unchanged. The repository stays unchanged if switching would overwrite an untracked or ignored file in the checkout.
+- Just before changing a repository, the command also checks again that it is on the reviewed branch and has no uncommitted changes. The repository stays unchanged if switching would overwrite an untracked or ignored file in the checkout. The command expects no other Git command to change a repository while the switch runs.
 
 The result lists each repository's outcome and where its checkout ended up. A checkout that a Git hook moves off the selected branch needs attention. Restart or rebuild the resources from changed repositories to run their new source.
 
