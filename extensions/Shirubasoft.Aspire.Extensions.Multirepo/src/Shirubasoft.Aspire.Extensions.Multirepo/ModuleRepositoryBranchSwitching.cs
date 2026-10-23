@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -241,51 +240,34 @@ internal static class ModuleRepositoryBranchSwitching
         string.IsNullOrWhiteSpace(inputs[name].Value) ? null : inputs[name].Value!.Trim();
 
     internal static ModuleRepositoryBranchPlanItem Plan(ModuleRepositoryBranchStatus repository, string? branch) =>
-        IsUnchanged(repository, branch)
+        branch is null || IsCurrent(repository, branch)
             ? new(repository, ModuleRepositoryBranchChange.Keep, repository.Description)
-            : repository.Blocker is null
-                ? PlanChange(repository, branch)
-                : new(repository, ModuleRepositoryBranchChange.Skip, repository.Blocker);
+            : PlanChange(repository, branch);
 
-    private static bool IsUnchanged(ModuleRepositoryBranchStatus repository, [NotNullWhen(false)] string? branch) =>
-        branch is null || IsCurrent(repository, branch);
-
+    // A local branch is switched to as it is; a branch only on origin gets a new local branch that tracks it.
     private static ModuleRepositoryBranchPlanItem PlanChange(ModuleRepositoryBranchStatus repository, string branch)
     {
-        var from = FormatBranch(repository.CurrentBranch);
-        return repository.LocalBranches.Contains(branch, StringComparer.Ordinal)
-            ? Change(repository, $"{from} → `{branch}`", branch, $"refs/heads/{branch}", [branch])
-            : PlanTrackingBranch(repository, branch, from);
+        var (target, tracking, arguments) = repository.LocalBranches.Contains(branch, StringComparer.Ordinal)
+            ? ($"refs/heads/{branch}", string.Empty, new[] { branch })
+            : ($"refs/remotes/origin/{branch}",
+                $", a new local branch tracking `origin/{branch}`",
+                new[] { "--create", branch, "--track", $"origin/{branch}" });
+        return FindSkipReason(repository, branch) is { } reason
+            ? new(repository, ModuleRepositoryBranchChange.Skip, reason)
+            : new(
+                repository,
+                ModuleRepositoryBranchChange.Change,
+                $"{FormatBranch(repository.CurrentBranch)} → `{branch}`{tracking}",
+                branch,
+                target,
+                ["switch", "--no-recurse-submodules", "--no-overwrite-ignore", .. arguments]);
     }
 
+    private static string? FindSkipReason(ModuleRepositoryBranchStatus repository, string branch) =>
+        repository.Blocker ??
+        (repository.Branches.Contains(branch, StringComparer.Ordinal) ? null : $"No `{branch}` branch locally or on origin.");
+
     private static string FormatBranch(string? branch) => branch is null ? "Detached HEAD" : $"`{branch}`";
-
-    private static ModuleRepositoryBranchPlanItem PlanTrackingBranch(
-        ModuleRepositoryBranchStatus repository,
-        string branch,
-        string from) =>
-        repository.RemoteBranches.Contains(branch, StringComparer.Ordinal)
-            ? Change(
-                repository,
-                $"{from} → `{branch}`, a new local branch tracking `origin/{branch}`",
-                branch,
-                $"refs/remotes/origin/{branch}",
-                ["--create", branch, "--track", $"origin/{branch}"])
-            : new(repository, ModuleRepositoryBranchChange.Skip, $"No `{branch}` branch locally or on origin.");
-
-    private static ModuleRepositoryBranchPlanItem Change(
-        ModuleRepositoryBranchStatus repository,
-        string summary,
-        string branch,
-        string target,
-        string[] arguments) =>
-        new(
-            repository,
-            ModuleRepositoryBranchChange.Change,
-            summary,
-            branch,
-            target,
-            ["switch", "--no-recurse-submodules", "--no-overwrite-ignore", .. arguments]);
 
     private static string FormatPlan(IEnumerable<ModuleRepositoryBranchPlanItem> plan) =>
         string.Join(
@@ -488,27 +470,30 @@ internal static class ModuleRepositoryBranchSwitching
         public async Task<ModuleRepositoryBranchOutcome> SwitchAsync(ModuleRepositoryBranchPlanItem item)
         {
             var before = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
-            var error = CheckReviewedState(item, before) ?? await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
+            var error = await TrySwitchAsync(item, before).ConfigureAwait(false);
 
             // A failed git command can still move HEAD, and a hook can move it again after a successful one,
             // so report the checkout as it is now.
             var after = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
-            var problem = DescribeProblem(item, after, error);
+            var problem = error is null
+                ? CheckSwitchedState(item, after)
+                : string.Join(' ', new[] { after.Location, error }.OfType<string>());
             var changed = !string.Equals(after.Commit, before.Commit, StringComparison.Ordinal);
             return problem is null
                 ? new(item.Repository.Name, PlanStatuses[(int)item.Change], item.Summary, changed)
                 : new(item.Repository.Name, AttentionStatus, problem, changed);
         }
 
+        // The branch or HEAD can move while the plan is open, so the submodule check runs again here.
+        private async Task<string?> TrySwitchAsync(ModuleRepositoryBranchPlanItem item, CheckoutState before) =>
+            CheckReviewedState(item, before)
+            ?? await FindSubmoduleChangesAsync(item).ConfigureAwait(false)
+            ?? await RunSwitchAsync(item).ConfigureAwait(false);
+
         private static string? CheckReviewedState(ModuleRepositoryBranchPlanItem item, CheckoutState state) =>
             state.Blocker ?? (string.Equals(state.Branch, item.Repository.CurrentBranch, StringComparison.Ordinal)
                 ? null
                 : $"Was on {FormatBranch(item.Repository.CurrentBranch)} when you reviewed the plan, so nothing changed.");
-
-        private static string? DescribeProblem(ModuleRepositoryBranchPlanItem item, CheckoutState after, string? error) =>
-            error is null
-                ? CheckSwitchedState(item, after)
-                : string.Join(' ', new[] { after.Location, error }.OfType<string>());
 
         private static string? CheckSwitchedState(ModuleRepositoryBranchPlanItem item, CheckoutState state) =>
             state.Commit is null
@@ -517,19 +502,12 @@ internal static class ModuleRepositoryBranchSwitching
                     ? null
                     : $"Ended on {FormatBranch(state.Branch)} instead of `{item.Branch}`.";
 
-        // The branch or HEAD can move while the plan is open, so the submodule check runs again here.
-        private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item) =>
-            await FindSubmoduleChangesAsync(item).ConfigureAwait(false)
-            ?? await RunStepAsync(item.Repository.Requirement, "Switch", item.SwitchArguments!).ConfigureAwait(false);
-
-        private async Task<string?> RunStepAsync(
-            ModuleRepositoryRequirement requirement,
-            string step,
-            IReadOnlyList<string> arguments) =>
-            FormatFailure(step, await RunAsync(requirement, arguments, settings.CommandTimeout).ConfigureAwait(false));
-
-        private static string? FormatFailure(string step, ModuleCliResult result) =>
-            result.IsSuccess ? null : $"{step} failed: {FormatError(result)}";
+        private async Task<string?> RunSwitchAsync(ModuleRepositoryBranchPlanItem item)
+        {
+            var result = await RunAsync(item.Repository.Requirement, item.SwitchArguments!, settings.CommandTimeout)
+                .ConfigureAwait(false);
+            return result.IsSuccess ? null : $"Switch failed: {FormatError(result)}";
+        }
 
         private static string FormatError(ModuleCliResult result) =>
             string.Join(
