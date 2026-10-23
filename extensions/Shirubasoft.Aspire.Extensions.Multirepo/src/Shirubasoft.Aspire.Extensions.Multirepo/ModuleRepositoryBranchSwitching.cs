@@ -479,11 +479,20 @@ internal static class ModuleRepositoryBranchSwitching
 
         public async Task<ModuleRepositoryBranchOutcome> SwitchAsync(ModuleRepositoryBranchPlanItem item)
         {
-            var state = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
-            var error = state.Blocker ?? await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
+            var before = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
+            var error = before.Blocker ?? await SwitchCleanCheckoutAsync(item).ConfigureAwait(false);
+
+            // A failed git command can still move HEAD, for example when a post-checkout hook fails,
+            // so report the checkout as it is now.
+            var after = await ReadStateAsync(item.Repository.Requirement).ConfigureAwait(false);
+            var changed = !string.Equals(after.Commit, before.Commit, StringComparison.Ordinal);
             return error is null
-                ? new(item.Repository.Name, PlanStatuses[(int)item.Change], item.Summary, Changed: true)
-                : new(item.Repository.Name, AttentionStatus, error);
+                ? new(item.Repository.Name, PlanStatuses[(int)item.Change], item.Summary, changed)
+                : new(
+                    item.Repository.Name,
+                    AttentionStatus,
+                    string.Join(' ', new[] { after.Location, error }.OfType<string>()),
+                    changed);
         }
 
         private async Task<string?> SwitchCleanCheckoutAsync(ModuleRepositoryBranchPlanItem item)
@@ -514,7 +523,8 @@ internal static class ModuleRepositoryBranchSwitching
             string.Join(
                 ' ',
                 (string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError)
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(line => !line.StartsWith("hint:", StringComparison.Ordinal)));
 
         private async Task<ModuleCliResult> RunAsync(
             ModuleRepositoryRequirement requirement,

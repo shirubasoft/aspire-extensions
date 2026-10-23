@@ -198,18 +198,35 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         Assert.False(result.Success);
         Assert.Equal("Branch switch needs attention.", result.Message);
         var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
-        Assert.StartsWith("- **alpha** (needs attention): Switch failed: ", details[0], StringComparison.Ordinal);
+        Assert.StartsWith("- **alpha** (needs attention): On `main`. Switch failed: ", details[0], StringComparison.Ordinal);
         Assert.Contains("index.lock", details[0], StringComparison.Ordinal);
-        Assert.StartsWith("- **bravo** (needs attention): Fast-forward failed: ", details[1], StringComparison.Ordinal);
-        Assert.Equal("- **charlie** (needs attention): Has uncommitted changes; commit or stash them first.", details[2]);
+        Assert.StartsWith("- **bravo** (needs attention): On `feature/x`. Fast-forward failed: fatal: ", details[1], StringComparison.Ordinal);
+        Assert.Equal("- **charlie** (needs attention): On `main`. Has uncommitted changes; commit or stash them first.", details[2]);
         Assert.StartsWith("- **delta** (needs attention): Couldn't read the checkout: ", details[3], StringComparison.Ordinal);
         Assert.StartsWith("- **echo** (skipped): Couldn't read the checkout: ", details[4], StringComparison.Ordinal);
         Assert.StartsWith("- **foxtrot** (needs attention): Couldn't read the checkout: ", details[5], StringComparison.Ordinal);
+        Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
         Assert.Equal("main", await GitAsync(locked.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("feature/x", await GitAsync(diverged.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("Add local.txt", await GitAsync(diverged.RepositoryPath, "log", "-1", "--format=%s"));
         Assert.Equal("main", await GitAsync(edited.RepositoryPath, "branch", "--show-current"));
         Assert.True(File.Exists(Path.Combine(edited.RepositoryPath, "draft.txt")));
+    }
+
+    [Fact]
+    public async Task Outcomes_report_the_checkout_that_hooks_leave_behind()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var failing = await workspace.CloneAsync("alpha", "feature/x");
+        await InstallPostCheckoutHookAsync(failing.RepositoryPath, "echo post-checkout failed >&2; exit 1");
+
+        var result = await ExecuteAsync(new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x"), failing);
+
+        Assert.False(result.Success);
+        var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
+        Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `feature/x`\. Switch failed: .*post-checkout failed$", details[0]);
+        Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
+        Assert.Equal("feature/x", await GitAsync(failing.RepositoryPath, "branch", "--show-current"));
     }
 
     [Fact]
@@ -380,6 +397,16 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         await File.WriteAllTextAsync(Path.Combine(repository, file), content, TestContext.Current.CancellationToken);
         await GitAsync(repository, "add", "--force", file);
         await GitAsync(repository, "commit", "-m", $"Add {file}");
+    }
+
+    private static async Task InstallPostCheckoutHookAsync(string repository, string script)
+    {
+        var hook = Path.Combine(repository, ".git", "hooks", "post-checkout");
+        await File.WriteAllTextAsync(hook, $"#!/bin/sh\n{script}\n", TestContext.Current.CancellationToken);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     private static async Task<string> GitAsync(string workingDirectory, params string[] arguments)
