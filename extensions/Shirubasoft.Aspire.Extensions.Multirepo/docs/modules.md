@@ -103,15 +103,16 @@ Repository values can come from `WithRepository(...)`, `DistributedApplicationMo
 
 ### Switch repository branches
 
-During `aspire run`, every module resource that uses an initialized repository has a **Switch module branches** dashboard command. It fetches `origin` for each repository the AppHost initializes, then shows each checkout's current branch with its local and `origin` branches. Choose one branch under **All repositories**, override it for individual repositories, or both.
+During `aspire run`, every module resource that uses an initialized repository has a **Switch module branches** dashboard command. The command covers every repository the AppHost initializes, and only one switch runs at a time. It fetches `origin` for each repository, then shows each checkout's current branch with its local and `origin` branches. `origin` is the remote that initialization cloned from the module's repository URL. The fetch runs without Git credential prompts and stops after 15 seconds; if it fails, the dialog shows the branches from the last fetch with a warning. Choose one branch under **All repositories**, override it for individual repositories, or both.
 
 Nothing changes until you confirm the plan the command shows:
 
-- A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it.
+- A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it. Submodules then move to the commits the branch records.
 - Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
-- **Fast-forward to upstream** fast-forwards each chosen branch after the switch. The command never merges, rebases, stashes, or discards work.
+- Just before changing a repository, the command checks again that it is on the reviewed branch and has no uncommitted changes. Git refuses to overwrite untracked or ignored files.
+- **Fast-forward to upstream** then fast-forwards each chosen branch if its checkout is still clean. It never creates merge commits, rebases, stashes, or discards work.
 
-The result lists the outcome for each repository. Restart or rebuild the resources from switched repositories to run their new source.
+The result lists each repository's outcome and where its checkout ended up. Restart or rebuild the resources from changed repositories to run their new source.
 
 ## Require host tools
 
