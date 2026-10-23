@@ -8,7 +8,7 @@ Reuse the root build entry points, CRAP score tool, release tooling, and reusabl
 
 Public packages target .NET 10 and the Aspire versions pinned in `Directory.Packages.props`. Pin the AppHost SDK in `global.json`. Enable nullable reference types, XML documentation, package validation, Source Link, symbols, and the public API analyzer.
 
-Every dependency update is eligible: Dependabot proposes NuGet, npm, and GitHub Actions updates without exclusions, and `eng/update-aspire.sh` moves the Aspire packages, AppHost SDK, and Aspire CLI together when they need a coordinated bump. Let Aspire packages supply their own dependencies, such as `Microsoft.Extensions.*` under `Aspire.Hosting`, instead of adding direct references. `aspire update` changes only Aspire versions, so a lower pin fails its restore.
+Every dependency update is eligible: Dependabot proposes NuGet, npm, and GitHub Actions updates without exclusions, except major updates of `vscode-jsonrpc`, which Aspire's generated TypeScript SDK imports. `eng/update-aspire.sh` moves the Aspire packages, AppHost SDK, Aspire CLI, and TypeScript AppHost runtime dependencies such as `vscode-jsonrpc` together when Aspire needs a coordinated bump, and the weekly update merges its own pull request after every extension CI workflow passes on its branch. Let Aspire packages supply their own dependencies, such as `Microsoft.Extensions.*` under `Aspire.Hosting`, instead of adding direct references. `aspire update` changes only Aspire versions, so a lower pin fails its restore.
 
 Never synchronously block on asynchronous work. Propagate `Task`, `ValueTask`, and cancellation tokens to callers.
 

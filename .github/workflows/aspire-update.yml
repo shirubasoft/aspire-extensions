@@ -10,13 +10,15 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The merge step waits for every extension CI workflow, including the end-to-end jobs.
+    timeout-minutes: 150
 
     steps:
       - name: Check out repository
@@ -28,6 +30,11 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
 
       - name: Update Aspire AppHosts and integrations
         id: update
@@ -47,6 +54,7 @@ jobs:
           "${{ runner.temp }}/aspire-update-build.log"
 
       - name: Create or update pull request
+        id: pull-request
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ github.token }}
@@ -56,6 +64,15 @@ jobs:
           commit-message: 'chore(deps): update Aspire dependencies'
           title: 'chore(deps): update Aspire dependencies'
           body-path: ${{ runner.temp }}/aspire-update-pr.md
+
+      - name: Merge after every extension CI passes on the update branch
+        if: >-
+          steps.update.outputs.updated == 'true' &&
+          steps.validation.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ steps.pull-request.outputs.pull-request-number }}
+        run: ./eng/merge-aspire-update.sh "$PULL_REQUEST"
 
       - name: Fail when validation failed
         if: >-
