@@ -740,24 +740,37 @@ public sealed class ModuleImageDeferredCoverageTests
         }
 
         using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
-        var (step, application, canonicalImage) = await CreatePushTargetStepAsync(
-            "unreachable.example.test/acme/api:stable",
-            "mirror.example.test/team/api");
-        await using var _ = application;
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = ["--publisher", "manifest"],
+            DisableDashboard = true
+        });
+        var recipe = CreateRecipe();
+        var container = builder
+            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
+            .WithImageRegistry(recipe.Options.ImageRegistry)
+            .WithAnnotation(CreatePublisher(recipe))
+            .WithImagePushTarget("unreachable.example.test/acme/api:stable")
+            .WithImagePushTarget("mirror.example.test/team/api");
+        ModuleImagePushPipeline.AddPushStep(container);
+        var step = Assert.Single(await CreatePipelineStepsAsync(
+            container.Resource,
+            WellKnownPipelineTags.PushContainerImage));
+        await using var application = builder.Build();
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             ExecutePipelineStepAsync(application, step));
 
-        var mirror = $"mirror.example.test/team/api:{ModuleImageReference.GetTag(canonicalImage)}";
+        const string Canonical = "registry.example.test/acme/api:feature-coverage-0123456789ab";
         Assert.Equal(
             [
-                $"push {canonicalImage}",
-                $"tag {canonicalImage} registry.example.test/acme/api:feature-coverage",
+                $"push {Canonical}",
+                $"tag {Canonical} registry.example.test/acme/api:feature-coverage",
                 "push registry.example.test/acme/api:feature-coverage",
-                $"tag {canonicalImage} unreachable.example.test/acme/api:stable",
+                $"tag {Canonical} unreachable.example.test/acme/api:stable",
                 "push unreachable.example.test/acme/api:stable",
-                $"tag {canonicalImage} {mirror}",
-                $"push {mirror}"
+                $"tag {Canonical} mirror.example.test/team/api:feature-coverage-0123456789ab",
+                "push mirror.example.test/team/api:feature-coverage-0123456789ab"
             ],
             runtime.Invocations);
         Assert.Contains(
@@ -1003,32 +1016,6 @@ public sealed class ModuleImageDeferredCoverageTests
         }
 
         return steps.Where(step => step.Tags.Contains(tag)).ToArray();
-    }
-
-    private static async Task<(PipelineStep Step, DistributedApplication Application, string CanonicalImage)>
-        CreatePushTargetStepAsync(params string[] targets)
-    {
-        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
-        {
-            Args = ["--publisher", "manifest"],
-            DisableDashboard = true
-        });
-        var recipe = CreateRecipe();
-        var publisher = CreatePublisher(recipe);
-        var container = builder
-            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
-            .WithImageRegistry(recipe.Options.ImageRegistry)
-            .WithAnnotation(publisher);
-        foreach (var target in targets)
-        {
-            container.WithImagePushTarget(target);
-        }
-
-        ModuleImagePushPipeline.AddPushStep(container);
-        var step = Assert.Single(await CreatePipelineStepsAsync(
-            container.Resource,
-            WellKnownPipelineTags.PushContainerImage));
-        return (step, builder.Build(), CreatePreparedImage(recipe).CanonicalImageReference);
     }
 
     private static async Task ExecutePipelineStepAsync(
