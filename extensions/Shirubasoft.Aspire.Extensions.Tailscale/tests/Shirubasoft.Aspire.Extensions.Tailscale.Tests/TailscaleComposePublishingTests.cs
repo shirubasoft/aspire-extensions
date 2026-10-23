@@ -19,7 +19,7 @@ public sealed class TailscaleComposePublishingTests
         });
 
         var service = output.GetService("web-ts");
-        Assert.Equal("docker.io/tailscale/tailscale:v1.102.5", service.Scalar("image"));
+        Assert.Equal("docker.io/tailscale/tailscale:v1.104.2", service.Scalar("image"));
 
         var environment = service.Mapping("environment");
         Assert.Equal("quadra-web", environment.Scalar("TS_HOSTNAME"));

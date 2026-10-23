@@ -2,7 +2,7 @@ namespace Aspire.Hosting;
 
 internal static class TailscaleContainerImageTags
 {
-    public const string Tag = "v1.102.5";
+    public const string Tag = "v1.104.2";
     public const string Registry = "docker.io";
     public const string Image = "tailscale/tailscale";
 }
