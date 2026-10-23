@@ -83,7 +83,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             - **bravo**: `main` → `feature/x`, up to date with upstream
 
             **Skipped**
-            """,
+            """.ReplaceLineEndings("\n"),
             result.Data.Value.ReplaceLineEndings("\n"),
             StringComparison.Ordinal);
         Assert.EndsWith(
