@@ -256,7 +256,7 @@ public static class RequiredToolResourceExtensions
             Progress = new CommandProgressOptions
             {
                 Title = $"Installing {resourceName}",
-                Message = $"Running {string.Join(' ', installer.Arguments.Prepend(installer.Command))}. " +
+                Message = $"Running {installer.Command}. " +
                     $"Installer output appears in the {resourceName} console logs."
             }
         };

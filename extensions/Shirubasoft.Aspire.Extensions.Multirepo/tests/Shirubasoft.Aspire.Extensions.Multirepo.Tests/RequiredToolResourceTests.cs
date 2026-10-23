@@ -215,7 +215,7 @@ public sealed class RequiredToolResourceTests
         var progress = Assert.IsType<CommandProgressOptions>(install.Progress);
         Assert.Equal("Installing dotnet-sdk", progress.Title);
         Assert.Equal(
-            "Running installer-command install dotnet. Installer output appears in the dotnet-sdk console logs.",
+            "Running installer-command. Installer output appears in the dotnet-sdk console logs.",
             progress.Message);
         Assert.False(progress.HideCancelButton);
         Assert.True(result.Success);
