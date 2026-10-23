@@ -404,6 +404,15 @@ internal static class ModuleRepositoryBranchSwitching
 
     private sealed class GitSession(ModuleRepositoryInitializationSettings settings, CancellationToken cancellationToken)
     {
+        private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(15);
+
+        // Nobody can answer a terminal or credential manager prompt from the dashboard, so git fails instead.
+        private static readonly Dictionary<string, string?> NonInteractive = new(StringComparer.Ordinal)
+        {
+            ["GIT_TERMINAL_PROMPT"] = "0",
+            ["GCM_INTERACTIVE"] = "never"
+        };
+
         private static readonly string[] FastForwardArguments =
             ["merge", "--ff-only", "--no-autostash", "--no-overwrite-ignore", "@{upstream}"];
 
@@ -445,11 +454,13 @@ internal static class ModuleRepositoryBranchSwitching
                 GitHubGitAuthentication.ConfigureCredentialHelper(
                     ["fetch", "--prune", "origin"],
                     requirement.Repository,
-                    settings.GitHubCliPath)).ConfigureAwait(false);
+                    settings.GitHubCliPath),
+                FetchTimeout).ConfigureAwait(false);
             var references = await RunAsync(
                 requirement,
                 "List branches",
-                ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).ConfigureAwait(false);
+                ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
+                settings.CommandTimeout).ConfigureAwait(false);
             var state = await ReadStateAsync(requirement).ConfigureAwait(false);
             var names = references.StandardOutput.Split(
                 '\n',
@@ -478,7 +489,8 @@ internal static class ModuleRepositoryBranchSwitching
             var status = await RunAsync(
                 requirement,
                 "Read status",
-                ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"]).ConfigureAwait(false);
+                ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"],
+                settings.CommandTimeout).ConfigureAwait(false);
             var lines = status.StandardOutput.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -556,7 +568,9 @@ internal static class ModuleRepositoryBranchSwitching
             }
 
             // Move submodules to the commits the new HEAD records, the same way initialization does.
-            var error = FormatFailure(step, await RunAsync(requirement, step, arguments).ConfigureAwait(false));
+            var error = FormatFailure(
+                step,
+                await RunAsync(requirement, step, arguments, settings.CommandTimeout).ConfigureAwait(false));
             return error ?? FormatFailure(
                 "Submodule update",
                 await RunAsync(
@@ -566,7 +580,8 @@ internal static class ModuleRepositoryBranchSwitching
                         requirement.RepositoryPath,
                         settings.GitExecutablePath,
                         settings.GitHubCliPath,
-                        requirement.Repository).Arguments).ConfigureAwait(false));
+                        requirement.Repository).Arguments,
+                    settings.CommandTimeout).ConfigureAwait(false));
         }
 
         private static string? FormatFailure(string step, ModuleCliResult result) =>
@@ -582,7 +597,8 @@ internal static class ModuleRepositoryBranchSwitching
         private async Task<ModuleCliResult> RunAsync(
             ModuleRepositoryRequirement requirement,
             string operation,
-            IReadOnlyList<string> arguments)
+            IReadOnlyList<string> arguments,
+            TimeSpan timeout)
         {
             try
             {
@@ -590,8 +606,9 @@ internal static class ModuleRepositoryBranchSwitching
                     settings.GitExecutablePath,
                     arguments,
                     requirement.RepositoryPath,
-                    settings.CommandTimeout,
+                    timeout,
                     $"{operation} in {Path.GetFileName(requirement.RepositoryPath)}",
+                    NonInteractive,
                     cancellationToken,
                     static _ => { }).ConfigureAwait(false);
             }

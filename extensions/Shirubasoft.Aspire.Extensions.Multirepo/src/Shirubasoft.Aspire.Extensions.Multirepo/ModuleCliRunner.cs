@@ -11,12 +11,33 @@ internal sealed record ModuleCliResult(int ExitCode, string StandardOutput, stri
 
 internal static class ModuleCliRunner
 {
+    private static readonly Dictionary<string, string?> InheritedEnvironment = [];
+
+    public static Task<ModuleCliResult> RunAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        TimeSpan timeout,
+        string operation,
+        CancellationToken cancellationToken,
+        Action<string>? progress = null) =>
+        RunAsync(
+            executable,
+            arguments,
+            workingDirectory,
+            timeout,
+            operation,
+            InheritedEnvironment,
+            cancellationToken,
+            progress);
+
     public static async Task<ModuleCliResult> RunAsync(
         string executable,
         IReadOnlyList<string> arguments,
         string workingDirectory,
         TimeSpan timeout,
         string operation,
+        IReadOnlyDictionary<string, string?> environment,
         CancellationToken cancellationToken,
         Action<string>? progress = null)
     {
@@ -51,6 +72,7 @@ internal static class ModuleCliRunner
             var result = await CliCommand.Wrap(executable)
                 .WithArguments(arguments)
                 .WithWorkingDirectory(workingDirectory)
+                .WithEnvironmentVariables(environment)
                 .WithValidation(CommandResultValidation.None)
                 .WithStandardOutputPipe(PipeTarget.Merge(
                     PipeTarget.ToStringBuilder(standardOutput),
