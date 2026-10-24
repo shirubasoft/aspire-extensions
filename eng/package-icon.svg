@@ -1,0 +1,14 @@
+<!-- Rasterize with: rsvg-convert eng/package-icon.svg -o eng/package-icon.png -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6D4AE8"/>
+      <stop offset="1" stop-color="#4523B8"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="url(#tile)"/>
+  <path d="M38 44 22 108h16z M90 44 106 108H90z" fill="#C9D0DA"/>
+  <path d="M38 44 54 108H38z M90 44 74 108h16z" fill="#8F99AA"/>
+  <path d="M64 14 44 108h20z" fill="#FFFFFF"/>
+  <path d="M64 14 84 108H64z" fill="#BCC4D0"/>
+</svg>

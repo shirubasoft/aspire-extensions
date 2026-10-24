@@ -25,6 +25,7 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
         Assert.Contains(package.Entries, entry => entry.FullName == $"lib/net10.0/{PackageId}.dll");
         Assert.Contains(package.Entries, entry => entry.FullName == $"lib/net10.0/{PackageId}.xml");
         Assert.Contains(package.Entries, entry => entry.FullName == "README.md");
+        Assert.Contains(package.Entries, entry => entry.FullName == "icon.png");
         Assert.Contains(symbols.Entries, entry => entry.FullName == $"lib/net10.0/{PackageId}.pdb");
     }
 
@@ -47,6 +48,10 @@ public sealed class PackedPackageContractTests(PackageTestWorkspace workspace)
         Assert.Equal(PackageVersion, ChildValue(metadata, "version"));
         Assert.Equal("MIT", ChildValue(metadata, "license"));
         Assert.Equal("README.md", ChildValue(metadata, "readme"));
+        Assert.Equal("icon.png", ChildValue(metadata, "icon"));
+        Assert.Equal(
+            $"https://github.com/Shirubasoft/aspire-extensions/releases/tag/kafka-v{PackageVersion}",
+            ChildValue(metadata, "releaseNotes"));
         var repository = metadata.Elements().Single(element => element.Name.LocalName == "repository");
         Assert.Equal("git", repository.Attribute("type")?.Value);
         Assert.Equal("https://github.com/Shirubasoft/aspire-extensions.git", repository.Attribute("url")?.Value);

@@ -6,13 +6,23 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
+  <!-- Version is set here only when passed to the build, as releases do. semantic-release tags each
+       stable release <kebab-case extension name>-v<version>; prereleases have no GitHub release. -->
+  <PropertyGroup Condition="'$(Version)' != '' and !$(Version.Contains('-'))">
+    <ExtensionName>$([System.IO.Path]::GetExtension($([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildProjectDirectory), release.config.mjs))).TrimStart('.'))</ExtensionName>
+    <PackageReleaseNotes>https://github.com/Shirubasoft/aspire-extensions/releases/tag/$([System.Text.RegularExpressions.Regex]::Replace($(ExtensionName), '([a-z0-9])([A-Z])', '$1-$2').ToLowerInvariant())-v$(Version)</PackageReleaseNotes>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)eng/package-icon.png" Pack="true" PackagePath="icon.png" Visible="false" />
   </ItemGroup>
 </Project>
