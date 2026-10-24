@@ -12,7 +12,7 @@ Start the producer from the repository root:
 aspire run --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/AppHostA/ModularSample.AppHostA.csproj
 ```
 
-The default configuration runs `sample-api` as a project, `sample-static` from `docker.io/library/busybox:1.38`, and `sample-generated-static` from its advanced Dockerfile publisher. The remaining resources use explicit start so the default run stays focused. See [`AppHostAModule.cs`](ModuleContract/AppHostAModule.cs) for the complete resource graph and generated typed contract.
+The default configuration runs `sample-api` and `sample-dotnet-api` as projects, `sample-static` from `docker.io/library/busybox:1.38`, and `sample-generated-static` from its advanced Dockerfile publisher. `sample-dotnet-api` runs through `AddDotnetProject`, so Aspire builds it in the coordinated `__dotnet-project-build` resource and then starts it without building again; `aspire describe --include-hidden` lists that build. The remaining resources use explicit start so the default run stays focused. See [`AppHostAModule.cs`](ModuleContract/AppHostAModule.cs) for the complete resource graph and generated typed contract.
 
 Stop AppHost A, then start the consumer:
 
@@ -26,6 +26,7 @@ To inspect readiness from another terminal, run these commands from `extensions/
 
 ```bash
 aspire wait sample-api
+aspire wait sample-dotnet-api
 aspire wait sample-static
 aspire wait sample-generated-static
 aspire wait dependency-gateway
@@ -42,7 +43,7 @@ aspire do use-container-sample-api --apphost ModularSample.AppHostA.csproj --non
 aspire run
 ```
 
-Restore the checked-in selection afterward:
+`sample-dotnet-api` has the same `build-`, `use-container-`, and `use-configured-` steps. Restore the checked-in selection afterward:
 
 ```bash
 aspire do use-configured-sample-api --apphost ModularSample.AppHostA.csproj --non-interactive
@@ -59,7 +60,7 @@ MODULAR_SAMPLES_E2E=true \
   dotnet test --project extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ModularSamples.Tests/ModularSamples.Tests.csproj
 ```
 
-The suite starts both AppHosts through Aspire's testing builder and verifies the project, native container export, declared container, advanced image, and gateway.
+The suite starts both AppHosts through Aspire's testing builder and verifies the `AddProject` and `AddDotnetProject` projects, native container exports, declared container, advanced image, and gateway.
 
 ## More samples
 

@@ -102,6 +102,13 @@ public sealed class DistributedApplicationModuleGenerator : IIncrementalGenerato
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    // A set lookup keeps GetResourceType within the CRAP gate; a pattern over both names adds IL branches.
+    private static readonly HashSet<string> ProjectMethodNames = new(StringComparer.Ordinal)
+    {
+        "AddProject",
+        "AddDotnetProject"
+    };
+
     private static readonly HashSet<string> ReservedResourcePropertyNames = new(StringComparer.Ordinal)
     {
         "Name",
@@ -721,7 +728,7 @@ public sealed class DistributedApplicationModuleGenerator : IIncrementalGenerato
         INamedTypeSymbol? containerType,
         INamedTypeSymbol? resourceWithEndpointsType)
     {
-        if (operation.TargetMethod.Name == "AddProject")
+        if (ProjectMethodNames.Contains(operation.TargetMethod.Name))
         {
             return resourceWithEndpointsType;
         }

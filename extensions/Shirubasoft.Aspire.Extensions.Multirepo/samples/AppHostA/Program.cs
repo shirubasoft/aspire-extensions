@@ -7,6 +7,7 @@ var exported = AppHostAModule.Register(builder, builder.AppHostDirectory);
 var module = builder.AddAppHostAModule(exported);
 
 _ = module.Api;
+_ = module.DotnetApi;
 _ = module.Project;
 _ = module.CSharpApp;
 _ = module.Static;

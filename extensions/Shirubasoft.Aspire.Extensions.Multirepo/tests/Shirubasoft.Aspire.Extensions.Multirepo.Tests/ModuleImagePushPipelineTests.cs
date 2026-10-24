@@ -477,6 +477,48 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Equal(expected, validationDependents);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dotnet_project_push_targets_need_a_command_publisher(bool exportsWithCommand)
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            var project = definition.AddDotnetProject("orders-api", GetProjectPath(repository.Path));
+            Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>> addPushTarget =
+                (_, container) => container.WithImagePushTarget("mirror.example.test/acme/orders-api");
+            if (exportsWithCommand)
+            {
+                project.ExportAsContainerWithCommand(
+                    new ModuleImageCommandOptions("orders-api", "dotnet", "publish")
+                    {
+                        ImageRegistry = "registry.example.test"
+                    },
+                    addPushTarget);
+                return;
+            }
+
+            project.ExportAsContainer("orders-api", addPushTarget);
+        });
+        builder.AddModule(module);
+
+        var exception = await Record.ExceptionAsync(() => RunPushPrerequisitesAsync(builder));
+
+        if (exportsWithCommand)
+        {
+            Assert.Null(exception);
+            return;
+        }
+
+        Assert.Contains(
+            "'orders-api' declares WithImagePushTarget",
+            Assert.IsType<InvalidOperationException>(exception).Message,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Push_targets_are_rejected_on_a_native_image_publisher()
     {

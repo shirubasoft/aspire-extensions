@@ -9,5 +9,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="Api/**/*.cs" />
+    <Compile Remove="DotnetApi/**/*.cs" />
   </ItemGroup>
 </Project>

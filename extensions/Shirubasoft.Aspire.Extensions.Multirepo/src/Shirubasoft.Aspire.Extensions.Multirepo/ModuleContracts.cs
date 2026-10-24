@@ -1,4 +1,5 @@
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Dotnet;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -51,6 +52,9 @@ public sealed class ModuleImportOptions
 }
 
 /// <summary>Builds an <see cref="IDistributedApplicationModule"/> definition.</summary>
+/// <remarks>
+/// Multirepo provides the implementations of this interface and may add members in minor releases.
+/// </remarks>
 public interface IDistributedApplicationModuleBuilder
 {
     /// <summary>Gets the receiving AppHost configuration.</summary>
@@ -125,6 +129,21 @@ public interface IDistributedApplicationModuleBuilder
     IDistributedApplicationModuleProjectBuilder AddProject(
         string name,
         string projectPath,
+        ModuleProjectPathBase pathBase);
+
+    /// <summary>
+    /// Adds a C# project file or file-based <c>.cs</c> app that runs through <c>AddDotnetProject</c> from
+    /// <c>Aspire.Hosting.Dotnet</c>. The path is relative to the AppHost that defines the module.
+    /// </summary>
+    IDistributedApplicationModuleDotnetProjectBuilder AddDotnetProject(string name, string path);
+
+    /// <summary>
+    /// Adds a C# project file or file-based <c>.cs</c> app that runs through <c>AddDotnetProject</c>, resolving
+    /// <paramref name="path"/> from <paramref name="pathBase"/>.
+    /// </summary>
+    IDistributedApplicationModuleDotnetProjectBuilder AddDotnetProject(
+        string name,
+        string path,
         ModuleProjectPathBase pathBase);
 
     /// <summary>Adds an existing container image to the module.</summary>
@@ -253,6 +272,27 @@ public interface IDistributedApplicationModuleProjectBuilder
 
     /// <summary>Exports the project as a container using an advanced arbitrary publish command.</summary>
     IDistributedApplicationModuleProjectBuilder ExportAsContainerWithCommand(
+        ModuleImageCommandOptions options,
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer = null);
+}
+
+/// <summary>Configures one <c>AddDotnetProject</c> project in a module.</summary>
+public interface IDistributedApplicationModuleDotnetProjectBuilder
+{
+    /// <summary>Gets the project being configured.</summary>
+    IDistributedApplicationModuleProject Project { get; }
+
+    /// <summary>Applies Aspire .NET project configuration when the project runs directly.</summary>
+    IDistributedApplicationModuleDotnetProjectBuilder ConfigureProject(
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<DotnetProjectResource>> configureProject);
+
+    /// <summary>Exports the project through Aspire's native project container publisher.</summary>
+    IDistributedApplicationModuleDotnetProjectBuilder ExportAsContainer(
+        string imageName,
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer = null);
+
+    /// <summary>Exports the project as a container using an advanced arbitrary publish command.</summary>
+    IDistributedApplicationModuleDotnetProjectBuilder ExportAsContainerWithCommand(
         ModuleImageCommandOptions options,
         Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer = null);
 }
