@@ -12,6 +12,9 @@ namespace Aspire.Hosting.Multirepo.Tests;
 
 public sealed class ModuleImagePushPipelineTests
 {
+    private const string SkipPushTargetsHint =
+        "To skip push targets, set Aspire:ModularAppHosts:SkipImagePushTargets=true.";
+
     [Fact]
     public async Task Exported_project_with_an_explicit_image_registry_contributes_a_push_step()
     {
@@ -400,8 +403,37 @@ public sealed class ModuleImagePushPipelineTests
 
         Assert.Contains("'orders-api' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
         Assert.Contains("WithContainerRegistry", exception.Message, StringComparison.Ordinal);
+        Assert.EndsWith(SkipPushTargetsHint, exception.Message, StringComparison.Ordinal);
         var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
         Assert.Equal("push-orders-api", Assert.Single(await CreatePushStepsAsync(container)).Name);
+    }
+
+    [Fact]
+    public async Task Skipping_push_targets_leaves_neither_their_validation_nor_their_push_step()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        builder.Configuration["Aspire:ModularAppHosts:SkipImagePushTargets"] = "true";
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build"))
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+        });
+        builder.AddModule(module);
+        string[] steps = [];
+        builder.Pipeline.AddPipelineConfiguration(context =>
+        {
+            steps = [.. context.Steps.Select(step => step.Name)];
+            return Task.CompletedTask;
+        });
+
+        await RunPushPrerequisitesAsync(builder);
+
+        Assert.Contains(WellKnownPipelineSteps.PushPrereq, steps);
+        Assert.DoesNotContain(ModuleImagePushPipeline.ValidationStepName, steps);
+        Assert.Empty(await CreatePushStepsAsync(Assert.Single(builder.Resources.OfType<ContainerResource>())));
     }
 
     [Theory]
@@ -527,6 +559,7 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Contains("- third.example.test/api:1: denied by third", exception.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("second.example.test", exception.Message, StringComparison.Ordinal);
         Assert.Contains("Log in to each target registry", exception.Message, StringComparison.Ordinal);
+        Assert.EndsWith(SkipPushTargetsHint, exception.Message, StringComparison.Ordinal);
         Assert.Equal(2, Assert.IsType<AggregateException>(exception.InnerException).InnerExceptions.Count);
     }
 

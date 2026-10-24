@@ -7,6 +7,7 @@ using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Aspire.Hosting.Publishing;
 using CliWrap;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,11 +37,28 @@ internal static class ModuleImagePushPipeline
             new EventId(4, nameof(LogPushTarget)),
             "Publishing image push target {Target} for resource {Resource}.");
 
+    private static readonly Action<ILogger, string, string, string, Exception?> LogSkippedPushTargets =
+        LoggerMessage.Define<string, string, string>(
+            LogLevel.Warning,
+            new EventId(5, nameof(LogSkippedPushTargets)),
+            "Skipping image push targets {Targets} for resource {Resource} because {Setting} is true.");
+
     internal const string ValidationStepName = "validate-image-push-targets";
+
+    private const string SkipPushTargetsConfigurationKey =
+        $"{ModularAppHostsOptions.ConfigurationSectionName}:SkipImagePushTargets";
+
+    private const string SkipPushTargetsHint =
+        $"To skip push targets, set {SkipPushTargetsConfigurationKey}=true.";
 
     public static void Configure(IDistributedApplicationBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        if (SkipsPushTargets(builder.Configuration))
+        {
+            return;
+        }
+
         builder.Pipeline.AddStep(new PipelineStep
         {
             Name = ValidationStepName,
@@ -69,13 +87,19 @@ internal static class ModuleImagePushPipeline
     public static void AddPushStep(IResourceBuilder<ContainerResource> container)
     {
         ArgumentNullException.ThrowIfNull(container);
-        container.WithPipelineStepFactory(CreatePushSteps);
+        var skipPushTargets = SkipsPushTargets(container.ApplicationBuilder.Configuration);
+        container.WithPipelineStepFactory(context => CreatePushSteps(context, skipPushTargets));
     }
 
-    private static IReadOnlyList<PipelineStep> CreatePushSteps(PipelineStepFactoryContext factoryContext)
+    private static bool SkipsPushTargets(IConfiguration configuration) =>
+        configuration.GetValue<bool>(SkipPushTargetsConfigurationKey);
+
+    private static IReadOnlyList<PipelineStep> CreatePushSteps(
+        PipelineStepFactoryContext factoryContext,
+        bool skipPushTargets)
     {
         var resource = factoryContext.Resource;
-        if (ShouldSkipPushStep(resource))
+        if (ShouldSkipPushStep(resource, skipPushTargets))
         {
             return [];
         }
@@ -86,7 +110,7 @@ internal static class ModuleImagePushPipeline
             {
                 Name = $"push-{resource.Name}",
                 Description = $"Pushes the existing container image and branch alias for the {resource.Name} resource.",
-                Action = context => PushAsync(resource, context),
+                Action = context => PushAsync(resource, context, skipPushTargets),
                 DependsOnSteps =
                 [
                     ModuleImageBuildPipeline.GetStepName(resource),
@@ -100,14 +124,16 @@ internal static class ModuleImagePushPipeline
         ];
     }
 
-    private static bool ShouldSkipPushStep(IResource resource)
+    private static bool ShouldSkipPushStep(IResource resource, bool skipPushTargets)
     {
         if (resource.IsExcludedFromPublish())
         {
             return true;
         }
 
-        return RequiresBuildOrHasNothingToPush(resource);
+        return skipPushTargets
+            ? RequiresBuildOrHasNoPushTarget(resource)
+            : RequiresBuildOrHasNothingToPush(resource);
     }
 
     private static bool RequiresBuildOrHasNothingToPush(IResource resource) =>
@@ -129,7 +155,7 @@ internal static class ModuleImagePushPipeline
                 "registry target. Give the resource an image publish command (WithImagePublishCommand, " +
                 "ExportAsContainerWithCommand, or the command-oriented AddResource overload) and a registry " +
                 "(WithContainerRegistry, ImageRegistry, or a deployment target registry), which can be one of the " +
-                "push targets.");
+                $"push targets. {SkipPushTargetsHint}");
         }
     }
 
@@ -141,7 +167,7 @@ internal static class ModuleImagePushPipeline
     private static bool IgnoresPushTargets(IResource resource) =>
         !resource.IsExcludedFromPublish() && RequiresBuildOrHasNoPushTarget(resource);
 
-    private static async Task PushAsync(IResource resource, PipelineStepContext context)
+    private static async Task PushAsync(IResource resource, PipelineStepContext context, bool skipPushTargets)
     {
         var resourceLogger = context.Services
             .GetRequiredService<ResourceLoggerService>()
@@ -155,7 +181,7 @@ internal static class ModuleImagePushPipeline
         await using var configuredTask = task.ConfigureAwait(false);
         try
         {
-            await PushCoreAsync(resource, context, resourceLogger, publisher).ConfigureAwait(false);
+            await PushCoreAsync(resource, context, resourceLogger, publisher, skipPushTargets).ConfigureAwait(false);
             await task.SucceedAsync(
                 $"Pushed image for {resource.Name}",
                 context.CancellationToken).ConfigureAwait(false);
@@ -173,7 +199,8 @@ internal static class ModuleImagePushPipeline
         IResource resource,
         PipelineStepContext context,
         ILogger resourceLogger,
-        ModuleImagePublisherAnnotation publisher)
+        ModuleImagePublisherAnnotation publisher,
+        bool skipPushTargets)
     {
         await PreparePublisherAsync(resource, context, resourceLogger, publisher).ConfigureAwait(false);
         var resolved = await ResolvePushTargetAsync(resource, context.CancellationToken)
@@ -198,7 +225,8 @@ internal static class ModuleImagePushPipeline
             context,
             resourceLogger,
             transferTimeout).ConfigureAwait(false);
-        await PushTargetsAsync(resource, resolved, context, resourceLogger, transferTimeout).ConfigureAwait(false);
+        await PushTargetsAsync(resource, resolved, context, resourceLogger, transferTimeout, skipPushTargets)
+            .ConfigureAwait(false);
     }
 
     private static async Task PushTargetsAsync(
@@ -206,11 +234,23 @@ internal static class ModuleImagePushPipeline
         ModuleEffectiveImage resolved,
         PipelineStepContext context,
         ILogger resourceLogger,
-        TimeSpan transferTimeout)
+        TimeSpan transferTimeout,
+        bool skipPushTargets)
     {
         var targets = GetPushTargets(resource, resolved.Reference);
         if (targets.Count == 0)
         {
+            return;
+        }
+
+        if (skipPushTargets)
+        {
+            LogSkippedPushTargets(
+                context.Logger,
+                string.Join(", ", targets),
+                resource.Name,
+                SkipPushTargetsConfigurationKey,
+                null);
             return;
         }
 
@@ -285,7 +325,7 @@ internal static class ModuleImagePushPipeline
             $"Resource '{resource.Name}' failed to push {failures.Count} of {targetCount} image push targets:" +
             $"{Environment.NewLine}{string.Join(Environment.NewLine, details)}{Environment.NewLine}" +
             "Log in to each target registry with the selected container runtime and check each reference, " +
-            "then rerun the push.",
+            $"then rerun the push. {SkipPushTargetsHint}",
             new AggregateException(failures.Select(failure => failure.Exception)));
     }
 

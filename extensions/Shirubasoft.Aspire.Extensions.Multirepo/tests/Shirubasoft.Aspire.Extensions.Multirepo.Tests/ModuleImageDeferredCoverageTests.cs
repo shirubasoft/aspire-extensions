@@ -22,6 +22,8 @@ namespace Aspire.Hosting.Multirepo.Tests;
 [Collection("Module image runtime adapter coverage")]
 public sealed class ModuleImageDeferredCoverageTests
 {
+    private const string PushTargetCanonical = "registry.example.test/acme/api:feature-coverage-0123456789ab";
+
     private static readonly ModuleImageSourceState CleanSource = new(
         "feature/coverage",
         "0123456789ab",
@@ -745,31 +747,20 @@ public sealed class ModuleImageDeferredCoverageTests
             Args = ["--publisher", "manifest"],
             DisableDashboard = true
         });
-        var recipe = CreateRecipe();
-        var container = builder
-            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
-            .WithImageRegistry(recipe.Options.ImageRegistry)
-            .WithAnnotation(CreatePublisher(recipe))
-            .WithImagePushTarget("unreachable.example.test/acme/api:stable")
-            .WithImagePushTarget("mirror.example.test/team/api");
-        ModuleImagePushPipeline.AddPushStep(container);
-        var step = Assert.Single(await CreatePipelineStepsAsync(
-            container.Resource,
-            WellKnownPipelineTags.PushContainerImage));
+        var step = await AddPushTargetPublisherAsync(builder);
         await using var application = builder.Build();
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             ExecutePipelineStepAsync(application, step));
 
-        const string Canonical = "registry.example.test/acme/api:feature-coverage-0123456789ab";
         Assert.Equal(
             [
-                $"push {Canonical}",
-                $"tag {Canonical} registry.example.test/acme/api:feature-coverage",
+                $"push {PushTargetCanonical}",
+                $"tag {PushTargetCanonical} registry.example.test/acme/api:feature-coverage",
                 "push registry.example.test/acme/api:feature-coverage",
-                $"tag {Canonical} unreachable.example.test/acme/api:stable",
+                $"tag {PushTargetCanonical} unreachable.example.test/acme/api:stable",
                 "push unreachable.example.test/acme/api:stable",
-                $"tag {Canonical} mirror.example.test/team/api:feature-coverage-0123456789ab",
+                $"tag {PushTargetCanonical} mirror.example.test/team/api:feature-coverage-0123456789ab",
                 "push mirror.example.test/team/api:feature-coverage-0123456789ab"
             ],
             runtime.Invocations);
@@ -779,6 +770,41 @@ public sealed class ModuleImageDeferredCoverageTests
             $"runtime stderr https://user:secret@example.test/path?token=secret{Environment.NewLine}",
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Push_step_skips_and_names_push_targets_when_configured()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = ["--publisher", "manifest", "--Aspire:ModularAppHosts:SkipImagePushTargets=true"],
+            DisableDashboard = true
+        });
+        var step = await AddPushTargetPublisherAsync(builder);
+        await using var application = builder.Build();
+        var logger = new RecordingLogger();
+
+        await ExecutePipelineStepAsync(application, step, logger);
+
+        Assert.Equal(
+            [
+                $"push {PushTargetCanonical}",
+                $"tag {PushTargetCanonical} registry.example.test/acme/api:feature-coverage",
+                "push registry.example.test/acme/api:feature-coverage"
+            ],
+            runtime.Invocations);
+        Assert.Equal(
+            (LogLevel.Warning,
+                "Skipping image push targets unreachable.example.test/acme/api:stable, " +
+                "mirror.example.test/team/api:feature-coverage-0123456789ab for resource api because " +
+                "Aspire:ModularAppHosts:SkipImagePushTargets is true."),
+            Assert.Single(logger.Entries, entry => entry.Message.Contains("push target", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -1035,6 +1061,21 @@ public sealed class ModuleImageDeferredCoverageTests
         return result.StandardOutput;
     }
 
+    private static async Task<PipelineStep> AddPushTargetPublisherAsync(IDistributedApplicationBuilder builder)
+    {
+        var recipe = CreateRecipe();
+        var container = builder
+            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
+            .WithImageRegistry(recipe.Options.ImageRegistry)
+            .WithAnnotation(CreatePublisher(recipe))
+            .WithImagePushTarget("unreachable.example.test/acme/api:stable")
+            .WithImagePushTarget("mirror.example.test/team/api");
+        ModuleImagePushPipeline.AddPushStep(container);
+        return Assert.Single(await CreatePipelineStepsAsync(
+            container.Resource,
+            WellKnownPipelineTags.PushContainerImage));
+    }
+
     private static async Task<IReadOnlyList<PipelineStep>> CreatePipelineStepsAsync(
         IResource resource,
         string tag)
@@ -1054,7 +1095,8 @@ public sealed class ModuleImageDeferredCoverageTests
 
     private static async Task ExecutePipelineStepAsync(
         DistributedApplication application,
-        PipelineStep step)
+        PipelineStep step,
+        ILogger? logger = null)
     {
         await using var reportingStep = await new NullPublishingActivityReporter().CreateStepAsync(
             step.Name,
@@ -1063,7 +1105,7 @@ public sealed class ModuleImageDeferredCoverageTests
             application.Services.GetRequiredService<DistributedApplicationModel>(),
             application.Services.GetRequiredService<DistributedApplicationExecutionContext>(),
             application.Services,
-            NullLogger.Instance,
+            logger ?? NullLogger.Instance,
             TestContext.Current.CancellationToken);
         await step.Action(new PipelineStepContext
         {
