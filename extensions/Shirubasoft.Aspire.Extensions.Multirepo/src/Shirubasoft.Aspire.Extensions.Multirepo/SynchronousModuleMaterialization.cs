@@ -1000,7 +1000,8 @@ public static partial class DistributedApplicationModuleExtensions
             builder,
             definition,
             definitionRepository,
-            resourceName) is { } deferredProject)
+            resourceName,
+            exception.Message) is { } deferredProject)
         {
             return MaterializeDeferredFactoryProject(
                 builder,
@@ -1018,7 +1019,8 @@ public static partial class DistributedApplicationModuleExtensions
         IDistributedApplicationBuilder builder,
         IDistributedApplicationModuleFactoryResource definition,
         ModuleRepositoryContext definitionRepository,
-        string resourceName)
+        string resourceName,
+        string failure)
     {
         if (!IsMissingInitializerRepository(definitionRepository))
         {
@@ -1029,21 +1031,26 @@ public static partial class DistributedApplicationModuleExtensions
             candidate,
             definition.ResourceType,
             resourceName,
-            definitionRepository.RepositoryPath));
+            definitionRepository.RepositoryPath,
+            failure));
     }
 
     private static bool IsDeferredFactoryProject(
         IResource candidate,
         Type resourceType,
         string resourceName,
-        string repositoryPath) =>
+        string repositoryPath,
+        string failure) =>
         resourceType.IsInstanceOfType(candidate) &&
         string.Equals(candidate.Name, resourceName, StringComparison.OrdinalIgnoreCase) &&
-        IsRepositoryProject(candidate, repositoryPath);
+        IsMissingRepositoryProject(candidate, repositoryPath, failure);
 
-    private static bool IsRepositoryProject(IResource resource, string repositoryPath) =>
+    // Aspire's missing project file message is localized, so the project path it names identifies the failure.
+    // If Aspire stops naming the path, the factory's failure surfaces without the initialize hint.
+    private static bool IsMissingRepositoryProject(IResource resource, string repositoryPath, string failure) =>
         resource.Annotations.OfType<IProjectMetadata>().LastOrDefault() is { } metadata &&
-        PathSafety.IsContainedBy(repositoryPath, metadata.ProjectPath);
+        PathSafety.IsContainedBy(repositoryPath, metadata.ProjectPath) &&
+        failure.Contains(metadata.ProjectPath, StringComparison.Ordinal);
 
     private static bool IsMissingInitializerRepository(ModuleRepositoryContext definitionRepository) =>
         definitionRepository.InitializerOwned && !Directory.Exists(definitionRepository.RepositoryPath);

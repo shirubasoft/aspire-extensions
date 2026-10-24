@@ -178,33 +178,49 @@ public sealed class DotnetProjectModuleTests
         Assert.IsType(expectedResourceType, resource);
     }
 
+    public enum FactoryFailure
+    {
+        BeforeRegistration,
+        AfterRegisteringCheckoutProject,
+        MissingProjectOutsideCheckout
+    }
+
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Missing_repository_checkout_keeps_unrelated_dotnet_project_factory_failures(bool afterRegistration)
+    [InlineData(false, false, FactoryFailure.AfterRegisteringCheckoutProject)]
+    [InlineData(false, true, FactoryFailure.AfterRegisteringCheckoutProject)]
+    [InlineData(true, false, FactoryFailure.AfterRegisteringCheckoutProject)]
+    [InlineData(true, true, FactoryFailure.AfterRegisteringCheckoutProject)]
+    [InlineData(true, true, FactoryFailure.BeforeRegistration)]
+    [InlineData(true, true, FactoryFailure.MissingProjectOutsideCheckout)]
+    public void Missing_repository_checkout_keeps_unrelated_project_factory_failures(
+        bool dotnet,
+        bool publish,
+        FactoryFailure failure)
     {
         using var appHost = CreateGitAppHost();
-        var projectPath = CreateProject(appHost.Path);
-        var builder = CreateBuilder(appHost.Path, ["--publisher", "manifest"]);
-        var failure = new DistributedApplicationException("Intentional factory failure.");
+        var builder = CreateBuilder(appHost.Path, publish ? ["--publisher", "manifest"] : null);
+        Exception? thrown = null;
+        IResourceBuilder<TResource> Fail<TResource>(IDistributedApplicationModuleResourceContext context)
+            where TResource : IResource
+        {
+            thrown = Record.Exception(() => AddFactoryProject(context, dotnet, failure, appHost.Path)) ??
+                new DistributedApplicationException("Intentional factory failure.");
+            throw thrown;
+        }
+
         builder.ExportModule("orders", definition =>
         {
             definition.WithRepository("https://example.test/acme/orders.git");
             definition.RequiresRepository();
-            definition.AddResource<DotnetProjectResource>("orders-api", context =>
-            {
-                if (afterRegistration)
-                {
-                    context.ApplicationBuilder.AddDotnetProject(context.ResourceName, projectPath);
-                }
-
-                throw failure;
-            });
+            _ = dotnet
+                ? definition.AddResource<DotnetProjectResource>("orders-api", Fail<DotnetProjectResource>)
+                : definition.AddResource<ProjectResource>("orders-api", Fail<ProjectResource>);
         });
 
-        var exception = Assert.Throws<DistributedApplicationException>(() => builder.ImportModule("orders"));
+        var exception = Record.Exception(() => builder.ImportModule("orders"));
 
-        Assert.Same(failure, exception);
+        Assert.NotNull(thrown);
+        Assert.Same(thrown, exception);
     }
 
     private static IDistributedApplicationBuilder CreateBuilder(string projectDirectory, string[]? args = null) =>
@@ -220,6 +236,31 @@ public sealed class DotnetProjectModuleTests
         var appHost = TemporaryDirectory.Create();
         Directory.CreateDirectory(Path.Combine(appHost.Path, ".git"));
         return appHost;
+    }
+
+    // A checkout project excludes its launch profile, so Aspire registers it without reading the missing file.
+    private static void AddFactoryProject(
+        IDistributedApplicationModuleResourceContext context,
+        bool dotnet,
+        FactoryFailure failure,
+        string appHostPath)
+    {
+        if (failure == FactoryFailure.BeforeRegistration)
+        {
+            return;
+        }
+
+        var inCheckout = failure == FactoryFailure.AfterRegisteringCheckoutProject;
+        var projectPath = Path.Combine(inCheckout ? context.RepositoryPath : appHostPath, "Orders.Api.csproj");
+        void Configure(ProjectResourceOptions options) => options.ExcludeLaunchProfile = inCheckout;
+        if (dotnet)
+        {
+            context.ApplicationBuilder.AddDotnetProject(context.ResourceName, projectPath, Configure);
+        }
+        else
+        {
+            context.ApplicationBuilder.AddProject(context.ResourceName, projectPath, Configure);
+        }
     }
 
     private static string CreateProject(string directory, string fileName = "Orders.Api.csproj")
