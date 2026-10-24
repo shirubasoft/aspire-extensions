@@ -68,4 +68,4 @@ The suite starts both AppHosts through Aspire's testing builder and verifies the
 | [E2E testing](E2ETesting/README.md) | One scenario against an in-process AppHost or Docker Compose deployment. |
 | [Image pipelines](ImagePushE2E/README.md) | Native and advanced publishers, image descriptions, push/pull, and registry mapping. |
 | [Multi-repository handoff](MultiRepoE2E/README.md) | Independent build inputs and a local-registry producer-to-consumer workflow document. |
-| [Remote initialization](RemoteInitialization/README.md) | A managed remote checkout and health-gated Git requirement. |
+| [Remote initialization](RemoteInitialization/README.md) | A managed remote checkout, a health-gated Git requirement, and dashboard branch switching. |

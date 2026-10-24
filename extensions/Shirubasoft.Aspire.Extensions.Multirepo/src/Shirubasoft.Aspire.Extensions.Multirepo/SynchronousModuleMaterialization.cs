@@ -1534,6 +1534,7 @@ public static partial class DistributedApplicationModuleExtensions
             return;
         }
 
+        ModuleRepositoryBranchSwitching.AddCommand(resource, registry, scope);
         resource.OnBeforeResourceStarted(async (startedResource, @event, cancellationToken) =>
         {
             var logger = @event.Services

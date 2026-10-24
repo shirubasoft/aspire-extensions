@@ -1,0 +1,588 @@
+#pragma warning disable ASPIREINTERACTION001
+#pragma warning disable ASPIRETERMINAL001
+
+using System.Reflection;
+using Aspire.Hosting.ApplicationModel;
+using CliWrap.Buffered;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+using CliCommand = global::CliWrap.Cli;
+
+namespace Aspire.Hosting.Multirepo.Tests;
+
+public sealed class ModuleRepositoryBranchSwitchingTests
+{
+    [Fact]
+    public async Task Switches_every_repository_to_one_branch_and_reports_each_outcome()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var alpha = await workspace.CloneAsync("alpha", "feature/x");
+        var bravo = await workspace.CloneAsync("bravo", "feature/x");
+        await GitAsync(bravo.RepositoryPath, "branch", "--track", "feature/x", "origin/feature/x");
+        var charlie = await workspace.CloneAsync("charlie");
+        var delta = await workspace.CloneAsync("delta", "feature/x");
+        await File.WriteAllTextAsync(Path.Combine(delta.RepositoryPath, "notes.txt"), "work in progress", TestContext.Current.CancellationToken);
+        var echo = workspace.Register("echo", revision: "v1");
+        var foxtrot = workspace.Register("foxtrot");
+        var interaction = new ScriptedInteractionService(inputs =>
+        {
+            inputs[0].Value = "feature/x";
+            inputs[3].Value = "main";
+        });
+
+        var result = await ExecuteAsync(interaction, alpha, bravo, charlie, delta, echo, foxtrot);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal("Branch switch complete.", result.Message);
+        var inputs = interaction.Inputs!;
+        Assert.Equal(
+            ["all", "repository-0", "repository-1", "repository-2", "repository-3", "repository-4", "repository-5"],
+            inputs.Select(input => input.Name));
+        Assert.Equal(
+            [KeyValuePair.Create("main", "main (in 3 of 3)"), KeyValuePair.Create("feature/x", "feature/x (in 2 of 3)")],
+            inputs[0].Options);
+        Assert.All(inputs, input => Assert.True(input.AllowCustomChoice));
+        Assert.Equal("alpha", inputs[1].Label);
+        Assert.Equal(
+            [KeyValuePair.Create("main", "main (current)"), KeyValuePair.Create("feature/x", "feature/x (from origin)")],
+            inputs[1].Options);
+        Assert.Equal(
+            [KeyValuePair.Create("main", "main (current)"), KeyValuePair.Create("feature/x", "feature/x")],
+            inputs[2].Options);
+        Assert.Equal("On `main`. Used by `alpha`.", inputs[1].Description);
+        Assert.True(inputs[4].Disabled);
+        Assert.Equal($"On `main`. {ModuleRepositoryBranchSwitching.DirtyBlocker} Used by `delta`.", inputs[4].Description);
+        Assert.True(inputs[5].Disabled);
+        Assert.False(interaction.SelectionWasRejected);
+        Assert.Equal(
+            ["**Will change**", "- **alpha**", "- **bravo**", "**Skipped**", "- **delta**", "- **echo**", "- **foxtrot**", "**Unchanged**", "- **charlie**"],
+            interaction.ConfirmationMessage!.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Split(':')[0]));
+        Assert.Contains("- **bravo**: `main` → `feature/x`\n", interaction.ConfirmationMessage, StringComparison.Ordinal);
+        Assert.NotNull(result.Data);
+        Assert.True(result.Data.DisplayImmediately);
+        Assert.Equal(CommandResultFormat.Markdown, result.Data.Format);
+        Assert.Equal(
+            """
+            - **alpha** (done): `main` → `feature/x`, a new local branch tracking `origin/feature/x`
+            - **bravo** (done): `main` → `feature/x`
+            - **charlie** (unchanged): On `main`.
+            - **delta** (skipped): Has uncommitted changes; commit or stash them first.
+            - **echo** (skipped): Pinned to revision `v1`; change `RepositoryRevision` to move it.
+            - **foxtrot** (skipped): Not initialized; run `aspire do initialize` first.
+
+            Restart or rebuild resources from the changed repositories to run their new source.
+            """,
+            result.Data.Value,
+            ignoreLineEndingDifferences: true);
+        Assert.Equal("feature/x", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal("origin/feature/x", await GitAsync(alpha.RepositoryPath, "rev-parse", "--abbrev-ref", "@{upstream}"));
+        Assert.Equal("feature/x", await GitAsync(bravo.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal("main", await GitAsync(charlie.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal("main", await GitAsync(delta.RepositoryPath, "branch", "--show-current"));
+        Assert.True(File.Exists(Path.Combine(delta.RepositoryPath, "notes.txt")));
+    }
+
+    [Fact]
+    public async Task Cancelling_either_dialog_leaves_every_checkout_unchanged()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var alpha = await workspace.CloneAsync("alpha", "feature/x");
+
+        var canceledSelection = await ExecuteAsync(new ScriptedInteractionService(select: null), alpha);
+        var declined = new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x", confirm: false);
+        var canceledConfirmation = await ExecuteAsync(declined, alpha);
+
+        Assert.True(canceledSelection.Canceled);
+        Assert.True(canceledConfirmation.Canceled);
+        Assert.NotNull(declined.ConfirmationMessage);
+        Assert.Equal("main", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
+    }
+
+    [Fact]
+    public async Task Selection_that_changes_nothing_reports_the_plan_without_confirmation()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var alpha = await workspace.CloneAsync("alpha");
+        await GitAsync(alpha.RepositoryPath, "switch", "--create", "(feature)");
+        await GitAsync(alpha.RepositoryPath, "remote", "set-url", "origin", Path.Combine(workspace.Path, "missing.git"));
+        var bravo = await workspace.CloneAsync("bravo");
+        await GitAsync(bravo.RepositoryPath, "switch", "--create", "(detached)");
+        var charlie = await workspace.CloneAsync("charlie");
+        await GitAsync(charlie.RepositoryPath, "switch", "--detach");
+        // An invalid branch color fails "git branch" but not "git status", so only the (detached) check fails.
+        var delta = await workspace.CloneAsync("delta");
+        await GitAsync(delta.RepositoryPath, "switch", "--create", "(detached)");
+        await GitAsync(delta.RepositoryPath, "config", "color.branch.current", "not-a-color");
+        var interaction = new ScriptedInteractionService(inputs =>
+        {
+            inputs[1].Value = "(feature)";
+            inputs[2].Value = "(detached)";
+            inputs[4].Value = "(detached)";
+        });
+
+        var result = await ExecuteAsync(interaction, alpha, bravo, charlie, delta);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal("Nothing to switch.", result.Message);
+        var details = result.Data?.Value.ReplaceLineEndings("\n");
+        Assert.StartsWith("**Skipped**\n\n- **delta**: Couldn't read the checkout: ", details, StringComparison.Ordinal);
+        Assert.Contains("color.branch.current", details, StringComparison.Ordinal);
+        Assert.EndsWith(
+            "\n\n**Unchanged**\n\n- **alpha**: On `(feature)`.\n- **bravo**: On `(detached)`.\n- **charlie**: Detached HEAD.",
+            details,
+            StringComparison.Ordinal);
+        Assert.Null(interaction.ConfirmationMessage);
+        Assert.Contains("Couldn't fetch from origin", interaction.Inputs![1].Description, StringComparison.Ordinal);
+        Assert.True(interaction.Inputs[4].Disabled);
+    }
+
+    [Fact]
+    public async Task Repositories_that_cannot_switch_are_reported_without_prompting()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var interaction = new ScriptedInteractionService(_ => throw new InvalidOperationException("No prompt expected."));
+
+        var result = await ExecuteAsync(interaction, workspace.Register("alpha", revision: "v1"), workspace.Register("bravo"));
+
+        Assert.False(result.Success);
+        Assert.Equal("No module repository can switch branches.", result.Message);
+        Assert.Contains("- **bravo**: Not initialized", result.Data?.Value, StringComparison.Ordinal);
+        Assert.Null(interaction.Inputs);
+    }
+
+    [Fact]
+    public async Task Failed_steps_are_reported_per_repository_without_discarding_work()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var locked = await workspace.CloneAsync("alpha", "feature/x");
+        var edited = await workspace.CloneAsync("bravo", "feature/x");
+        var unreadable = await workspace.CloneAsync("charlie", "feature/x");
+        var uninspectable = await workspace.CloneAsync("delta", "feature/x");
+        var removed = await workspace.CloneAsync("echo", "feature/x");
+        await File.WriteAllTextAsync(Path.Combine(uninspectable.RepositoryPath, ".git", "index"), "corrupt", TestContext.Current.CancellationToken);
+        var interaction = new ScriptedInteractionService(
+            inputs => inputs[0].Value = "feature/x",
+            onConfirm: () =>
+            {
+                File.WriteAllText(Path.Combine(locked.RepositoryPath, ".git", "index.lock"), string.Empty);
+                File.WriteAllText(Path.Combine(edited.RepositoryPath, "draft.txt"), "draft");
+                File.WriteAllText(Path.Combine(unreadable.RepositoryPath, ".git", "index"), "corrupt");
+                TemporaryDirectory.DeleteRecursively(removed.RepositoryPath);
+                return Task.CompletedTask;
+            });
+
+        var result = await ExecuteAsync(interaction, locked, edited, unreadable, uninspectable, removed);
+
+        Assert.False(result.Success);
+        Assert.Equal("Branch switch needs attention.", result.Message);
+        var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
+        Assert.StartsWith("- **alpha** (needs attention): On `main`. Switch failed: ", details[0], StringComparison.Ordinal);
+        Assert.Contains("index.lock", details[0], StringComparison.Ordinal);
+        Assert.Equal("- **bravo** (needs attention): On `main`. Has uncommitted changes; commit or stash them first.", details[1]);
+        Assert.StartsWith("- **charlie** (needs attention): Couldn't read the checkout: ", details[2], StringComparison.Ordinal);
+        Assert.StartsWith("- **delta** (skipped): Couldn't read the checkout: ", details[3], StringComparison.Ordinal);
+        Assert.StartsWith("- **echo** (needs attention): Couldn't read the checkout: ", details[4], StringComparison.Ordinal);
+        Assert.Equal(5, details.Length);
+        Assert.Equal("main", await GitAsync(locked.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal("main", await GitAsync(edited.RepositoryPath, "branch", "--show-current"));
+        Assert.True(File.Exists(Path.Combine(edited.RepositoryPath, "draft.txt")));
+    }
+
+    [Fact]
+    public async Task Overlapping_switches_are_rejected_and_moved_checkouts_are_left_alone()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var alpha = await workspace.CloneAsync("alpha", "feature/x");
+        var gate = new ModuleRepositoryBranchSwitchGate();
+        ExecuteCommandResult? overlapping = null;
+        var interaction = new ScriptedInteractionService(
+            inputs => inputs[0].Value = "feature/x",
+            onConfirm: async () =>
+            {
+                overlapping = await ExecuteAsync(new ScriptedInteractionService(null), gate, alpha);
+                await GitAsync(alpha.RepositoryPath, "switch", "--create", "other");
+            });
+
+        var result = await ExecuteAsync(interaction, gate, alpha);
+
+        Assert.NotNull(overlapping);
+        Assert.False(overlapping.Success);
+        Assert.Equal("A branch switch is already in progress.", overlapping.Message);
+        Assert.False(result.Success);
+        Assert.Equal(
+            "- **alpha** (needs attention): On `other`. Was on `main` when you reviewed the plan, so nothing changed.",
+            result.Data?.Value);
+        Assert.Equal("other", await GitAsync(alpha.RepositoryPath, "branch", "--show-current"));
+        Assert.True((await ExecuteAsync(new ScriptedInteractionService(null), gate, alpha)).Canceled);
+    }
+
+    [Fact]
+    public async Task Outcomes_report_where_hooks_leave_the_checkout()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var failing = await workspace.CloneAsync("alpha", "feature/x");
+        await InstallPostCheckoutHookAsync(failing.RepositoryPath, "echo post-checkout failed >&2; exit 1");
+        var redirecting = await workspace.CloneAsync("bravo", "feature/x");
+        await InstallPostCheckoutHookAsync(redirecting.RepositoryPath, "[ -n \"$REDIRECTED\" ] || REDIRECTED=1 git switch --quiet main");
+        var interaction = new ScriptedInteractionService(inputs => inputs[0].Value = "feature/x");
+
+        var result = await ExecuteAsync(interaction, failing, redirecting);
+
+        Assert.False(result.Success);
+        var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
+        Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `feature/x`\. Switch failed: .*post-checkout failed$", details[0]);
+        Assert.Equal("- **bravo** (needs attention): Ended on `main` instead of `feature/x`.", details[1]);
+        Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
+        Assert.Equal("feature/x", await GitAsync(failing.RepositoryPath, "branch", "--show-current"));
+        Assert.Equal("main", await GitAsync(redirecting.RepositoryPath, "branch", "--show-current"));
+    }
+
+    [Fact]
+    public async Task Submodules_stay_as_they_are_and_repositories_whose_submodules_change_are_skipped()
+    {
+        using var workspace = BranchWorkspace.Create();
+        var child = (await workspace.CloneAsync("child")).RepositoryPath;
+        await CommitFileAsync(child, ".gitignore", "local.env\n");
+        var pinned = await GitAsync(child, "rev-parse", "HEAD");
+        await CommitFileAsync(child, "local.env", "tracked");
+        var latest = await GitAsync(child, "rev-parse", "HEAD");
+        await GitAsync(child, "push", "origin", "main");
+        var replaced = await workspace.CloneWithChildAsync("alpha", pinned);
+        var linked = await workspace.CloneWithChildAsync("bravo", pinned);
+        var deinitialized = await workspace.CloneWithChildAsync("charlie", pinned);
+        var plain = await workspace.CloneWithChildAsync("delta", pinned);
+        var hidden = await workspace.CloneWithChildAsync("echo", latest);
+        var moved = await workspace.CloneWithChildAsync("foxtrot", pinned);
+        await BranchWithEntryAsync(replaced.RepositoryPath, "feature/x", "100644", "child");
+        await BranchWithEntryAsync(linked.RepositoryPath, "feature/x", "120000", "child");
+        await BranchWithEntryAsync(deinitialized.RepositoryPath, "feature/x", "160000", "child", latest);
+        await GitAsync(deinitialized.RepositoryPath, "submodule", "deinit", "child");
+        foreach (var repository in new[] { plain, hidden, moved })
+        {
+            await BranchWithEntryAsync(repository.RepositoryPath, "feature/x", "100644", "feature.txt");
+        }
+
+        await BranchWithEntryAsync(moved.RepositoryPath, "feature/moved", "160000", "child", latest);
+        // echo's child sits at an older commit than both branches record, which ignore=all hides from status,
+        // and keeps an ignored file there that the recorded commit tracks.
+        await GitAsync(Path.Combine(hidden.RepositoryPath, "child"), "checkout", "--detach", pinned);
+        await GitAsync(hidden.RepositoryPath, "config", "submodule.child.ignore", "all");
+        ModuleRepositoryRequirement[] repositories = [replaced, linked, deinitialized, plain, hidden, moved];
+        var localFiles = repositories.Select(repository => Path.Combine(repository.RepositoryPath, "child", "local.env")).ToArray();
+        await Task.WhenAll(localFiles.Select(file => File.WriteAllTextAsync(file, "local work", TestContext.Current.CancellationToken)));
+        var interaction = new ScriptedInteractionService(
+            inputs => inputs[0].Value = "feature/x",
+            onConfirm: () => GitAsync(moved.RepositoryPath, "branch", "--force", "feature/x", "feature/moved"));
+
+        var result = await ExecuteAsync(interaction, repositories);
+
+        const string Differ = "Submodules differ between `main` and `feature/x` (`child`). " +
+            "Switch this repository yourself so you can check the submodules' local files first.";
+        Assert.Equal(
+            $"""
+            - **alpha** (skipped): {Differ}
+            - **bravo** (skipped): {Differ}
+            - **charlie** (skipped): {Differ}
+            - **delta** (done): `main` → `feature/x`
+            - **echo** (done): `main` → `feature/x`
+            - **foxtrot** (needs attention): On `main`. {Differ}
+
+            Restart or rebuild resources from the changed repositories to run their new source.
+            """,
+            result.Data?.Value,
+            ignoreLineEndingDifferences: true);
+        Assert.All(localFiles, file => Assert.Equal("local work", File.ReadAllText(file)));
+        foreach (var repository in new[] { plain, hidden, moved })
+        {
+            Assert.Equal(pinned, await GitAsync(Path.Combine(repository.RepositoryPath, "child"), "rev-parse", "HEAD"));
+        }
+
+        Assert.Empty(await GitAsync(plain.RepositoryPath, "status", "--porcelain"));
+    }
+
+    [Fact]
+    public void Plan_keeps_unselected_repositories_and_describes_each_change()
+    {
+        using var workspace = TemporaryDirectory.Create();
+        var requirement = new ModuleRepositoryPlanRegistry(CreateAppHost(workspace.Path))
+            .Register("orders", Path.Combine(workspace.Path, "origin.git"), Path.Combine(workspace.Path, "orders"), null, false)
+            .Requirement;
+        var onMain = new ModuleRepositoryBranchStatus(requirement, "main", ["main"], ["main", "feature/x"], "On `main`.");
+        var detached = onMain with { CurrentBranch = null, Location = "Detached HEAD." };
+
+        Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, null).Change);
+        Assert.Equal(ModuleRepositoryBranchChange.Keep, ModuleRepositoryBranchSwitching.Plan(onMain, "main").Change);
+        var track = ModuleRepositoryBranchSwitching.Plan(detached, "feature/x");
+        Assert.Equal("Detached HEAD → `feature/x`, a new local branch tracking `origin/feature/x`", track.Summary);
+        Assert.Equal(("feature/x", "refs/remotes/origin/feature/x"), (track.Branch, track.Target));
+        Assert.Equal(
+            ["switch", "--no-recurse-submodules", "--no-overwrite-ignore", "--create", "feature/x", "--track", "origin/feature/x"],
+            track.SwitchArguments);
+        var local = ModuleRepositoryBranchSwitching.Plan(detached, "main");
+        Assert.Equal(("main", "refs/heads/main"), (local.Branch, local.Target));
+        Assert.Equal(["switch", "--no-recurse-submodules", "--no-overwrite-ignore", "main"], local.SwitchArguments);
+        Assert.Equal("No `feature/y` branch locally or on origin.", ModuleRepositoryBranchSwitching.Plan(onMain, "feature/y").Summary);
+    }
+
+    [Fact]
+    public async Task Selection_requires_at_least_one_branch()
+    {
+        var inputs = new[] { new InteractionInput { Name = ModuleRepositoryBranchSwitching.AllInputName, InputType = InputType.Choice } };
+
+        Assert.True(await HasValidationErrorsAsync(ModuleRepositoryBranchSwitching.ValidateSelection, inputs));
+        inputs[0].Value = "main";
+        Assert.False(await HasValidationErrorsAsync(ModuleRepositoryBranchSwitching.ValidateSelection, inputs));
+    }
+
+    [Fact]
+    public async Task Run_mode_adds_the_command_to_repository_backed_module_resources()
+    {
+        using var appHost = TemporaryDirectory.Create();
+        Directory.CreateDirectory(Path.Combine(appHost.Path, ".git"));
+        var run = CreateModularBuilder(appHost.Path, []);
+        var publish = CreateModularBuilder(appHost.Path, ["--publisher", "manifest"]);
+
+        var command = Assert.Single(
+            run.Resources.Single(resource => resource.Name == "orders-api").Annotations.OfType<ResourceCommandAnnotation>(),
+            annotation => annotation.Name == ModuleRepositoryBranchSwitching.CommandName);
+        Assert.Equal("Switch module branches", command.DisplayName);
+        Assert.DoesNotContain(
+            run.Resources.Single(resource => resource.Name == "independent-api").Annotations.OfType<ResourceCommandAnnotation>(),
+            annotation => annotation.Name == ModuleRepositoryBranchSwitching.CommandName);
+        Assert.DoesNotContain(
+            publish.Resources.SelectMany(resource => resource.Annotations).OfType<ResourceCommandAnnotation>(),
+            annotation => annotation.Name == ModuleRepositoryBranchSwitching.CommandName);
+        var result = await command.ExecuteCommand(CreateContext(new ScriptedInteractionService(null) { IsAvailable = false }));
+        Assert.False(result.Success);
+        Assert.Equal("Switching branches requires the Aspire dashboard.", result.Message);
+    }
+
+    private static IDistributedApplicationBuilder CreateModularBuilder(string appHostPath, string[] args)
+    {
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = args,
+            AssemblyName = typeof(ModuleRepositoryBranchSwitchingTests).Assembly.FullName,
+            ProjectDirectory = appHostPath,
+            DisableDashboard = true
+        });
+        builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository("https://example.test/acme/orders.git");
+            definition.RequiresRepository();
+            definition.AddContainer("orders-api", "busybox");
+        });
+        builder.ExportModule("independent", definition => definition.AddContainer("independent-api", "busybox"));
+        builder.ImportModule("orders");
+        builder.ImportModule("independent");
+        return builder;
+    }
+
+    private static string CreateAppHost(string workspace)
+    {
+        var appHost = Path.Combine(workspace, "consumer", "src", "AppHost");
+        Directory.CreateDirectory(Path.Combine(workspace, "consumer", ".git"));
+        Directory.CreateDirectory(appHost);
+        return appHost;
+    }
+
+    private static async Task<bool> HasValidationErrorsAsync(
+        Func<InputsDialogValidationContext, Task> validate,
+        IReadOnlyList<InteractionInput> inputs)
+    {
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var context = new InputsDialogValidationContext
+        {
+            Inputs = new InteractionInputCollection(inputs),
+            CancellationToken = TestContext.Current.CancellationToken,
+            Services = services
+        };
+        await validate(context);
+        return (bool)typeof(InputsDialogValidationContext)
+            .GetProperty("HasErrors", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(context)!;
+    }
+
+    private static Task<ExecuteCommandResult> ExecuteAsync(
+        ScriptedInteractionService interaction,
+        params ModuleRepositoryRequirement[] requirements) =>
+        ExecuteAsync(interaction, new ModuleRepositoryBranchSwitchGate(), requirements);
+
+    private static Task<ExecuteCommandResult> ExecuteAsync(
+        ScriptedInteractionService interaction,
+        ModuleRepositoryBranchSwitchGate gate,
+        params ModuleRepositoryRequirement[] requirements) =>
+        ModuleRepositoryBranchSwitching.ExecuteAsync(
+            CreateContext(interaction),
+            requirements,
+            new ModuleRepositoryInitializationSettings("git", "gh", TimeSpan.FromMinutes(1)),
+            gate);
+
+    private static ExecuteCommandContext CreateContext(IInteractionService interaction) =>
+        new()
+        {
+            Services = new ServiceCollection().AddSingleton(interaction).BuildServiceProvider(),
+            ResourceName = "orders-api",
+            CancellationToken = TestContext.Current.CancellationToken,
+            Logger = NullLogger.Instance,
+            Arguments = new InteractionInputCollection([])
+        };
+
+    private static async Task CommitFileAsync(string repository, string file, string content)
+    {
+        await File.WriteAllTextAsync(Path.Combine(repository, file), content, TestContext.Current.CancellationToken);
+        await GitAsync(repository, "add", "--force", file);
+        await GitAsync(repository, "commit", "-m", $"Add {file}");
+    }
+
+    // Creates a branch from HEAD with one entry added or replaced, by default with README.md's content, without
+    // touching the working tree.
+    private static async Task BranchWithEntryAsync(string repository, string branch, string mode, string path, string? id = null)
+    {
+        id ??= await GitAsync(repository, "rev-parse", "HEAD:README.md");
+        await GitAsync(repository, "update-index", "--add", "--cacheinfo", $"{mode},{id},{path}");
+        var tree = await GitAsync(repository, "write-tree");
+        await GitAsync(repository, "read-tree", "HEAD");
+        await GitAsync(repository, "branch", branch, await GitAsync(repository, "commit-tree", tree, "-p", "HEAD", "-m", branch));
+    }
+
+    private static async Task InstallPostCheckoutHookAsync(string repository, string script)
+    {
+        var hook = Path.Combine(repository, ".git", "hooks", "post-checkout");
+        await File.WriteAllTextAsync(hook, $"#!/bin/sh\n{script}\n", TestContext.Current.CancellationToken);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private static async Task<string> GitAsync(string workingDirectory, params string[] arguments)
+    {
+        var result = await CliCommand.Wrap("git")
+            .WithArguments(
+            [
+                "-c", "user.name=Branch Switching Tests",
+                "-c", "user.email=branches@example.test",
+                "-c", "commit.gpgsign=false",
+                .. arguments
+            ])
+            .WithWorkingDirectory(workingDirectory)
+            .ExecuteBufferedAsync(TestContext.Current.CancellationToken);
+        return result.StandardOutput.Trim();
+    }
+
+    private sealed class BranchWorkspace(TemporaryDirectory directory, ModuleRepositoryPlanRegistry registry) : IDisposable
+    {
+        public string Path => directory.Path;
+
+        public static BranchWorkspace Create()
+        {
+            var directory = TemporaryDirectory.Create();
+            Directory.CreateDirectory(System.IO.Path.Combine(directory.Path, "origins"));
+            return new BranchWorkspace(directory, new ModuleRepositoryPlanRegistry(CreateAppHost(directory.Path)));
+        }
+
+        public ModuleRepositoryRequirement Register(string name, string? revision = null) =>
+            registry.Register(
+                    name,
+                    GetOrigin(name),
+                    System.IO.Path.Combine(Path, name),
+                    revision,
+                    updateOnInitialize: false)
+                .Requirement;
+
+        public async Task<ModuleRepositoryRequirement> CloneAsync(string name, params string[] branches)
+        {
+            var seed = System.IO.Path.Combine(Path, "seeds", name);
+            Directory.CreateDirectory(seed);
+            await GitAsync(seed, "init", "--initial-branch", "main");
+            await CommitFileAsync(seed, "README.md", name);
+            foreach (var branch in branches)
+            {
+                await GitAsync(seed, "switch", "--create", branch);
+                await CommitFileAsync(seed, "branch.txt", branch);
+                await GitAsync(seed, "switch", "main");
+            }
+
+            await GitAsync(Path, "clone", "--bare", seed, GetOrigin(name));
+            var requirement = Register(name);
+            await GitAsync(Path, "clone", GetOrigin(name), requirement.RepositoryPath);
+            return requirement;
+        }
+
+        public async Task<ModuleRepositoryRequirement> CloneWithChildAsync(string name, string commit)
+        {
+            var requirement = await CloneAsync(name);
+            await GitAsync(requirement.RepositoryPath, "-c", "protocol.file.allow=always", "submodule", "add", GetOrigin("child"), "child");
+            await GitAsync(System.IO.Path.Combine(requirement.RepositoryPath, "child"), "checkout", "--detach", commit);
+            await GitAsync(requirement.RepositoryPath, "commit", "--all", "-m", "Pin child");
+            return requirement;
+        }
+
+        public void Dispose() => directory.Dispose();
+
+        private string GetOrigin(string name) => System.IO.Path.Combine(Path, "origins", $"{name}.git");
+    }
+
+    private sealed class ScriptedInteractionService(
+        Action<IReadOnlyList<InteractionInput>>? select,
+        bool confirm = true,
+        Func<Task>? onConfirm = null) : IInteractionService
+    {
+        public bool IsAvailable { get; init; } = true;
+
+        public IReadOnlyList<InteractionInput>? Inputs { get; private set; }
+
+        public bool SelectionWasRejected { get; private set; }
+
+        public string? ConfirmationMessage { get; private set; }
+
+        public async Task<InteractionResult<InteractionInputCollection>> PromptInputsAsync(
+            string title,
+            string? message,
+            IReadOnlyList<InteractionInput> inputs,
+            InputsDialogInteractionOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            Inputs = inputs;
+            if (select is null)
+            {
+                return InteractionResult.Cancel<InteractionInputCollection>();
+            }
+
+            select(inputs);
+            SelectionWasRejected = await HasValidationErrorsAsync(options!.ValidationCallback!, inputs);
+            return InteractionResult.Ok(new InteractionInputCollection(inputs));
+        }
+
+        public async Task<InteractionResult<bool>> PromptConfirmationAsync(
+            string title,
+            string message,
+            MessageBoxInteractionOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            ConfirmationMessage = message.ReplaceLineEndings("\n");
+            await (onConfirm?.Invoke() ?? Task.CompletedTask);
+            return confirm ? InteractionResult.Ok(true) : InteractionResult.Cancel<bool>();
+        }
+
+        public Task<InteractionResult<bool>> PromptMessageBoxAsync(string title, string message, MessageBoxInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<InteractionResult<InteractionInput>> PromptInputAsync(string title, string? message, string inputLabel, string placeHolder, InputsDialogInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<InteractionResult<InteractionInput>> PromptInputAsync(string title, string? message, InteractionInput input, InputsDialogInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<InteractionResult<bool>> PromptNotificationAsync(string title, string message, NotificationInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<InteractionResult<bool>> PromptProgressAsync(string message, ProgressInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<InteractionResult<bool>> PromptTerminalAsync(string message, AspireTerminal terminal, TerminalInteractionOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+}

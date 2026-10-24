@@ -101,6 +101,19 @@ Initialization records credential-free ownership state under `~/.aspire/deployme
 
 Repository values can come from `WithRepository(...)`, `DistributedApplicationModuleOptions`, or normal .NET configuration. Use `GetRepositoryConfigurationKey(moduleName)` when constructing the configuration key in code.
 
+### Switch repository branches
+
+During `aspire run`, every module resource that uses an initialized repository has a **Switch module branches** dashboard command. The command covers every repository the AppHost initializes, and only one switch runs at a time. It fetches `origin` for each repository, then shows each checkout's current branch with its local and `origin` branches. `origin` is the remote that initialization cloned from the module's repository URL. The fetch turns off Git's terminal prompts and Git Credential Manager's interactive sign-in, but SSH and askpass programs can still prompt. It stops after 15 seconds, and if it fails, the dialog shows the branches from the last fetch with a warning. Choose one branch under **All repositories**, override it for individual repositories, or both.
+
+Nothing changes until you confirm the plan the command shows:
+
+- A local branch is checked out. A branch that exists only on `origin` gets a new local branch that tracks it.
+- The command doesn't update or move submodules itself. When planning and again just before switching, it skips a repository if the chosen branch adds, removes, or replaces a submodule or records a different commit for one, so you can switch it yourself after checking the submodules' local files.
+- Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
+- Just before changing a repository, the command also checks again that it is on the reviewed branch and has no uncommitted changes. The repository stays unchanged if switching would overwrite an untracked or ignored file in the checkout. The command expects no other Git command to change a repository while the switch runs.
+
+The result lists each repository's outcome and where its checkout ended up. A checkout that a Git hook moves off the selected branch needs attention. Restart or rebuild the resources from changed repositories to run their new source.
+
 ## Require host tools
 
 Use a required-tool resource when another resource must wait for a command on the AppHost machine:
