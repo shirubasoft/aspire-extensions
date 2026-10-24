@@ -40,6 +40,7 @@
     <Project Path="samples/ModularSamples.Tests/ModularSamples.Tests.csproj" />
     <Project Path="samples/ModuleContract/ModularSample.ModuleContract.csproj" />
     <Project Path="samples/AppHostA/Api/ModularSample.Api.csproj" />
+    <Project Path="samples/AppHostA/DotnetApi/ModularSample.DotnetApi.csproj" />
     <Project Path="samples/AppHostA/ModularSample.AppHostA.csproj" />
     <Project Path="samples/AppHostB/Gateway/ModularSample.Gateway.csproj" />
     <Project Path="samples/AppHostB/ModularSample.AppHostB.csproj" />

@@ -15,6 +15,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting" />
+    <!-- Aspire ships Aspire.Hosting.Dotnet only as a preview of the matching Aspire release. -->
+    <PackageReference Include="Aspire.Hosting.Dotnet" NoWarn="NU5104" />
     <PackageReference Include="CliWrap" />
   </ItemGroup>
   <ItemGroup>

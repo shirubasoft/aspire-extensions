@@ -14,6 +14,8 @@ module.AddProject(
     .ExportAsContainer("example/orders-api");
 ```
 
+For an `AddProject` or `AddDotnetProject` project, `ExportAsContainer` builds the `Dockerfile` in the project's directory.
+
 A module factory can return `AddDockerfile(...)` to keep Aspire's Dockerfile annotations and pipeline steps.
 
 Use an advanced command only when the image cannot use a native publisher. `ExportAsContainerWithCommand` configures a project, `WithImagePublishCommand` configures a declared container, and the command-oriented `AddResource` overload configures a factory-created container:

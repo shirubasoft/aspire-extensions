@@ -4,11 +4,13 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="ActionsToolkit.Core" Version="1.0.0" />
+    <!-- A version with a preview suffix pins an Aspire package that ships only as a preview of each
+         release. aspire update moves the pins an AppHost reaches; eng/update-aspire.sh moves the rest
+         to the new release's preview and fails when that preview doesn't exist. -->
     <PackageVersion Include="Aspire.Hosting" Version="13.6.3" />
     <PackageVersion Include="Aspire.Hosting.Docker" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.Dotnet" Version="13.6.3-preview.1.26521.2" />
     <PackageVersion Include="Aspire.Hosting.Kafka" Version="13.6.3" />
-    <!-- Preview-only package, used by the CloudflareTunnels tests. eng/update-aspire.sh does not
-         move preview pins, so Dependabot or a manual edit moves it with each Aspire update. -->
     <PackageVersion Include="Aspire.Hosting.Kubernetes" Version="13.6.3-preview.1.26521.2" />
     <PackageVersion Include="Aspire.Hosting.RabbitMQ" Version="13.6.3" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.3" />

@@ -36,6 +36,7 @@ public sealed class PackedPackageContractTests
         var dependencies = ReadDependencies(packages.CorePackagePath);
 
         Assert.Contains(dependencies, dependency => dependency.Id == "Aspire.Hosting");
+        Assert.Contains(dependencies, dependency => dependency.Id == "Aspire.Hosting.Dotnet");
         Assert.Contains(dependencies, dependency => dependency.Id == "CliWrap");
         Assert.DoesNotContain(dependencies, dependency => dependency.Id == "Aspire.Hosting.Testing");
         Assert.DoesNotContain(dependencies, dependency => dependency.Id == "Aspire.Hosting.Docker");
@@ -283,6 +284,9 @@ public sealed class PackedPackageContractTests
                     module.AddProject("orders-api", "Orders.Api.csproj", ModuleProjectPathBase.Repository)
                         .ExportAsContainerWithCommand(
                             new ModuleImageCommandOptions("orders-api", "dotnet", "publish"));
+                    module.AddDotnetProject("orders-worker", "Orders.Worker.csproj", ModuleProjectPathBase.Repository)
+                        .ConfigureProject((_, worker) => worker.WithBuildEnvironment("BUILD_FLAVOR", "module"))
+                        .ExportAsContainer("orders-worker");
                     module.AddResource<ContainerResource>(
                         "orders-database",
                         context => context.ApplicationBuilder.AddContainer(context.ResourceName, "database"),
@@ -318,6 +322,9 @@ public sealed class PackedPackageContractTests
 
                 public static IResourceBuilder<IResourceWithEndpoints> GetApi(OrdersModule.Module module) =>
                     module.OrdersApi;
+
+                public static IResourceBuilder<IResourceWithEndpoints> GetWorker(OrdersModule.Module module) =>
+                    module.OrdersWorker;
             }
             """;
 

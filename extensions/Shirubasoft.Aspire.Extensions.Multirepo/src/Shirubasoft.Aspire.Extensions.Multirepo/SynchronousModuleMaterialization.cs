@@ -996,46 +996,68 @@ public static partial class DistributedApplicationModuleExtensions
         {
             return definition.Materialize(context, moduleAnnotation);
         }
-        catch (DistributedApplicationException exception) when (CanDeferFactoryProject(
+        catch (DistributedApplicationException exception) when (FindDeferredFactoryProject(
+            builder,
             definition,
-            definitionRepository))
+            definitionRepository,
+            resourceName) is { } deferredProject)
         {
             return MaterializeDeferredFactoryProject(
                 builder,
                 definition,
+                deferredProject,
                 moduleAnnotation,
                 definitionRepository,
-                resourceName,
                 exception);
         }
     }
 
-    private static bool CanDeferFactoryProject(
+    // Aspire registers a project resource before it fails to read the project file, so a factory whose
+    // project lives in the missing initializer-owned checkout leaves a correctly typed resource to defer.
+    private static IResource? FindDeferredFactoryProject(
+        IDistributedApplicationBuilder builder,
         IDistributedApplicationModuleFactoryResource definition,
-        ModuleRepositoryContext definitionRepository)
+        ModuleRepositoryContext definitionRepository,
+        string resourceName)
     {
-        if (!typeof(ProjectResource).IsAssignableFrom(definition.ResourceType))
+        if (!IsMissingInitializerRepository(definitionRepository))
         {
-            return false;
+            return null;
         }
 
-        return IsMissingInitializerRepository(definitionRepository);
+        return builder.Resources.LastOrDefault(candidate => IsDeferredFactoryProject(
+            candidate,
+            definition.ResourceType,
+            resourceName,
+            definitionRepository.RepositoryPath));
     }
+
+    private static bool IsDeferredFactoryProject(
+        IResource candidate,
+        Type resourceType,
+        string resourceName,
+        string repositoryPath) =>
+        resourceType.IsInstanceOfType(candidate) &&
+        string.Equals(candidate.Name, resourceName, StringComparison.OrdinalIgnoreCase) &&
+        IsRepositoryProject(candidate, repositoryPath);
+
+    private static bool IsRepositoryProject(IResource resource, string repositoryPath) =>
+        resource.Annotations.OfType<IProjectMetadata>().LastOrDefault() is { } metadata &&
+        PathSafety.IsContainedBy(repositoryPath, metadata.ProjectPath);
 
     private static bool IsMissingInitializerRepository(ModuleRepositoryContext definitionRepository) =>
         definitionRepository.InitializerOwned && !Directory.Exists(definitionRepository.RepositoryPath);
 
-    private static ProjectResource MaterializeDeferredFactoryProject(
+    private static IResource MaterializeDeferredFactoryProject(
         IDistributedApplicationBuilder builder,
         IDistributedApplicationModuleFactoryResource definition,
+        IResource deferredProject,
         DistributedApplicationModuleResourceAnnotation moduleAnnotation,
         ModuleRepositoryContext definitionRepository,
-        string resourceName,
         DistributedApplicationException exception)
     {
         if (!builder.ExecutionContext.IsRunMode)
         {
-            var deferredProject = FindOrAddDeferredProject(builder, resourceName);
             builder.CreateResourceBuilder(deferredProject).WithAnnotation(moduleAnnotation);
             return deferredProject;
         }
@@ -1047,17 +1069,6 @@ public static partial class DistributedApplicationModuleExtensions
             $"initializer-owned checkout is missing. Run '{initializeCommand}'.",
             exception);
     }
-
-    private static ProjectResource FindOrAddDeferredProject(
-        IDistributedApplicationBuilder builder,
-        string resourceName) =>
-        builder.Resources
-            .OfType<ProjectResource>()
-            .LastOrDefault(candidate => string.Equals(
-                candidate.Name,
-                resourceName,
-                StringComparison.OrdinalIgnoreCase)) ??
-        builder.AddResource(new ProjectResource(resourceName)).Resource;
 
     private static void FinalizeFactoryResource(
         IDistributedApplicationBuilder builder,
@@ -1603,8 +1614,8 @@ public static partial class DistributedApplicationModuleExtensions
             $"project '{project.Name}'",
             projectPath,
             resourceName: project.Name);
-        var resource = builder
-            .AddProject(resourceName, projectPath, projectOptions =>
+        var resource = project.Backend
+            .AddProject(builder, resourceName, projectPath, projectOptions =>
                 ConfigureProjectOptions(projectOptions, options))
             .WithAnnotation(new DistributedApplicationModuleResourceAnnotation(
                 module.Name,
@@ -1618,7 +1629,7 @@ public static partial class DistributedApplicationModuleExtensions
             resourceName,
             repositoryPath,
             imported);
-        ConfigureModuleProject(project, context, resource);
+        project.ConfigureProject(context, resource);
         ConfigureRepositoryLifecycle(builder, resource, registry);
         registry.TrackResource(resource.Resource);
         module.TrackMaterializedResource(builder, project.Name, resource.Resource);
@@ -1647,8 +1658,8 @@ public static partial class DistributedApplicationModuleExtensions
         var imageName = ResolveNativeProjectImageName(project, options);
         var imageTag = ResolveNativeProjectImageTag(workflow, module, project, options);
         var imageRegistry = GetProjectImageRegistry(options);
-        var resource = builder
-            .AddProject(resourceName, projectPath, projectOptions =>
+        var resource = project.Backend
+            .AddProject(builder, resourceName, projectPath, projectOptions =>
                 ConfigureProjectOptions(projectOptions, options))
             .WithAnnotation(new DistributedApplicationModuleResourceAnnotation(
                 module.Name,
@@ -1665,8 +1676,8 @@ public static partial class DistributedApplicationModuleExtensions
             repositoryPath,
             imported,
             contextImage);
-        ConfigureModuleProject(project, context, resource);
-        resource.PublishAsDockerFile(container => ConfigureNativeProjectContainer(
+        project.ConfigureProject(context, resource);
+        project.Backend.PublishAsDockerFile(resource, container => ConfigureNativeProjectContainer(
             container,
             project,
             context,
@@ -1688,17 +1699,6 @@ public static partial class DistributedApplicationModuleExtensions
         }
 
         return GetConfiguredValue(options.ImageRegistry);
-    }
-
-    private static void ConfigureModuleProject(
-        DistributedApplicationModuleProject project,
-        DistributedApplicationModuleResourceContext context,
-        IResourceBuilder<ProjectResource> resource)
-    {
-        if (project.ConfigureProject is not null)
-        {
-            project.ConfigureProject(context, resource);
-        }
     }
 
     private static void ConfigureNativeProjectContainer(

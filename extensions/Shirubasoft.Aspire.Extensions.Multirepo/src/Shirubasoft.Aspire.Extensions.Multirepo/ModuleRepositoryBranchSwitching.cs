@@ -323,7 +323,7 @@ internal static class ModuleRepositoryBranchSwitching
         var details = CreateDetails(
             string.Join('\n', outcomes.Select(outcome => $"- **{outcome.Repository}** ({outcome.Status}): {outcome.Detail}")) +
             (outcomes.Any(outcome => outcome.Changed)
-                ? "\n\nRestart or rebuild resources from the changed repositories to run their new source."
+                ? "\n\nRebuild projects and restart other resources from the changed repositories to run their new source."
                 : string.Empty));
         return outcomes.All(outcome => outcome.Status != AttentionStatus)
             ? CommandResults.Success("Branch switch complete.", details)

@@ -1,4 +1,5 @@
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Dotnet;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -249,6 +250,44 @@ internal sealed class DistributedApplicationModuleBuilder(
         string projectPath,
         ModuleProjectPathBase pathBase)
     {
+        return new DistributedApplicationModuleProjectBuilder(
+            AddProjectCore(name, projectPath, pathBase, ModuleProjectBackend.Project));
+    }
+
+    public IDistributedApplicationModuleDotnetProjectBuilder AddDotnetProject(string name, string path)
+    {
+        return AddDotnetProject(name, path, ModuleProjectPathBase.AppHost);
+    }
+
+    public IDistributedApplicationModuleDotnetProjectBuilder AddDotnetProject(
+        string name,
+        string path,
+        ModuleProjectPathBase pathBase)
+    {
+        ValidateDotnetProjectPath(path);
+        return new DistributedApplicationModuleDotnetProjectBuilder(
+            AddProjectCore(name, path, pathBase, ModuleProjectBackend.DotnetProject));
+    }
+
+    private static void ValidateDotnetProjectPath(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var extension = Path.GetExtension(path);
+        if (!string.Equals(extension, ".csproj", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(extension, ".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Module .NET project path '{path}' must name a .csproj file or a file-based .cs app.",
+                nameof(path));
+        }
+    }
+
+    private DistributedApplicationModuleProject AddProjectCore(
+        string name,
+        string projectPath,
+        ModuleProjectPathBase pathBase,
+        ModuleProjectBackend backend)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
         ValidateProjectPathBase(pathBase);
@@ -259,9 +298,10 @@ internal sealed class DistributedApplicationModuleBuilder(
             name,
             declaredProjectPath,
             pathBase,
-            repositoryRoot);
+            repositoryRoot,
+            backend);
         module.AddProject(project);
-        return new DistributedApplicationModuleProjectBuilder(project);
+        return project;
     }
 
     private static void ValidateProjectPathBase(ModuleProjectPathBase pathBase)
@@ -367,7 +407,8 @@ internal sealed class DistributedApplicationModuleProjectBuilder(DistributedAppl
         Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ProjectResource>> configureProject)
     {
         ArgumentNullException.ThrowIfNull(configureProject);
-        project.ConfigureProject += configureProject;
+        project.ConfigureProject += (context, resource) =>
+            configureProject(context, ModuleProjectBackend.As<ProjectResource>(resource));
         return this;
     }
 
@@ -375,8 +416,7 @@ internal sealed class DistributedApplicationModuleProjectBuilder(DistributedAppl
         string imageName,
         Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(imageName);
-        project.SetExport(new ModuleContainerExport(imageName.Trim(), CommandOptions: null, configureContainer));
+        project.ExportAsContainer(imageName, configureContainer);
         return this;
     }
 
@@ -384,8 +424,7 @@ internal sealed class DistributedApplicationModuleProjectBuilder(DistributedAppl
         ModuleImageCommandOptions options,
         Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer = null)
     {
-        var copiedOptions = CopyOptions(options);
-        project.SetExport(new ModuleContainerExport(copiedOptions.ImageName, copiedOptions, configureContainer));
+        project.ExportAsContainerWithCommand(options, configureContainer);
         return this;
     }
 
@@ -409,6 +448,37 @@ internal sealed class DistributedApplicationModuleProjectBuilder(DistributedAppl
             BuildRepositoryRevision = options.BuildRepositoryRevision,
             CheckoutDirectoryName = options.CheckoutDirectoryName
         };
+    }
+}
+
+internal sealed class DistributedApplicationModuleDotnetProjectBuilder(DistributedApplicationModuleProject project)
+    : IDistributedApplicationModuleDotnetProjectBuilder
+{
+    public IDistributedApplicationModuleProject Project => project;
+
+    public IDistributedApplicationModuleDotnetProjectBuilder ConfigureProject(
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<DotnetProjectResource>> configureProject)
+    {
+        ArgumentNullException.ThrowIfNull(configureProject);
+        project.ConfigureProject += (context, resource) =>
+            configureProject(context, ModuleProjectBackend.As<DotnetProjectResource>(resource));
+        return this;
+    }
+
+    public IDistributedApplicationModuleDotnetProjectBuilder ExportAsContainer(
+        string imageName,
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer = null)
+    {
+        project.ExportAsContainer(imageName, configureContainer);
+        return this;
+    }
+
+    public IDistributedApplicationModuleDotnetProjectBuilder ExportAsContainerWithCommand(
+        ModuleImageCommandOptions options,
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer = null)
+    {
+        project.ExportAsContainerWithCommand(options, configureContainer);
+        return this;
     }
 }
 

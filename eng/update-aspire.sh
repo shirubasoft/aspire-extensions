@@ -59,14 +59,6 @@ end_log_group() {
   fi
 }
 
-log_warning() {
-  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-    printf '::warning::%s\n' "$1"
-  else
-    printf 'warning: %s\n' "$1" >&2
-  fi
-}
-
 pins_before="$(aspire_version_pins)"
 printf 'Current Aspire pins:\n'
 sed 's/^/  /' <<<"$pins_before"
@@ -293,6 +285,48 @@ keep_apphost_config_pins() {
   )
 }
 
+# aspire update moves the preview-only packages that an AppHost reaches, such as Aspire.Hosting.Dotnet.
+# Move each preview pin it leaves behind, such as Aspire.Hosting.Kubernetes, to the newest preview of the
+# AppHost SDK's release, and fail when that release has none. --exact-match reads package metadata
+# rather than the feed's search index, so a release is visible as soon as the feed registers it.
+move_preview_pins() {
+  local sdk_version=""
+  local name=""
+  local version=""
+  local preview=""
+
+  sdk_version="$(sed -nE "s/.*${sdk_pin_pattern}.*/\2/p" "$global_json")"
+  while read -r name version; do
+    if [[ "${version%%-*}" == "$sdk_version" ]]; then
+      continue
+    fi
+
+    preview="$(
+      dotnet package search "$name" --exact-match --prerelease --format json \
+        | node -e '
+          const [release] = process.argv.slice(1);
+          const result = JSON.parse(require("fs").readFileSync(0, "utf8"));
+          const problems = [...result.problems, ...result.searchResult.flatMap(source => source.problems ?? [])];
+          if (problems.length > 0) {
+            console.error(problems.map(problem => problem.text).join("\n"));
+            process.exit(1);
+          }
+          const versions = result.searchResult.flatMap(source => source.packages.map(p => p.version));
+          console.log(versions.filter(v => v.startsWith(release + "-")).join("\n"));
+        ' "$sdk_version" \
+        | sort -V | tail -n 1
+    )"
+    if [[ -z "$preview" ]]; then
+      printf '%s has no preview release for Aspire %s.\n' "$name" "$sdk_version" >&2
+      exit 1
+    fi
+
+    printf 'Moving %s from %s to %s.\n' "$name" "$version" "$preview"
+    rewrite_file "$packages_props" \
+      "s|(<PackageVersion Include=\"${name//./\\.}\" Version=\")[^\"]*\"|\\1${preview}\"|"
+  done < <(sed -nE 's/.*<PackageVersion Include="(Aspire\.[^"]+)" Version="([^"]+-[^"]+)".*/\1 \2/p' "$packages_props")
+}
+
 major_version() {
   sed -nE 's/^[^0-9]*([0-9]+).*/\1/p' <<<"$1"
 }
@@ -352,9 +386,6 @@ align_typescript_apphost_dependencies() {
 report_update_decision() {
   local pins_after=""
   local changes=""
-  local sdk_version=""
-  local name=""
-  local version=""
   local updated=false
 
   pins_after="$(aspire_version_pins)"
@@ -380,14 +411,6 @@ report_update_decision() {
     printf 'No Aspire update needed: every pin already matches the latest stable release %s.\n' "$manifest_version"
   fi
 
-  # Preview-only packages have no stable release for aspire update to select.
-  sdk_version="$(sed -nE "s/.*${sdk_pin_pattern}.*/\2/p" "$global_json")"
-  while read -r name version; do
-    if [[ "$version" == *-* && "${version%%-*}" != "$sdk_version" ]]; then
-      log_warning "$name $version is a preview pin behind Aspire $sdk_version. Move it to the matching preview release."
-    fi
-  done <<<"$pins_after"
-
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     printf 'updated=%s\n' "$updated" >> "$GITHUB_OUTPUT"
     printf 'aspire_version=%s\n' "$manifest_version" >> "$GITHUB_OUTPUT"
@@ -410,5 +433,6 @@ report_update_decision() {
 }
 
 keep_version_decisions
+move_preview_pins
 align_typescript_apphost_dependencies
 report_update_decision

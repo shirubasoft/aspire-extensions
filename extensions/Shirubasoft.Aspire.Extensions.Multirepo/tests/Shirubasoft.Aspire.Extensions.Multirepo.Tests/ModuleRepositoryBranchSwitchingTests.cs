@@ -71,7 +71,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             - **echo** (skipped): Pinned to revision `v1`; change `RepositoryRevision` to move it.
             - **foxtrot** (skipped): Not initialized; run `aspire do initialize` first.
 
-            Restart or rebuild resources from the changed repositories to run their new source.
+            Rebuild projects and restart other resources from the changed repositories to run their new source.
             """,
             result.Data.Value,
             ignoreLineEndingDifferences: true);
@@ -233,7 +233,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
         var details = result.Data!.Value.ReplaceLineEndings("\n").Split('\n');
         Assert.Matches(@"^- \*\*alpha\*\* \(needs attention\): On `feature/x`\. Switch failed: .*post-checkout failed$", details[0]);
         Assert.Equal("- **bravo** (needs attention): Ended on `main` instead of `feature/x`.", details[1]);
-        Assert.Equal("Restart or rebuild resources from the changed repositories to run their new source.", details[^1]);
+        Assert.Equal("Rebuild projects and restart other resources from the changed repositories to run their new source.", details[^1]);
         Assert.Equal("feature/x", await GitAsync(failing.RepositoryPath, "branch", "--show-current"));
         Assert.Equal("main", await GitAsync(redirecting.RepositoryPath, "branch", "--show-current"));
     }
@@ -288,7 +288,7 @@ public sealed class ModuleRepositoryBranchSwitchingTests
             - **echo** (done): `main` → `feature/x`
             - **foxtrot** (needs attention): On `main`. {Differ}
 
-            Restart or rebuild resources from the changed repositories to run their new source.
+            Rebuild projects and restart other resources from the changed repositories to run their new source.
             """,
             result.Data?.Value,
             ignoreLineEndingDifferences: true);
