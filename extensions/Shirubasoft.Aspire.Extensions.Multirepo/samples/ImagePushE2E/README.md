@@ -2,7 +2,7 @@
 
 This AppHost declares the supported module image publishers: a declared container, a project
 exported as a container, a factory-created advanced publisher, and an Aspire-native Dockerfile
-resource. A second module contributes another image publisher so the push sample proves named-resource isolation. It also declares a
+resource. The declared container adds push targets in its own registry and a second registry. A second module contributes another image publisher so the push sample proves named-resource isolation. It also declares a
 consumed image with a pull mapping. A Docker Compose compute environment verifies that module and
 `WithContainerRegistry` declarations retain their remote identities. Publisher resources use
 explicit start, allowing the AppHost model to run against local fixtures:
@@ -22,7 +22,7 @@ bash extensions/Shirubasoft.Aspire.Extensions.Multirepo/samples/ImagePushE2E/tes
 
 `test-image-describe.sh` verifies the deterministic `module-images.json` document, including distinct
 run, pull, and push references, build metadata, a registry mapping, and a consumed image. The push
-script proves named resource steps, including build isolation and the sanitized source-branch alias
-for selected publishers. The push and pull scripts create temporary
+script proves named resource steps, including build isolation, the sanitized source-branch alias
+for selected publishers, and push targets in two registries. The push and pull scripts create temporary
 local registries and validate the operations against them. Set `ASPIRE_CONTAINER_RUNTIME=podman` to
 run them with Podman.

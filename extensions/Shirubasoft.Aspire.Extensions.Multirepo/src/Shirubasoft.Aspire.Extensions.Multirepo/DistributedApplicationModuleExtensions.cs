@@ -284,6 +284,7 @@ public static partial class DistributedApplicationModuleExtensions
         ModuleImagePullPipeline.Configure(builder);
         ModuleImageDescriptionPipeline.Configure(builder);
         ModuleImageWorkflowPipeline.Configure(builder);
+        ModuleImagePushPipeline.Configure(builder);
         builder.Services.AddSingleton<IDistributedApplicationModuleCatalog>(registry);
         var validationStep = new PipelineStep
         {

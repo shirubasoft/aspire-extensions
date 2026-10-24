@@ -65,6 +65,21 @@ Resources configured with `WithContainerRegistry` use Aspire's registry-aware im
 
 For validated module/resource selection and a workflow document in one AppHost invocation, use [`modular-apphosts images publish`](../src/Shirubasoft.Aspire.Extensions.Multirepo.Tool/README.md#producer-publish-images). It runs a separate `workflow-images` aggregate without changing Aspire's standard `push` behavior.
 
+### Push to more targets
+
+Use `WithImagePushTarget` once per reference to push an image built by a publish command to more registries, repositories, or tags:
+
+```csharp
+module.AddContainer("orders-static", "orders-static")
+    .WithImagePublishCommand(publishOptions) // ImageRegistry = "ghcr.io"
+    .WithImagePushTarget("registry.example.com/mirror/orders-static")
+    .WithImagePushTarget("registry.example.com/mirror/orders-static:stable");
+```
+
+`aspire do push-orders-static` pushes the registry target and branch alias as usual, then tags the same local image as each push target and pushes it with Aspire's selected container runtime. Push targets add to the registry target, so a publisher with push targets needs a publish command, not an Aspire-native Dockerfile build, and a `WithContainerRegistry`, `ImageRegistry`, or deployment-target registry; one of the mirrors can be that registry. A step that Aspire's `push-prereq` depends on checks this after deployment-target registries are attached, so a misconfigured publisher stops `aspire do push`, `aspire do push-orders-static`, and `images publish` with that requirement before any image is pushed. A consumer that runs the image without publishing it, for example with `PublishImage=false`, ignores the producer's push targets. Push targets are used as written: registry settings and remote-image callbacks shape only the registry target, and a push target without a tag reuses the local image's tag. The step tries every push target, then fails with each failed reference and its runtime error.
+
+Set `Aspire:ModularAppHosts:SkipImagePushTargets` to `true` to push as if no resource declared push targets, for example while a mirror is unavailable or when an imported contract declares targets that the consumer can't push to. The environment form `Aspire__ModularAppHosts__SkipImagePushTargets=true` also reaches `images publish` and deployments; with `aspire do`, the argument form goes after `--`, as in `aspire do push -- --Aspire:ModularAppHosts:SkipImagePushTargets=true`. Registry targets and branch aliases are still pushed, nothing checks push targets, and a publisher without a registry gets no push step. Each push step logs a warning that names the push targets it skipped.
+
 ### Pull from another reference
 
 Use `WithImagePullMapping` when the pull source differs from the resource's local image:

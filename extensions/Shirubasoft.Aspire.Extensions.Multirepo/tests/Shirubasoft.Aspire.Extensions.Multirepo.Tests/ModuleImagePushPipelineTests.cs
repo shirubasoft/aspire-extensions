@@ -12,6 +12,9 @@ namespace Aspire.Hosting.Multirepo.Tests;
 
 public sealed class ModuleImagePushPipelineTests
 {
+    private const string SkipPushTargetsHint =
+        "To skip push targets, set Aspire:ModularAppHosts:SkipImagePushTargets=true.";
+
     [Fact]
     public async Task Exported_project_with_an_explicit_image_registry_contributes_a_push_step()
     {
@@ -121,7 +124,8 @@ public sealed class ModuleImagePushPipelineTests
                     (_, container) => container
                         .WithContainerRegistry(registry)
                         .WithRemoteImageName("services/orders")
-                        .WithRemoteImageTag("candidate"));
+                        .WithRemoteImageTag("candidate")
+                        .WithImagePushTarget("mirror.example.test/team/orders"));
         });
 
         builder.AddModule(module);
@@ -146,6 +150,11 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Equal("services/orders", pushOptions.RemoteImageName);
         Assert.Equal("candidate", pushOptions.RemoteImageTag);
         Assert.Single(await CreatePushStepsAsync(container));
+        var resolved = await ModuleEffectiveImageResolver.ResolveAsync(container, TestContext.Current.CancellationToken);
+        Assert.Equal("registry.example.test/acme/services/orders:candidate", resolved.PushReference);
+        Assert.Equal(
+            $"mirror.example.test/team/orders:{ModuleImageBuildRecipe.LocalRunTag}",
+            Assert.Single(ModuleImagePushPipeline.GetPushTargets(container, resolved.Reference)));
     }
 
     [Fact]
@@ -295,6 +304,296 @@ public sealed class ModuleImagePushPipelineTests
         Assert.Null(ModuleImagePushPipeline.GetBranchAliasReference(resource, resolved));
     }
 
+    [Fact]
+    public async Task Push_targets_use_a_deployment_target_registry_that_before_start_attaches()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build"))
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+        });
+        builder.AddModule(module);
+        var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
+        var registry = new ContainerRegistryResource(
+            "environment-registry",
+            ReferenceExpression.Create($"registry.example.test"));
+        builder.Pipeline.AddStep(
+            "attach-deployment-target",
+            _ =>
+            {
+                container.Annotations.Add(new DeploymentTargetAnnotation(new ContainerResource("environment-app"))
+                {
+                    ContainerRegistry = registry
+                });
+                return Task.CompletedTask;
+            },
+            requiredBy: WellKnownPipelineSteps.BeforeStart);
+
+        await RunPushPrerequisitesAsync(builder);
+
+        var resolved = await ModuleEffectiveImageResolver.ResolveAsync(
+            container,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("registry.example.test/acme/orders-api:latest", resolved.PushReference);
+        Assert.Equal(
+            $"mirror.example.test/acme/orders-api:{ModuleImageBuildRecipe.LocalRunTag}",
+            Assert.Single(ModuleImagePushPipeline.GetPushTargets(container, resolved.Reference)));
+    }
+
+    [Fact]
+    public async Task Consumer_running_an_external_image_ignores_the_producer_push_targets()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        builder.ConfigureModularAppHosts(options =>
+        {
+            options.Modules["orders"] = new DistributedApplicationModuleOptions
+            {
+                Containers =
+                {
+                    ["orders-api"] = new DistributedApplicationModuleContainerOptions
+                    {
+                        PublishImage = false,
+                        ImageRegistry = "registry.example.test",
+                        ImageName = "acme/orders-api",
+                        ImageTag = "main-0123456789ab"
+                    }
+                }
+            };
+        });
+        builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository("https://example.test/acme/orders.git");
+            definition.AddContainer("orders-api", "acme/orders-api")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build")
+                {
+                    ImageRegistry = "registry.example.test"
+                })
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+        });
+        builder.ImportModule("orders");
+
+        await RunPushPrerequisitesAsync(builder);
+
+        var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
+        Assert.Single(container.Annotations.OfType<ModuleImagePushTargetAnnotation>());
+        Assert.Empty(container.Annotations.OfType<ModuleImagePublisherAnnotation>());
+        Assert.Empty(await CreatePushStepsAsync(container));
+    }
+
+    [Fact]
+    public async Task Push_prerequisites_reject_push_targets_on_a_publisher_without_a_registry_target()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build"))
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+        });
+        builder.AddModule(module);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => RunPushPrerequisitesAsync(builder));
+
+        Assert.Contains("'orders-api' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("WithContainerRegistry", exception.Message, StringComparison.Ordinal);
+        Assert.EndsWith(SkipPushTargetsHint, exception.Message, StringComparison.Ordinal);
+        var container = Assert.Single(builder.Resources.OfType<ContainerResource>());
+        Assert.Equal("push-orders-api", Assert.Single(await CreatePushStepsAsync(container)).Name);
+    }
+
+    [Fact]
+    public async Task Skipping_push_targets_leaves_neither_their_validation_nor_their_push_step()
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        builder.Configuration["Aspire:ModularAppHosts:SkipImagePushTargets"] = "true";
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build"))
+                .WithImagePushTarget("mirror.example.test/acme/orders-api");
+        });
+        builder.AddModule(module);
+        string[] steps = [];
+        builder.Pipeline.AddPipelineConfiguration(context =>
+        {
+            steps = [.. context.Steps.Select(step => step.Name)];
+            return Task.CompletedTask;
+        });
+
+        await RunPushPrerequisitesAsync(builder);
+
+        Assert.Contains(WellKnownPipelineSteps.PushPrereq, steps);
+        Assert.DoesNotContain(ModuleImagePushPipeline.ValidationStepName, steps);
+        Assert.Empty(await CreatePushStepsAsync(Assert.Single(builder.Resources.OfType<ContainerResource>())));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Push_prerequisites_check_push_targets_only_when_a_publisher_declares_them(bool declaresPushTargets)
+    {
+        using var repository = CreateProject();
+        var builder = CreatePublishBuilder(repository.Path);
+        var module = builder.ExportModule("orders", definition =>
+        {
+            definition.WithRepository(repository.Path);
+            var container = definition.AddContainer("orders-api", "acme/orders-api", "1.0")
+                .WithImagePublishCommand(new ModuleImageCommandOptions("acme/orders-api", "docker", "build")
+                {
+                    ImageRegistry = "registry.example.test"
+                });
+            if (declaresPushTargets)
+            {
+                container.WithImagePushTarget("mirror.example.test/acme/orders-api");
+            }
+        });
+        builder.AddModule(module);
+        string[] validationDependents = [];
+        builder.Pipeline.AddPipelineConfiguration(context =>
+        {
+            validationDependents =
+            [
+                .. context.Steps
+                    .Single(step => step.Name == ModuleImagePushPipeline.ValidationStepName)
+                    .RequiredBySteps
+            ];
+            return Task.CompletedTask;
+        });
+
+        await RunPushPrerequisitesAsync(builder);
+
+        string[] expected = declaresPushTargets
+            ? [WellKnownPipelineSteps.PushPrereq, ModuleImageWorkflowPipeline.StepName]
+            : [];
+        Assert.Equal(expected, validationDependents);
+    }
+
+    [Fact]
+    public void Push_targets_are_rejected_on_a_native_image_publisher()
+    {
+        using var repository = CreateProject();
+        var worker = DistributedApplication.CreateBuilder()
+            .AddDockerfile("worker", repository.Path)
+            .WithAnnotation(new ModuleNativeImagePublisherAnnotation(ModuleResourceKind.Container))
+            .WithImagePushTarget("mirror.example.test/acme/worker")
+            .Resource;
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ModuleImagePushPipeline.ValidatePushTargets([worker]));
+
+        Assert.Contains("'worker' declares WithImagePushTarget", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("registry.example.test/acme/api@sha256:0123456789abcdef")]
+    [InlineData(" ")]
+    public void Push_target_requires_a_tag_reference(string reference)
+    {
+        Assert.ThrowsAny<ArgumentException>(() => new ModuleImagePushTargetAnnotation(reference));
+    }
+
+    [Fact]
+    public void Push_targets_are_used_as_written_and_reuse_the_local_tag_when_it_is_omitted()
+    {
+        var container = DistributedApplication.CreateBuilder()
+            .AddContainer("orders-api", "acme/orders-api", "candidate")
+            .WithImagePushTarget("mirror.example.test/acme/orders-api")
+            .WithImagePushTarget("localhost:5000/acme/orders-api")
+            .WithImagePushTarget("mirror.example.test/acme/orders-api:stable")
+            .WithImagePushTarget("mirror.example.test/acme/orders-api:main-0123456789ab")
+            .Resource;
+
+        var targets = ModuleImagePushPipeline.GetPushTargets(
+            container,
+            "registry.example.test/acme/orders-api:main-0123456789ab");
+
+        Assert.Equal(
+            [
+                "mirror.example.test/acme/orders-api:main-0123456789ab",
+                "localhost:5000/acme/orders-api:main-0123456789ab",
+                "mirror.example.test/acme/orders-api:stable"
+            ],
+            targets);
+    }
+
+    [Fact]
+    public async Task Every_push_target_is_attempted_before_failures_are_reported()
+    {
+        var resource = new ContainerResource("orders-api");
+        var errors = new Dictionary<string, string>
+        {
+            ["first.example.test/api:1"] = "denied by first",
+            ["third.example.test/api:1"] = "denied by third"
+        };
+        var attempted = new List<string>();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ModuleImagePushPipeline.PushTargetsAsync(
+                resource,
+                ["first.example.test/api:1", "second.example.test/api:1", "third.example.test/api:1"],
+                (target, _) =>
+                {
+                    attempted.Add(target);
+                    return errors.TryGetValue(target, out var error)
+                        ? Task.FromException(new InvalidOperationException(error))
+                        : Task.CompletedTask;
+                },
+                NullLogger.Instance,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(["first.example.test/api:1", "second.example.test/api:1", "third.example.test/api:1"], attempted);
+        Assert.StartsWith(
+            "Resource 'orders-api' failed to push 2 of 3 image push targets:",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains("- first.example.test/api:1: denied by first", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("- third.example.test/api:1: denied by third", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("second.example.test", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Log in to each target registry", exception.Message, StringComparison.Ordinal);
+        Assert.EndsWith(SkipPushTargetsHint, exception.Message, StringComparison.Ordinal);
+        Assert.Equal(2, Assert.IsType<AggregateException>(exception.InnerException).InnerExceptions.Count);
+    }
+
+    [Fact]
+    public Task Push_targets_that_all_succeed_complete_the_push() =>
+        ModuleImagePushPipeline.PushTargetsAsync(
+            new ContainerResource("orders-api"),
+            ["first.example.test/api:1", "second.example.test/api:1"],
+            (_, _) => Task.CompletedTask,
+            NullLogger.Instance,
+            TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task Canceling_a_push_skips_the_remaining_targets()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var attempted = new List<string>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            ModuleImagePushPipeline.PushTargetsAsync(
+                new ContainerResource("orders-api"),
+                ["first.example.test/api:1", "second.example.test/api:1"],
+                (target, token) =>
+                {
+                    attempted.Add(target);
+                    cancellation.Cancel();
+                    return Task.FromCanceled(token);
+                },
+                NullLogger.Instance,
+                cancellation.Token));
+
+        Assert.Equal(["first.example.test/api:1"], attempted);
+    }
+
     private static async Task<IReadOnlyList<PipelineStep>> CreatePushStepsAsync(IResource resource)
     {
         var steps = new List<PipelineStep>();
@@ -375,6 +674,9 @@ public sealed class ModuleImagePushPipelineTests
             nameof(ModuleProjectMode.Container);
         return builder;
     }
+
+    private static Task RunPushPrerequisitesAsync(IDistributedApplicationBuilder builder) =>
+        PipelineStepRunner.RunAsync(builder, WellKnownPipelineSteps.BeforeStart, WellKnownPipelineSteps.PushPrereq);
 
     private static TemporaryDirectory CreateProject()
     {

@@ -22,6 +22,8 @@ namespace Aspire.Hosting.Multirepo.Tests;
 [Collection("Module image runtime adapter coverage")]
 public sealed class ModuleImageDeferredCoverageTests
 {
+    private const string PushTargetCanonical = "registry.example.test/acme/api:feature-coverage-0123456789ab";
+
     private static readonly ModuleImageSourceState CleanSource = new(
         "feature/coverage",
         "0123456789ab",
@@ -732,6 +734,114 @@ public sealed class ModuleImageDeferredCoverageTests
     }
 
     [Fact]
+    public async Task Push_step_pushes_the_registry_target_and_branch_alias_then_tries_every_push_target()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = ["--publisher", "manifest"],
+            DisableDashboard = true
+        });
+        var step = await AddPushTargetPublisherAsync(builder);
+        await using var application = builder.Build();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ExecutePipelineStepAsync(application, step));
+
+        Assert.Equal(
+            [
+                $"push {PushTargetCanonical}",
+                $"tag {PushTargetCanonical} registry.example.test/acme/api:feature-coverage",
+                "push registry.example.test/acme/api:feature-coverage",
+                $"tag {PushTargetCanonical} unreachable.example.test/acme/api:stable",
+                "push unreachable.example.test/acme/api:stable",
+                $"tag {PushTargetCanonical} mirror.example.test/team/api:feature-coverage-0123456789ab",
+                "push mirror.example.test/team/api:feature-coverage-0123456789ab"
+            ],
+            runtime.Invocations);
+        Assert.Contains(
+            "- unreachable.example.test/acme/api:stable: Container runtime command " +
+            "'docker push unreachable.example.test/acme/api:stable' failed with exit code 7. " +
+            $"runtime stderr https://user:secret@example.test/path?token=secret{Environment.NewLine}",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Push_step_skips_and_names_push_targets_when_configured()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = ["--publisher", "manifest", "--Aspire:ModularAppHosts:SkipImagePushTargets=true"],
+            DisableDashboard = true
+        });
+        var step = await AddPushTargetPublisherAsync(builder);
+        await using var application = builder.Build();
+        var logger = new RecordingLogger();
+
+        await ExecutePipelineStepAsync(application, step, logger);
+
+        Assert.Equal(
+            [
+                $"push {PushTargetCanonical}",
+                $"tag {PushTargetCanonical} registry.example.test/acme/api:feature-coverage",
+                "push registry.example.test/acme/api:feature-coverage"
+            ],
+            runtime.Invocations);
+        Assert.Equal(
+            (LogLevel.Warning,
+                "Skipping image push targets unreachable.example.test/acme/api:stable, " +
+                "mirror.example.test/team/api:feature-coverage-0123456789ab for resource api because " +
+                "Aspire:ModularAppHosts:SkipImagePushTargets is true."),
+            Assert.Single(logger.Entries, entry => entry.Message.Contains("push target", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Push_step_of_a_publisher_without_a_registry_reports_the_registry_before_pushing()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var runtime = new FakeContainerRuntimeEnvironment(FakeRuntimeMode.Success, configured: true);
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            Args = ["--publisher", "manifest"],
+            DisableDashboard = true
+        });
+        ModuleImageWorkflowPipeline.Configure(builder);
+        ModuleImagePushPipeline.Configure(builder);
+        var recipe = CreateRecipe();
+        var container = builder
+            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
+            .WithAnnotation(CreatePublisher(recipe))
+            .WithImagePushTarget("mirror.example.test/team/api");
+        ModuleImageBuildPipeline.AddBuildStep(container);
+        ModuleImagePushPipeline.AddPushStep(container);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            PipelineStepRunner.RunAsync(builder, "push-api"));
+
+        Assert.StartsWith(
+            "Step 'validate-image-push-targets' failed: Resource 'api' declares WithImagePushTarget",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(runtime.Invocations, invocation => invocation.StartsWith("push ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Workflow_pipeline_step_writes_and_logs_the_prepared_document()
     {
         using var output = TemporaryDirectory.Create();
@@ -951,6 +1061,21 @@ public sealed class ModuleImageDeferredCoverageTests
         return result.StandardOutput;
     }
 
+    private static async Task<PipelineStep> AddPushTargetPublisherAsync(IDistributedApplicationBuilder builder)
+    {
+        var recipe = CreateRecipe();
+        var container = builder
+            .AddContainer("api", recipe.Options.ImageName, ModuleImageBuildRecipe.LocalRunTag)
+            .WithImageRegistry(recipe.Options.ImageRegistry)
+            .WithAnnotation(CreatePublisher(recipe))
+            .WithImagePushTarget("unreachable.example.test/acme/api:stable")
+            .WithImagePushTarget("mirror.example.test/team/api");
+        ModuleImagePushPipeline.AddPushStep(container);
+        return Assert.Single(await CreatePipelineStepsAsync(
+            container.Resource,
+            WellKnownPipelineTags.PushContainerImage));
+    }
+
     private static async Task<IReadOnlyList<PipelineStep>> CreatePipelineStepsAsync(
         IResource resource,
         string tag)
@@ -970,7 +1095,8 @@ public sealed class ModuleImageDeferredCoverageTests
 
     private static async Task ExecutePipelineStepAsync(
         DistributedApplication application,
-        PipelineStep step)
+        PipelineStep step,
+        ILogger? logger = null)
     {
         await using var reportingStep = await new NullPublishingActivityReporter().CreateStepAsync(
             step.Name,
@@ -979,7 +1105,7 @@ public sealed class ModuleImageDeferredCoverageTests
             application.Services.GetRequiredService<DistributedApplicationModel>(),
             application.Services.GetRequiredService<DistributedApplicationExecutionContext>(),
             application.Services,
-            NullLogger.Instance,
+            logger ?? NullLogger.Instance,
             TestContext.Current.CancellationToken);
         await step.Action(new PipelineStepContext
         {
@@ -1194,6 +1320,7 @@ public sealed class ModuleImageDeferredCoverageTests
                 $"printf '%s\\n' \"$*\" >> \"{_invocationPath}\"\n" +
                 "printf '%s\\n' 'runtime stdout token=secret'\n" +
                 "printf '%s\\n' 'runtime stderr https://user:secret@example.test/path?token=secret' >&2\n" +
+                "case \"$*\" in 'push unreachable.'*) exit 7;; esac\n" +
                 $"exit {exitCode}\n");
             File.SetUnixFileMode(
                 executablePath,

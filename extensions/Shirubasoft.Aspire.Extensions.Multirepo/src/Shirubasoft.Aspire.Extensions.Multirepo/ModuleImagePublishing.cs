@@ -51,6 +51,14 @@ internal static class ModuleImageReference
         var candidates = new[] { "latest", withoutDigest[(lastColon + 1)..] };
         return candidates[Convert.ToInt32(lastColon > lastSlash)];
     }
+
+    public static string WithDefaultTag(string imageReference, string defaultTag)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(imageReference);
+        ArgumentException.ThrowIfNullOrWhiteSpace(defaultTag);
+        var hasTag = imageReference.LastIndexOf(':') > imageReference.LastIndexOf('/');
+        return hasTag ? imageReference : $"{imageReference}:{defaultTag}";
+    }
 }
 
 internal static class ModuleImageTag

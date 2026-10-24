@@ -25,6 +25,8 @@ fi
 fixture_image="image-push-fixture:$image_tag"
 registry_container_id=""
 registry_endpoint=""
+mirror_registry_container_id=""
+mirror_registry_endpoint=""
 container_registries_configuration=""
 
 if [[ -n "$(git -C "$repository_root" status --porcelain --untracked-files=normal)" ]]; then
@@ -34,6 +36,10 @@ fi
 cleanup() {
     if [[ -n "$registry_container_id" ]]; then
         "$container_runtime" rm --force "$registry_container_id" >/dev/null 2>&1 || true
+    fi
+
+    if [[ -n "$mirror_registry_container_id" ]]; then
+        "$container_runtime" rm --force "$mirror_registry_container_id" >/dev/null 2>&1 || true
     fi
 
     "$container_runtime" image rm --force \
@@ -46,6 +52,8 @@ cleanup() {
         "${registry_endpoint:+$registry_endpoint/image-push/declared:$image_tag}" \
         "${registry_endpoint:+$registry_endpoint/image-push/declared:$module_image_tag}" \
         "${registry_endpoint:+$registry_endpoint/image-push/declared:$branch_image_tag}" \
+        "${registry_endpoint:+$registry_endpoint/image-push/declared:stable}" \
+        "${mirror_registry_endpoint:+$mirror_registry_endpoint/image-push/declared-mirror:$module_image_tag}" \
         "${registry_endpoint:+$registry_endpoint/image-push/dockerfile:$image_tag}" \
         "${registry_endpoint:+$registry_endpoint/image-push/factory:$image_tag}" \
         "${registry_endpoint:+$registry_endpoint/image-push/factory:$module_image_tag}" \
@@ -71,30 +79,45 @@ registry_binding="$("$container_runtime" port "$registry_container_id" 5000/tcp 
 registry_port="${registry_binding##*:}"
 registry_endpoint="localhost:$registry_port"
 
+mirror_registry_container_id="$(
+    "$container_runtime" run \
+        --detach \
+        --publish 127.0.0.1::5000 \
+        registry:2
+)"
+mirror_registry_binding="$("$container_runtime" port "$mirror_registry_container_id" 5000/tcp | tail -n 1)"
+mirror_registry_port="${mirror_registry_binding##*:}"
+mirror_registry_endpoint="localhost:$mirror_registry_port"
+
 if [[ "$container_runtime" == *podman* ]]; then
     container_registries_configuration="$(mktemp)"
-    printf '[[registry]]\nlocation="%s"\ninsecure=true\n' "$registry_endpoint" \
+    printf '[[registry]]\nlocation="%s"\ninsecure=true\n\n[[registry]]\nlocation="%s"\ninsecure=true\n' \
+        "$registry_endpoint" \
+        "$mirror_registry_endpoint" \
         > "$container_registries_configuration"
     export CONTAINERS_REGISTRIES_CONF="$container_registries_configuration"
 fi
 
-for _ in {1..40}; do
-    if curl --fail --silent --output /dev/null "http://$registry_endpoint/v2/"; then
-        break
-    fi
-    sleep 0.25
+for endpoint in "$registry_endpoint" "$mirror_registry_endpoint"; do
+    for _ in {1..40}; do
+        if curl --fail --silent --output /dev/null "http://$endpoint/v2/"; then
+            break
+        fi
+        sleep 0.25
+    done
+    curl --fail --silent --output /dev/null "http://$endpoint/v2/"
 done
-curl --fail --silent --output /dev/null "http://$registry_endpoint/v2/"
 
 "$container_runtime" build --tag "$fixture_image" "$fixture_directory"
 
 assert_repository_has_tag() {
     local repository="$1"
     local expected_tag="${2:-$image_tag}"
+    local registry="${3:-$registry_endpoint}"
     local response
-    response="$(curl --fail --silent "http://$registry_endpoint/v2/$repository/tags/list")"
+    response="$(curl --fail --silent "http://$registry/v2/$repository/tags/list")"
     if [[ "$response" != *"\"$expected_tag\""* ]]; then
-        echo "Registry repository '$repository' did not contain tag '$expected_tag': $response" >&2
+        echo "Registry repository '$registry/$repository' did not contain tag '$expected_tag': $response" >&2
         return 1
     fi
 }
@@ -113,6 +136,7 @@ assert_repository_absent() {
 }
 
 export ImagePush__RegistryEndpoint="$registry_endpoint"
+export ImagePush__MirrorRegistryEndpoint="$mirror_registry_endpoint"
 export ASPIRE_CONTAINER_RUNTIME="$container_runtime"
 
 cd "$repository_root"
@@ -139,6 +163,8 @@ assert_repository_has_tag "image-push/project"
 assert_repository_has_tag "image-push/project" "$branch_image_tag"
 assert_repository_has_tag "image-push/declared" "$module_image_tag"
 assert_repository_has_tag "image-push/declared" "$branch_image_tag"
+assert_repository_has_tag "image-push/declared" "stable"
+assert_repository_has_tag "image-push/declared-mirror" "$module_image_tag" "$mirror_registry_endpoint"
 assert_repository_has_tag "image-push/factory" "$module_image_tag"
 assert_repository_has_tag "image-push/factory" "$branch_image_tag"
 assert_repository_absent "image-push/dockerfile"
