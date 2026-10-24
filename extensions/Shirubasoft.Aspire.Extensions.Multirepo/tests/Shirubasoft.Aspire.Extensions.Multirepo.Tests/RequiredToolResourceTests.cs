@@ -3,6 +3,8 @@
 #pragma warning disable ASPIREFILESYSTEM001
 #pragma warning disable ASPIREUSERSECRETS001
 
+using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Eventing;
@@ -12,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -40,8 +43,16 @@ public sealed class RequiredToolResourceTests
             .InitialSnapshot;
         Assert.Equal("Required Tool", snapshot.ResourceType);
         Assert.Equal(KnownResourceStates.Waiting, snapshot.State);
-        Assert.Contains(snapshot.Properties, property =>
-            property.Name == "tool.command" && Equals(property.Value, "dotnet"));
+        Assert.Equal(
+            [
+                new ResourcePropertySnapshot("tool.command", "dotnet")
+                {
+                    DisplayName = "Command",
+                    IsHighlighted = true
+                },
+                new ResourcePropertySnapshot("resource.source", "dotnet")
+            ],
+            snapshot.Properties);
         var health = Assert.Single(tool.Resource.Annotations.OfType<HealthCheckAnnotation>());
         Assert.Equal(RequiredToolHealthCheck.GetKey(tool.Resource), health.Key);
         Assert.DoesNotContain(tool.Resource.Annotations, annotation => annotation is RequiredCommandAnnotation);
@@ -85,7 +96,7 @@ public sealed class RequiredToolResourceTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains(resource.Command, result.Description, StringComparison.Ordinal);
+        Assert.Equal($"Required tool command '{resource.Command}' was not found.", result.Description);
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
@@ -164,8 +175,10 @@ public sealed class RequiredToolResourceTests
                 NullLogger.Instance,
                 TestContext.Current.CancellationToken));
 
-        Assert.Contains("succeeded", exception.Message, StringComparison.Ordinal);
-        Assert.Contains(resource.Command, exception.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            $"Installation command for required tool 'missing-tool' succeeded, but command " +
+            $"'{resource.Command}' is still unavailable.",
+            exception.Message);
     }
 
     [Fact]
@@ -190,6 +203,61 @@ public sealed class RequiredToolResourceTests
 
         Assert.Contains("exited with code", exception.Message, StringComparison.Ordinal);
         Assert.Contains("required tool 'missing-tool'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Install_command_shows_cancellable_progress_and_reports_the_tool_path()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var builder = CreateBuilder(directory.Path);
+        var tool = builder.AddRequiredTool("dotnet-sdk", "dotnet")
+            .WithInstallCommand("installer-command", "install", "dotnet");
+        var install = GetInstallCommand(tool.Resource);
+
+        var result = await ExecuteAsync(
+            tool.Resource,
+            install,
+            NullLogger.Instance,
+            TestContext.Current.CancellationToken);
+
+        var progress = Assert.IsType<CommandProgressOptions>(install.Progress);
+        Assert.Equal("Installing dotnet-sdk", progress.Title);
+        Assert.Equal(
+            "Running installer-command. Installer output appears in the dotnet-sdk console logs.",
+            progress.Message);
+        Assert.False(progress.HideCancelButton);
+        Assert.True(result.Success);
+        Assert.Equal(
+            $"dotnet-sdk is available at {RequiredToolPathResolver.Resolve("dotnet")}.",
+            result.Message);
+    }
+
+    [Fact]
+    public async Task Cancelling_the_install_command_stops_the_running_installer()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var builder = CreateBuilder(directory.Path);
+        string[] installer = OperatingSystem.IsWindows()
+            ? ["powershell", "-NoProfile", "-Command", "[Console]::WriteLine($PID); [Threading.Thread]::Sleep(60000)"]
+            : ["/bin/sh", "-c", "echo $$; exec sleep 60"];
+        var tool = builder.AddRequiredTool("missing-tool", Path.Combine(directory.Path, "missing-tool"))
+            .WithInstallCommand(installer[0], installer[1..]);
+        var installerOutput = new InstallerProcessLogger();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+
+        var execution = ExecuteAsync(
+            tool.Resource,
+            GetInstallCommand(tool.Resource),
+            installerOutput,
+            cancellation.Token);
+        Assert.Same(installerOutput.ProcessId, await Task.WhenAny(installerOutput.ProcessId, execution));
+        using var installerProcess = Process.GetProcessById(await installerOutput.ProcessId);
+        await cancellation.CancelAsync();
+        var result = await execution;
+
+        Assert.True(result.Canceled);
+        Assert.True(installerProcess.HasExited);
     }
 
     [Fact]
@@ -368,6 +436,28 @@ public sealed class RequiredToolResourceTests
         Assert.True(reportingTask.IsDisposed);
     }
 
+    private static ResourceCommandAnnotation GetInstallCommand(RequiredToolResource tool) =>
+        Assert.Single(
+            tool.Annotations.OfType<ResourceCommandAnnotation>(),
+            command => command.Name == "install");
+
+    private static async Task<ExecuteCommandResult> ExecuteAsync(
+        RequiredToolResource tool,
+        ResourceCommandAnnotation command,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        return await command.ExecuteCommand(new ExecuteCommandContext
+        {
+            Services = services,
+            ResourceName = tool.Name,
+            Logger = logger,
+            CancellationToken = cancellationToken,
+            Arguments = new([])
+        });
+    }
+
     private static async Task<IReadOnlyList<PipelineStep>> CreatePipelineStepsAsync(IResource resource)
     {
         var steps = new List<PipelineStep>();
@@ -459,5 +549,31 @@ public sealed class RequiredToolResourceTests
         }
 
         public Task ExecuteAsync(PipelineContext context) => throw new NotSupportedException();
+    }
+
+    private sealed class InstallerProcessLogger : ILogger
+    {
+        private readonly TaskCompletionSource<int> _processId =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<int> ProcessId => _processId.Task;
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (int.TryParse(formatter(state, exception), CultureInfo.InvariantCulture, out var processId))
+            {
+                _processId.TrySetResult(processId);
+            }
+        }
     }
 }

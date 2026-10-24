@@ -18,7 +18,8 @@ internal static class ModuleCliRunner
         TimeSpan timeout,
         string operation,
         CancellationToken cancellationToken,
-        Action<string>? progress = null)
+        Action<string>? progress = null,
+        IEnumerable<KeyValuePair<string, string?>>? environment = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -51,6 +52,7 @@ internal static class ModuleCliRunner
             var result = await CliCommand.Wrap(executable)
                 .WithArguments(arguments)
                 .WithWorkingDirectory(workingDirectory)
+                .WithEnvironmentVariables(variables => variables.Set(environment ?? []))
                 .WithValidation(CommandResultValidation.None)
                 .WithStandardOutputPipe(PipeTarget.Merge(
                     PipeTarget.ToStringBuilder(standardOutput),

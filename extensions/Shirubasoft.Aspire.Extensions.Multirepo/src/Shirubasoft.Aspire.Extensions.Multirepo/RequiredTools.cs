@@ -117,6 +117,11 @@ public static class RequiredToolResourceExtensions
                 Properties =
                 [
                     new ResourcePropertySnapshot("tool.command", resource.Command)
+                    {
+                        DisplayName = "Command",
+                        IsHighlighted = true
+                    },
+                    new ResourcePropertySnapshot("resource.source", resource.Command)
                 ]
             })
             .WithHealthCheck(healthCheckKey)
@@ -225,7 +230,7 @@ public static class RequiredToolResourceExtensions
             InstallCommandName,
             "Install",
             context => ExecuteInstallCommandAsync(builder.Resource, installer, context),
-            CreateInstallCommandOptions(builder.Resource.Name));
+            CreateInstallCommandOptions(builder.Resource.Name, installer));
     }
 
     private static void ValidateInstallTimeout(RequiredToolInstallOptions options)
@@ -239,13 +244,21 @@ public static class RequiredToolResourceExtensions
         }
     }
 
-    private static CommandOptions CreateInstallCommandOptions(string resourceName) =>
+    private static CommandOptions CreateInstallCommandOptions(
+        string resourceName,
+        RequiredToolInstallerAnnotation installer) =>
         new()
         {
             Description = $"Installs {resourceName} on the AppHost machine.",
             IconName = "ArrowDownload",
             IsHighlighted = true,
-            UpdateState = GetInstallCommandState
+            UpdateState = GetInstallCommandState,
+            Progress = new CommandProgressOptions
+            {
+                Title = $"Installing {resourceName}",
+                Message = $"Running {installer.Command}. " +
+                    $"Installer output appears in the {resourceName} console logs."
+            }
         };
 
     private static ResourceCommandState GetInstallCommandState(UpdateCommandStateContext context) =>
@@ -362,7 +375,7 @@ internal sealed class RequiredToolHealthCheck(RequiredToolResource resource) : I
         var resolvedPath = RequiredToolPathResolver.Resolve(resource.Command);
         return Task.FromResult(resolvedPath is null
             ? HealthCheckResult.Unhealthy(
-                $"Required tool command '{resource.Command}' was not found on PATH.")
+                $"Required tool command '{resource.Command}' was not found.")
             : HealthCheckResult.Healthy(
                 $"Required tool command '{resource.Command}' resolved to '{resolvedPath}'."));
     }
@@ -559,7 +572,7 @@ internal static class RequiredToolOperations
         {
             throw new InvalidOperationException(
                 $"Installation command for required tool '{resource.Name}' succeeded, but command " +
-                $"'{resource.Command}' is still unavailable on PATH.");
+                $"'{resource.Command}' is still unavailable.");
         }
 
         return resolvedPath;

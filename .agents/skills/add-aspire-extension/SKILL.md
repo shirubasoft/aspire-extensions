@@ -59,7 +59,7 @@ Add a runnable sample that demonstrates the package's main resource graph withou
 
 ## Wire independent releases
 
-Add `<slug>-ci.yml`, `<slug>-publish.yml`, and `<slug>-prerelease.yml` as thin callers of the reusable workflows. Use a unique artifact name and tag prefix. CI `push` and `pull_request` path filters must include:
+Add `<slug>-ci.yml`, `<slug>-publish.yml`, and `<slug>-prerelease.yml` as thin callers of the reusable workflows. Use a unique artifact name, and use the kebab-case extension name as the tag prefix so each package's release notes link to its GitHub release. CI `push` and `pull_request` path filters must include:
 
 - the complete extension folder;
 - shared build and package inputs;
