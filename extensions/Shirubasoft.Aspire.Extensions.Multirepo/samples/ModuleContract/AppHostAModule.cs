@@ -9,6 +9,7 @@ public static partial class AppHostAModule
     public const string Name = "AppHostA";
     public const string PackageId = "ModularSample.ModuleContract";
     public const string ApiResourceName = "sample-api";
+    public const string DotnetApiResourceName = "sample-dotnet-api";
     public const string ProjectResourceName = "sample-project";
     public const string CSharpAppResourceName = "sample-csharp-app";
     public const string StaticResourceName = "sample-static";
@@ -50,6 +51,27 @@ public static partial class AppHostAModule
                 })
                 .ExportAsContainer(
                     "modular-sample-api",
+                    (context, container) =>
+                    {
+                        var message = context.GetResource<ParameterResource>(MessageResourceName);
+                        container
+                            .WithEnvironment("MODULE_MESSAGE", message)
+                            .WithHttpEndpoint(targetPort: 8080, name: "http");
+                    });
+
+            module.AddDotnetProject(
+                    DotnetApiResourceName,
+                    Path.Combine(absoluteSourceRoot, "DotnetApi", "ModularSample.DotnetApi.csproj"))
+                .ConfigureProject((context, project) =>
+                {
+                    var message = context.GetResource<ParameterResource>(MessageResourceName);
+                    project
+                        .WithEnvironment("MODULE_MESSAGE", message)
+                        .WithHttpEndpoint(name: "http")
+                        .WithHttpHealthCheck("/health");
+                })
+                .ExportAsContainer(
+                    "modular-sample-dotnet-api",
                     (context, container) =>
                     {
                         var message = context.GetResource<ParameterResource>(MessageResourceName);

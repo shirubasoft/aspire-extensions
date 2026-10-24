@@ -1,5 +1,6 @@
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Dotnet;
 using Aspire.Hosting.Testing;
 using CliWrap;
 using CliWrap.Buffered;
@@ -50,18 +51,27 @@ public sealed class ModularAppHostTests
         try
         {
             await RunAspireStepAsync(appHost, "build-sample-api", timeout.Token);
+            await RunAspireStepAsync(appHost, "build-sample-dotnet-api", timeout.Token);
             await RunAspireStepAsync(appHost, "use-containers", timeout.Token);
             await VerifyAppHostAsync<Projects.ModularSample_AppHostA>(
                 hasGateway: false,
-                expectedApiType: typeof(ContainerResource));
+                runsContainers: true);
 
             await RunAspireStepAsync(appHost, "use-project-sample-api", timeout.Token);
             await VerifyAppHostModelAsync<Projects.ModularSample_AppHostA>(
+                "sample-api",
                 typeof(ProjectResource),
+                timeout.Token);
+
+            await RunAspireStepAsync(appHost, "use-project-sample-dotnet-api", timeout.Token);
+            await VerifyAppHostModelAsync<Projects.ModularSample_AppHostA>(
+                "sample-dotnet-api",
+                typeof(DotnetProjectResource),
                 timeout.Token);
 
             await RunAspireStepAsync(appHost, "use-configured-sample-api", timeout.Token);
             await VerifyAppHostModelAsync<Projects.ModularSample_AppHostA>(
+                "sample-api",
                 typeof(ProjectResource),
                 timeout.Token);
         }
@@ -74,7 +84,7 @@ public sealed class ModularAppHostTests
 
     private static async Task VerifyAppHostAsync<TEntryPoint>(
         bool hasGateway,
-        Type? expectedApiType = null)
+        bool runsContainers = false)
         where TEntryPoint : class
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
@@ -85,19 +95,25 @@ public sealed class ModularAppHostTests
         await using var application = await builder.BuildAsync(timeout.Token)
             .WaitAsync(TestTimeout, timeout.Token);
 
-        if (expectedApiType is not null)
+        if (runsContainers)
         {
-            Assert.Equal(
-                expectedApiType,
-                application.Services
-                    .GetRequiredService<DistributedApplicationModel>()
-                    .Resources
-                    .Single(resource => resource.Name == "sample-api")
-                    .GetType());
+            var resources = application.Services.GetRequiredService<DistributedApplicationModel>().Resources;
+            Assert.IsType<ContainerResource>(resources.Single(resource => resource.Name == "sample-api"));
+            Assert.IsType<ContainerResource>(resources.Single(resource => resource.Name == "sample-dotnet-api"));
         }
 
         await application.StartAsync(timeout.Token).WaitAsync(TestTimeout, timeout.Token);
         await WaitForHealthyAsync(application, "sample-api", timeout.Token);
+        await WaitForHealthyAsync(application, "sample-dotnet-api", timeout.Token);
+        if (!runsContainers)
+        {
+            // AddDotnetProject builds the project in Aspire's coordinated build before it starts.
+            await application.ResourceNotifications.WaitForResourceAsync(
+                "__dotnet-project-build",
+                KnownResourceStates.Finished,
+                timeout.Token).WaitAsync(TestTimeout, timeout.Token);
+        }
+
         await WaitForHealthyAsync(application, "sample-static", timeout.Token);
         await WaitForHealthyAsync(application, "sample-generated-static", timeout.Token);
         if (hasGateway)
@@ -109,6 +125,11 @@ public sealed class ModularAppHostTests
         var api = await apiClient.GetFromJsonAsync<JsonElement>("/", timeout.Token);
         Assert.Equal("sample-api", api.GetProperty("service").GetString());
         Assert.Equal(ExpectedMessage, api.GetProperty("message").GetString());
+
+        using var dotnetApiClient = application.CreateHttpClient("sample-dotnet-api", "http");
+        var dotnetApi = await dotnetApiClient.GetFromJsonAsync<JsonElement>("/", timeout.Token);
+        Assert.Equal("sample-dotnet-api", dotnetApi.GetProperty("service").GetString());
+        Assert.Equal(ExpectedMessage, dotnetApi.GetProperty("message").GetString());
 
         using var staticClient = application.CreateHttpClient("sample-static", "http");
         Assert.Equal(ExpectedMessage, await staticClient.GetStringAsync("/", timeout.Token));
@@ -154,7 +175,8 @@ public sealed class ModularAppHostTests
     }
 
     private static async Task VerifyAppHostModelAsync<TEntryPoint>(
-        Type expectedApiType,
+        string resourceName,
+        Type expectedType,
         CancellationToken cancellationToken)
         where TEntryPoint : class
     {
@@ -163,11 +185,11 @@ public sealed class ModularAppHostTests
         await using var application = await builder.BuildAsync(cancellationToken)
             .WaitAsync(TestTimeout, cancellationToken);
         Assert.Equal(
-            expectedApiType,
+            expectedType,
             application.Services
                 .GetRequiredService<DistributedApplicationModel>()
                 .Resources
-                .Single(resource => resource.Name == "sample-api")
+                .Single(resource => resource.Name == resourceName)
                 .GetType());
     }
 

@@ -174,6 +174,7 @@ public sealed class DistributedApplicationModuleGeneratorTests
                 public static void Define(IDistributedApplicationModuleBuilder module)
                 {
                     module.AddProject("orders-api", "Orders.Api.csproj", ModuleProjectPathBase.Repository);
+                    module.AddDotnetProject("orders-worker", "Orders.Worker.cs", ModuleProjectPathBase.Repository);
                     module.AddContainer(CacheResourceName, "redis");
                     module.AddResource<ParameterResource>("region", context =>
                         throw new System.NotSupportedException());
@@ -208,6 +209,7 @@ public sealed class DistributedApplicationModuleGeneratorTests
         Assert.Contains("ModuleImportOptions options", generated);
         Assert.Contains("Module : global::Aspire.Hosting.DistributedApplicationModuleReference", generated);
         Assert.Contains("IResourceBuilder<global::Aspire.Hosting.ApplicationModel.IResourceWithEndpoints> OrdersApi", generated);
+        Assert.Contains("IResourceBuilder<global::Aspire.Hosting.ApplicationModel.IResourceWithEndpoints> OrdersWorker", generated);
         Assert.Contains("IResourceBuilder<global::Aspire.Hosting.ApplicationModel.ContainerResource> Cache", generated);
         Assert.Contains("IResourceBuilder<global::Aspire.Hosting.ApplicationModel.ParameterResource> Region", generated);
         Assert.Contains("IResourceBuilder<global::Aspire.Hosting.ApplicationModel.ContainerResource> Database", generated);

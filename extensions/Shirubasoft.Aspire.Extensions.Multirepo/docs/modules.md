@@ -112,7 +112,7 @@ Nothing changes until you confirm the plan the command shows:
 - Checkouts with uncommitted changes, checkouts without the chosen branch, revision-pinned checkouts, and uninitialized repositories are skipped, each with its reason.
 - Just before changing a repository, the command also checks again that it is on the reviewed branch and has no uncommitted changes. The repository stays unchanged if switching would overwrite an untracked or ignored file in the checkout. The command expects no other Git command to change a repository while the switch runs.
 
-The result lists each repository's outcome and where its checkout ended up. A checkout that a Git hook moves off the selected branch needs attention. Restart or rebuild the resources from changed repositories to run their new source.
+The result lists each repository's outcome and where its checkout ended up. A checkout that a Git hook moves off the selected branch needs attention. Rebuild projects and restart other resources from changed repositories to run their new source.
 
 ## Require host tools
 
@@ -140,7 +140,7 @@ See the [remote initialization sample](../samples/RemoteInitialization/README.md
 | `ApiResourceName` used in a supported resource call | `OrdersModule.Module.Api` with the declared Aspire resource type. |
 | `OrdersModule.Reference(module)` | Version-checked typed reference from another module definition. |
 
-The annotated type must be a top-level, non-generic, static partial class. Resource names must be compile-time strings in recognized `AddProject`, `AddContainer`, or `AddResource<TResource>` calls. The generator reports invalid declarations, unsupported names, generated-member collisions, and inaccessible custom resource types as build diagnostics.
+The annotated type must be a top-level, non-generic, static partial class. Resource names must be compile-time strings in recognized `AddProject`, `AddDotnetProject`, `AddContainer`, or `AddResource<TResource>` calls. The generator reports invalid declarations, unsupported names, generated-member collisions, and inaccessible custom resource types as build diagnostics.
 
 `Version` is an exact contract identifier. Change it when resource names, exposed types, required configuration, endpoints, or materialization behavior become incompatible; a source revision or image rebuild alone does not change the contract.
 
@@ -239,6 +239,23 @@ module.AddProject(
 ```
 
 The two-argument `AddProject(name, projectPath)` and generated `AddProject<TProject>` metadata remain relative to the defining AppHost. `ConfigureProject` applies project-mode configuration, while the optional `ExportAsContainer` callback applies container-only configuration.
+
+`AddDotnetProject` declares a `.csproj` file or a file-based `.cs` app that runs through Aspire's `AddDotnetProject` from `Aspire.Hosting.Dotnet`. It takes the same path bases, exports, and `Projects:<name>` options as `AddProject` and generates the same typed property. Its `ConfigureProject` callback receives `IResourceBuilder<DotnetProjectResource>`:
+
+```csharp
+module.AddDotnetProject(
+        "orders-worker",
+        "src/Orders.Worker/Orders.Worker.csproj",
+        ModuleProjectPathBase.Repository)
+    .ConfigureProject((_, worker) => worker.WithHttpHealthCheck("/health"))
+    .ExportAsContainer("orders-worker");
+```
+
+Project, container, and auto modes select a representation the same way whichever method declares the project, and one module or AppHost can mix the two methods. In project mode, Aspire builds the `AddDotnetProject` projects that share an SDK context, meaning the nearest `global.json` and the build configuration, in one coordinated `dotnet build`. The dashboard shows that build as `__dotnet-project-build`, and each project then starts without building again, so **Restart** runs the last build and **Rebuild** applies source changes. With watch enabled, `dotnet watch` launches and reloads the project as it does an `AddProject` project, outside the coordinated build.
+
+`WithBuildEnvironment` is the alternative for a `.csproj` that needs build-only environment variables. A project with a build environment builds on its own instead of in the coordinated build, and native `ExportAsContainer` doesn't pass those values to its Dockerfile build. Declare matching `ARG` defaults in the Dockerfile, or use `ExportAsContainerWithCommand` and pass the values to the build command.
+
+Aspire ships `Aspire.Hosting.Dotnet` only as a preview of each release, and Multirepo depends on the preview that matches its Aspire version. Reference `Aspire.Hosting.Dotnet` directly to use a newer preview.
 
 Use a generic factory when the project does not need a portable container representation:
 

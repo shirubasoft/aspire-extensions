@@ -300,7 +300,8 @@ internal sealed class DistributedApplicationModuleProject(
     string name,
     string projectPath,
     ModuleProjectPathBase pathBase,
-    string? sourceRepositoryRoot) : IDistributedApplicationModuleProject
+    string? sourceRepositoryRoot,
+    ModuleProjectBackend backend) : IDistributedApplicationModuleProject
 {
     public string Name { get; } = name;
 
@@ -314,7 +315,10 @@ internal sealed class DistributedApplicationModuleProject(
 
     internal string? SourceRepositoryRoot { get; set; } = sourceRepositoryRoot;
 
-    internal Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ProjectResource>>? ConfigureProject { get; set; }
+    internal ModuleProjectBackend Backend { get; } = backend;
+
+    internal Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<IResourceWithEndpoints>> ConfigureProject { get; set; } =
+        static (_, _) => { };
 
     internal string GetRepositoryRelativeProjectPath()
     {
@@ -328,9 +332,20 @@ internal sealed class DistributedApplicationModuleProject(
 
     private ModuleContainerExport? _export;
 
-    internal void SetExport(ModuleContainerExport export)
+    internal void ExportAsContainer(
+        string imageName,
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer)
     {
-        _export = export;
+        ArgumentException.ThrowIfNullOrWhiteSpace(imageName);
+        _export = new ModuleContainerExport(imageName.Trim(), CommandOptions: null, configureContainer);
+    }
+
+    internal void ExportAsContainerWithCommand(
+        ModuleImageCommandOptions options,
+        Action<IDistributedApplicationModuleResourceContext, IResourceBuilder<ContainerResource>>? configureContainer)
+    {
+        var copiedOptions = DistributedApplicationModuleProjectBuilder.CopyOptions(options);
+        _export = new ModuleContainerExport(copiedOptions.ImageName, copiedOptions, configureContainer);
     }
 }
 
