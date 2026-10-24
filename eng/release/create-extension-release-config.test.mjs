@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
+import { generateNotes } from "@semantic-release/release-notes-generator";
 import { createExtensionReleaseConfig } from "./create-extension-release-config.mjs";
 
 test("creates an independently tagged extension-scoped package release", () => {
@@ -67,4 +68,22 @@ test("rejects invalid package family metadata", () => {
     }),
     /symbols boolean/u,
   );
+});
+
+test("renders release notes with the configured preset", async () => {
+  const config = createExtensionReleaseConfig({
+    extensionPath: "extensions/Shirubasoft.Aspire.Extensions.Kafka",
+    packageId: "Shirubasoft.Aspire.Extensions.Kafka",
+    tagPrefix: "kafka",
+  });
+
+  const notes = await generateNotes({ preset: config.plugins[0][1].preset }, {
+    commits: [{ hash: "0123456789abcdef", message: "feat(kafka): add topic retention" }],
+    lastRelease: { gitTag: "kafka-v1.0.0" },
+    nextRelease: { gitTag: "kafka-v1.1.0", version: "1.1.0" },
+    options: { repositoryUrl: "https://github.com/shirubasoft/aspire-extensions.git" },
+    cwd: process.cwd(),
+  });
+
+  assert.match(notes, /### Features\n\n\* \*\*kafka:\*\* add topic retention/u);
 });
