@@ -16,6 +16,8 @@
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.Kafka" />
     <PackageReference Include="Confluent.Kafka" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" VersionOverride="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" VersionOverride="10.0.14" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
