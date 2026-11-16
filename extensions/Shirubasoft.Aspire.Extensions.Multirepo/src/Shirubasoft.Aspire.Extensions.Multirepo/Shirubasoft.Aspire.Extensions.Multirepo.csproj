@@ -18,6 +18,8 @@
     <!-- Aspire ships Aspire.Hosting.Dotnet only as a preview of the matching Aspire release. -->
     <PackageReference Include="Aspire.Hosting.Dotnet" NoWarn="NU5104" />
     <PackageReference Include="CliWrap" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Shirubasoft.Aspire.Extensions.Multirepo.Generators/Shirubasoft.Aspire.Extensions.Multirepo.Generators.csproj"
