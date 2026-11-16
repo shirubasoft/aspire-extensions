@@ -4,8 +4,8 @@
     "language": "typescript/nodejs"
   },
   "packages": {
-    "Aspire.Hosting.JavaScript": "13.6.4",
-    "Aspire.Hosting.RabbitMQ": "13.6.4",
+    "Aspire.Hosting.JavaScript": "13.6.5",
+    "Aspire.Hosting.RabbitMQ": "13.6.5",
     "Shirubasoft.Aspire.Hosting.TigerBeetle": "../../src/Shirubasoft.Aspire.Extensions.TigerBeetle/Shirubasoft.Aspire.Extensions.TigerBeetle.csproj"
   }
 }
